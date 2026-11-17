@@ -12,7 +12,7 @@ use moatless_types::git_host::GitHostAccount;
 use moatless_types::http::HttpStreamTimeouts;
 use moatless_workspace_ports::{RepositoryReader, WorkspaceResolver};
 use moatless_workspace_types::repository::{
-    GITLAB_HOST, GitHostRepo, Repository, RepositoryProvider,
+    GITLAB_HOST, GitHostRepo, Repository, RepositoryKind, RepositoryProvider,
 };
 use tracing::warn;
 
@@ -282,22 +282,10 @@ impl GitProxy {
                 caller,
             ));
         }
-        let token =
-            match resolve_task_git_token(Some(&self.git_host_tokens), &actor, Some(&repository))
-                .await
-            {
-                Some(Ok(token)) => token,
-                Some(Err(e)) => return Err(credential_error(&e, repo.host())),
-                // Unreachable: `git_host_repo` above answered for this same
-                // repository, and this is the condition it maps to `NotFound`.
-                None => return Err(GitProxyError::NotFound),
-            };
-        Ok(Upstream::new(
-            &repo,
-            Credential::Token(token),
-            &actor,
-            caller,
-        ))
+        let resolved =
+            resolve_task_git_token(Some(&self.git_host_tokens), &actor, Some(&repository)).await;
+        let credential = registered_credential(resolved, repository.kind, push, repo.host())?;
+        Ok(Upstream::new(&repo, credential, &actor, caller))
     }
 
     /// Resolve `{owner}/{name}` on github.com, registered or not, for the
@@ -547,6 +535,26 @@ fn host_credential(
     }
 }
 
+/// The credential for a registered repository: the identity's token, else
+/// [`host_credential`]'s anonymous fetch for a `Template` only. Preflight starts
+/// a `Template` with no credential (`requires_credential_preflight`), so
+/// refusing its clone here fails a sandbox that already started.
+fn registered_credential(
+    resolved: Option<Result<String, GitHostTokenError>>,
+    kind: RepositoryKind,
+    push: bool,
+    host: &str,
+) -> Result<Credential, GitProxyError> {
+    match resolved {
+        Some(Ok(token)) => Ok(Credential::Token(token)),
+        Some(Err(e)) if kind == RepositoryKind::Template => host_credential(Err(e), push, host),
+        Some(Err(e)) => Err(credential_error(&e, host)),
+        // Unreachable: the caller's `git_host_repo` answered for this same
+        // repository, and this is the condition it maps to `NotFound`.
+        None => Err(GitProxyError::NotFound),
+    }
+}
+
 fn credential_error(error: &GitHostTokenError, host: &str) -> GitProxyError {
     warn!(%error, host, "No credential for a proxied git request");
     match error {
@@ -568,7 +576,7 @@ mod tests {
     use moatless_types::access_control::Scope;
     use moatless_types::store::StoreError;
     use moatless_workspace_ports::{MockRepositoryReader, MockWorkspaceResolver};
-    use moatless_workspace_types::repository::{RepositoryKind, RepositoryProvider};
+    use moatless_workspace_types::repository::RepositoryProvider;
 
     const POD_USER: &str = "user-1";
     const SECRET: &str = "git-proxy-test-secret";
@@ -707,6 +715,29 @@ mod tests {
         assert!(matches!(
             host_credential(broken, false, "github.com"),
             Err(GitProxyError::Upstream(_))
+        ));
+    }
+
+    #[test]
+    fn only_a_template_with_no_credential_is_fetched_anonymously() {
+        let missing = || {
+            Some(Err(GitHostTokenError::NoCredential {
+                actor: Actor::of(POD_USER),
+                provider: RepositoryProvider::Github,
+                host: None,
+            }))
+        };
+        assert!(matches!(
+            registered_credential(missing(), RepositoryKind::Template, false, "github.com"),
+            Ok(Credential::Anonymous { .. })
+        ));
+        assert!(matches!(
+            registered_credential(missing(), RepositoryKind::Template, true, "github.com"),
+            Err(GitProxyError::Unauthorized(_))
+        ));
+        assert!(matches!(
+            registered_credential(missing(), RepositoryKind::Git, false, "github.com"),
+            Err(GitProxyError::Unauthorized(_))
         ));
     }
 

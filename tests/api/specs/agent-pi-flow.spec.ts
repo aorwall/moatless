@@ -108,7 +108,7 @@ test.describe('Pi real-agent execution', () => {
         expect(await stopSandbox(api, taskId), 'Pi sandbox did not stop').not.toBeNull()
         const localRoot = process.env.E2E_LOCAL_SANDBOX_ROOT
         if (localRoot) {
-          const sessions = join(localRoot, 'tasks', taskId, 'runtime', 'pi', 'sessions')
+          const sessions = join(localRoot, 'tasks', taskId, 'home', '.pi', 'agent', 'sessions')
           expect(
             (await readdir(sessions)).length,
             'The local Pi session was never persisted',

@@ -6,8 +6,11 @@
 # fresh schema on the deployment's own Postgres, the way soap previews share one
 # database; the role cannot create databases.
 #
+# `--standalone` needs no cluster: it starts a throwaway Postgres and routes
+# every model call through the CLIProxyAPI hub in MODEL_GATEWAY_HUB_URL/_KEY.
+#
 # Usage:
-#   scripts/local-e2e/run.sh [--skip-build] [--keep] [-- <playwright args>]
+#   scripts/local-e2e/run.sh [--skip-build] [--keep] [--standalone] [-- <playwright args>]
 #   scripts/local-e2e/run.sh sweep [--older-than-hours N] [--dry-run]
 set -euo pipefail
 
@@ -19,6 +22,8 @@ TARGET_DIR="${CARGO_TARGET_DIR:-${REPO_ROOT}/target}"
 # Where `moatless-backend`, `sandbox` and `moat` are; CI builds `--profile ci`.
 BIN_DIR="${LOCAL_E2E_BIN_DIR:-${TARGET_DIR}/debug}"
 export PATH="$BIN_DIR:$PATH"
+# Postgres binaries for `--standalone` when none is installed; npm serves them.
+EMBEDDED_PG_VERSION="16.15.0-beta.19"
 # Only names this script mints: `e2e_<epoch seconds>_<random>`.
 SCHEMA_PATTERN='^e2e_[0-9]+_[a-z0-9]+$'
 
@@ -35,6 +40,64 @@ base_database_url() {
   # another schema.
   (set -a; source "$BASE_ENV"; printf '%s' "${DATABASE_URL:?DATABASE_URL missing from $BASE_ENV}") |
     sed -E 's/([?&])options=[^&]*(&|$)/\1/; s/[?&]$//'
+}
+
+# A directory holding `initdb`, `pg_ctl` and `postgres`: LOCAL_E2E_PG_BIN, an
+# installed server, or the embedded-postgres npm package fetched into a cache.
+pg_bin_dir() {
+  local dir
+  for dir in "${LOCAL_E2E_PG_BIN:-}" "$(dirname "$(command -v pg_ctl 2>/dev/null || echo /nonexistent/x)")" /usr/lib/postgresql/*/bin; do
+    if [ -n "$dir" ] && [ -x "$dir/postgres" ] && [ -x "$dir/initdb" ]; then
+      echo "$dir"
+      return
+    fi
+  done
+  local os arch pkg cache
+  case "$(uname -s)" in Linux) os=linux ;; Darwin) os=darwin ;; *) log "no Postgres build for $(uname -s)"; exit 1 ;; esac
+  case "$(uname -m)" in x86_64|amd64) arch=x64 ;; aarch64|arm64) arch=arm64 ;; *) log "no Postgres build for $(uname -m)"; exit 1 ;; esac
+  pkg="@embedded-postgres/${os}-${arch}"
+  cache="${XDG_CACHE_HOME:-$HOME/.cache}/moatless-local-e2e/pg-${EMBEDDED_PG_VERSION}"
+  if [ ! -x "${cache}/node_modules/${pkg}/native/bin/postgres" ]; then
+    log "Fetching ${pkg}@${EMBEDDED_PG_VERSION} into ${cache}"
+    npm install --prefix "$cache" "${pkg}@${EMBEDDED_PG_VERSION}" --no-audit --no-fund --silent >&2
+    # The tarball ships the shared-library symlinks as a list; initdb needs them.
+    (cd "${cache}/node_modules/${pkg}" && node scripts/hydrate-symlinks.js) >&2
+  fi
+  echo "${cache}/node_modules/${pkg}/native/bin"
+}
+
+# Start a throwaway Postgres and write the base env the CI job writes. Its data
+# lives under SANDBOX_ROOT rather than RUN_DIR: `/run/moatless` is a 1 MiB tmpfs
+# in a pod, and initdb fails there with ENOSPC. Postgres refuses root, so CI
+# keeps its service container.
+start_standalone() {
+  : "${MODEL_GATEWAY_HUB_URL:?--standalone needs MODEL_GATEWAY_HUB_URL, the CLIProxyAPI hub}"
+  : "${MODEL_GATEWAY_HUB_KEY:?--standalone needs MODEL_GATEWAY_HUB_KEY, an inference key the hub minted}"
+  local bin port
+  bin="$(pg_bin_dir)"
+  port="$(free_port)"
+  PG_DATA="${SANDBOX_ROOT}/pg"
+  PG_CTL="${bin}/pg_ctl"
+  log "Starting Postgres on 127.0.0.1:${port} (log: ${SANDBOX_ROOT}/postgres.log)"
+  "${bin}/initdb" -D "$PG_DATA" -U moatless --auth=trust -E UTF8 --no-sync > "${SANDBOX_ROOT}/initdb.log"
+  "$PG_CTL" -D "$PG_DATA" -l "${SANDBOX_ROOT}/postgres.log" -w \
+    -o "-h 127.0.0.1 -p ${port} -k ${PG_DATA} -c fsync=off" start > /dev/null
+  BASE_ENV="${RUN_DIR}/backend.env"
+  (
+    umask 077
+    echo "DATABASE_URL=postgresql://moatless@127.0.0.1:${port}/postgres"
+    echo "MODEL_GATEWAY_HUB_URL=${MODEL_GATEWAY_HUB_URL%/}"
+    echo "MODEL_GATEWAY_HUB_KEY=${MODEL_GATEWAY_HUB_KEY}"
+    python3 -c 'import base64, os; print("SECRETS_ENCRYPTION_KEY=" + base64.b64encode(os.urandom(32)).decode())'
+    python3 -c 'import secrets; print("TASK_TOKEN_SECRET=" + secrets.token_hex(32))'
+  ) > "$BASE_ENV"
+  # The hub key on both provider keys, as in CI. A pod's own Claude or Codex
+  # login, or base URLs naming the deployed gateway, would bypass the hub.
+  local hub="${MODEL_GATEWAY_HUB_URL%/}"
+  unset CLAUDE_CODE_OAUTH_TOKEN CODEX_AUTH_JSON ANTHROPIC_AUTH_TOKEN
+  export ANTHROPIC_BASE_URL="$hub" ANTHROPIC_API_KEY="$MODEL_GATEWAY_HUB_KEY"
+  export OPENAI_BASE_URL="${hub}/v1" OPENAI_API_KEY="$MODEL_GATEWAY_HUB_KEY"
+  export PI_E2E_HUB=1 MINI_SWE_E2E_HUB=1
 }
 
 free_port() {
@@ -129,16 +192,19 @@ fi
 
 SKIP_BUILD=0
 KEEP=0
+STANDALONE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --skip-build) SKIP_BUILD=1; shift ;;
     --keep) KEEP=1; shift ;;
+    --standalone) STANDALONE=1; shift ;;
     --) shift; break ;;
     *) log "unknown option: $1"; exit 2 ;;
   esac
 done
 
-DB_URL="$(base_database_url)"
+DB_URL=""
+PG_CTL=""
 SCHEMA="e2e_$(date +%s)_$(head -c 4 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 # Short: the sandbox's credential socket under it must fit a 108-byte path.
 SANDBOX_ROOT="/tmp/le-${SCHEMA#e2e_}"
@@ -159,10 +225,18 @@ cleanup() {
     # Reaped here, or bash reports the kill as if the backend had crashed.
     wait "$BACKEND_PID" 2>/dev/null || true
   fi
+  if [ -n "$PG_CTL" ]; then
+    # Usually already down: its `PGDATA` names SANDBOX_ROOT, so `stop_run`
+    # signals it. Its data goes with SANDBOX_ROOT, so no schema is dropped.
+    if "$PG_CTL" -D "$PG_DATA" status > /dev/null 2>&1; then
+      "$PG_CTL" -D "$PG_DATA" -m fast stop > /dev/null || log "could not stop Postgres in ${PG_DATA}"
+    fi
+  elif [ "$KEEP" = 0 ] && [ -n "$DB_URL" ]; then
+    psql "$DB_URL" -qc "DROP SCHEMA IF EXISTS \"${SCHEMA}\" CASCADE" || log "could not drop ${SCHEMA}; run: $0 sweep"
+  fi
   if [ "$KEEP" = 1 ]; then
     log "Kept schema ${SCHEMA}, ${SANDBOX_ROOT} and ${RUN_DIR}"
   else
-    psql "$DB_URL" -qc "DROP SCHEMA IF EXISTS \"${SCHEMA}\" CASCADE" || log "could not drop ${SCHEMA}; run: $0 sweep"
     rm -rf "$SANDBOX_ROOT" "$RUN_DIR"
   fi
   exit "$status"
@@ -172,6 +246,11 @@ trap 'exit 130' INT TERM
 
 mkdir -p "$SANDBOX_ROOT" "$RUN_DIR"
 chmod 700 "$RUN_DIR"
+
+if [ "$STANDALONE" = 1 ]; then
+  start_standalone
+fi
+DB_URL="$(base_database_url)"
 
 if [ "$(uname -s)" = Darwin ] && ! command -v setsid >/dev/null; then
   mkdir -p "$RUN_DIR/bin"

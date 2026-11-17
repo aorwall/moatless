@@ -313,7 +313,28 @@ It does not bump `TASK_VERSION`, `RUST_VERSION` or anything else in
 `RUST_VERSION` is pinned to `rust-toolchain.toml` by the `toolchain-drift` CI
 job. It does not merge its own PR.
 
-A Pi bump must also pass `tests/api/specs/agent-pi-flow.spec.ts` through the local E2E runner with real credentials for both providers. The suite covers tools, steering, cancellation, forks, recovery, and switching.
+**Pi E2E gate: off.** While off, bump Pi without running the spec below, and
+write `Pi E2E gate: off, not run` in the PR body's E2E results. Change `off`
+to `on` here to require it again.
+
+With the gate on, a Pi bump must also pass
+`tests/api/specs/agent-pi-flow.spec.ts`, which covers tools, steering,
+cancellation, forks, recovery, and switching, through the local E2E runner on
+both providers. This pod has no cluster credentials,
+so run it `--standalone`: a throwaway Postgres, and every model call through
+the CLIProxyAPI hub with the workspace's `MODEL_GATEWAY_HUB_KEY`.
+
+```bash
+MODEL_GATEWAY_HUB_URL="${OPENAI_BASE_URL%/v1}" CARGO_BUILD_JOBS=4 \
+  scripts/local-e2e/run.sh --standalone -- tests/api/specs/agent-pi-flow.spec.ts
+```
+
+`OPENAI_BASE_URL` names the in-cluster hub, with a `/v1` suffix. The local
+sandbox runs the first `pi` on `PATH`, so put the candidate there first:
+`npm i -g --prefix /tmp/pi-probe "@earendil-works/pi-coding-agent@<new-pi>"`,
+then `export PATH=/tmp/pi-probe/bin:$PATH`; without it the run verifies the
+image's pin. A skipped test is not a pass: with either variable empty,
+`run.sh` stops before it builds, so hold Pi and name the empty one.
 
 A mini-swe-agent upgrade updates `MINI_SWE_VERSION` in `docker/cli-versions.env`
 and `docker/Dockerfile.sandbox-base`. Keep the bridge's LiteLLM and MCP pins

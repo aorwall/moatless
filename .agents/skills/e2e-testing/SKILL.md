@@ -37,9 +37,18 @@ Run it through `moat cmd run`: a build plus the suite outlasts a shell call.
 scripts/local-e2e/run.sh                          # build, then the whole api suite
 scripts/local-e2e/run.sh --skip-build -- tests/api/specs/agent-codex-flow.spec.ts
 scripts/local-e2e/run.sh --skip-build --keep -- <specs>   # leave schema and logs
+MODEL_GATEWAY_HUB_URL=<hub> scripts/local-e2e/run.sh --standalone -- <specs>   # no cluster
 scripts/local-e2e/run.sh sweep --dry-run          # what killed runs left behind
 scripts/local-e2e/run.sh sweep --older-than-hours 0
 ```
+
+`--standalone` is for a sandbox with no cluster credentials, where
+`sync-env.sh` cannot run. It starts a throwaway Postgres in the run directory,
+fetching the `@embedded-postgres` npm build when no server is installed, and
+writes the CI job's base env there. It needs `MODEL_GATEWAY_HUB_URL` and
+`MODEL_GATEWAY_HUB_KEY`, and puts the hub on both providers' keys and base URLs
+in place of any key or login the caller holds. With `--keep`, the hub key
+stays in the run directory's `backend.env` (mode 0600) until you remove it.
 
 Everything after `--` goes to Playwright. The harness passes
 `--config tests/api/playwright.config.ts` itself; do not pass `--reporter`,
