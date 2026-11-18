@@ -332,6 +332,8 @@ _Note_: a Binding records its Task's role on the subject — creator, follower,
 contributor or commenter — and each Adapter maps its own actions onto those
 roles. A commenter or contributor hears only what its Adapter marks as answering
 its writing.
+_Note_: on a subject that Slack or webhook events route, one user holds it
+through one Task: routing binds no second Task acting as the same user.
 _Avoid_: task connection, connection, thread
 
 **Own event**:

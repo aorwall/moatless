@@ -43,6 +43,27 @@ pub use moatless_adapter_model::binding::CONNECTED_THREAD_BINDING_ORIGIN as ORIG
 /// grow with it would return nothing but the events already being delivered.
 const THREAD_CONTEXT_MESSAGES: usize = 20;
 
+/// The claim kind an Ongoing Loop's creation claim is keyed under, with the
+/// Loop's id as its key: see [`creation_claim_subject`].
+const ONGOING_CLAIM_KIND: &str = "ongoing_loop";
+
+/// The subject whose creation claim guards a new Task for this event.
+///
+/// An Ongoing Loop opens one Task for every subject, so its claim is the
+/// Loop's own: a claim per thread let two events in different threads both
+/// find no ongoing Task and open one each.
+fn creation_claim_subject<'a>(
+    subscription: &'a SubscriptionMatch,
+    subject_kind: &'a str,
+    subject_key: &'a str,
+) -> (&'a str, &'a str) {
+    if subscription.routing_mode == RoutingMode::Ongoing {
+        (ONGOING_CLAIM_KIND, subscription.id.as_str())
+    } else {
+        (subject_kind, subject_key)
+    }
+}
+
 /// The inbound-routing subgraph, owning the ports it reads so the routing
 /// logic names none of them through `AppState`.
 ///
@@ -225,7 +246,9 @@ impl RoutingService {
         bindings.retain(|b| b.active);
 
         if let Some(origin_task_id) = origin_task_id.as_deref() {
-            if !bindings.iter().any(|s| s.task_id == origin_task_id) {
+            if !bindings.iter().any(|s| s.task_id == origin_task_id)
+                && !self.held_by_its_user(&bindings, origin_task_id).await
+            {
                 let sub = self
                     .task_bindings
                     .bind(
@@ -247,7 +270,9 @@ impl RoutingService {
 
         if subscription.routing_mode == RoutingMode::Ongoing {
             if let Some(task_id) = self.open_ongoing_task_id(subscription).await {
-                if !bindings.iter().any(|s| s.task_id == task_id) {
+                if !bindings.iter().any(|s| s.task_id == task_id)
+                    && !self.held_by_its_user(&bindings, &task_id).await
+                {
                     // None here: a newly attached binding starts with no
                     // cursor. `deliver_to_binding` fetches the full prior
                     // thread as context, and `touch_cursor` advances it
@@ -274,6 +299,8 @@ impl RoutingService {
         }
 
         let mut new_task_binding_id = None;
+        let (claim_kind, claim_key) =
+            creation_claim_subject(subscription, subject_kind, subject_key);
         if self
             .should_create_binding_task(subscription, &bindings)
             .await?
@@ -281,8 +308,8 @@ impl RoutingService {
             self.claim_task_creation(
                 connection,
                 subscription,
-                subject_kind,
-                subject_key,
+                claim_kind,
+                claim_key,
                 adapter_label,
                 msg.external_event_id.as_deref(),
             )
@@ -351,7 +378,7 @@ impl RoutingService {
                         .await?;
                     new_task_binding_id = Some(sub.id.clone());
                     bindings.push(sub);
-                    self.record_created_task(&subscription.id, subject_kind, subject_key, &task_id)
+                    self.record_created_task(&subscription.id, claim_kind, claim_key, &task_id)
                         .await?;
                     info!(task_id = %task_id, subscription_id = %subscription.id, provider = adapter_label, "Created task from provider event");
                 }
@@ -361,7 +388,7 @@ impl RoutingService {
                 // but fall through to existing bindings and return `Ok` —
                 // a 5xx would make it redeliver and duplicate the error.
                 Err(TaskOpenError::Refused(reason)) => {
-                    self.release_task_creation(&subscription.id, subject_kind, subject_key)
+                    self.release_task_creation(&subscription.id, claim_kind, claim_key)
                         .await?;
                     warn!(subscription_id = %subscription.id, provider = adapter_label, reason = %reason, "Skipping task creation from provider event: preflight failed");
                 }
@@ -371,7 +398,7 @@ impl RoutingService {
                     // Transient, so the sender retries — but the claim must not
                     // outlive the attempt that took it, or the retry loses to
                     // itself.
-                    self.release_task_creation(&subscription.id, subject_kind, subject_key)
+                    self.release_task_creation(&subscription.id, claim_kind, claim_key)
                         .await?;
                     return Err(AdapterError::task_handoff(
                         "open a task from a provider event",
@@ -840,6 +867,38 @@ impl RoutingService {
                 external_event_id,
             )
             .await?)
+    }
+
+    /// Whether a bound Task other than `task_id` acts as `task_id`'s user.
+    ///
+    /// One user holds a subject through one Task, so an event reaches that
+    /// user's agent once. A Task that cannot be described counts as no user.
+    async fn held_by_its_user(&self, bindings: &[TaskBinding], task_id: &str) -> bool {
+        let Some(user) = self.acting_user(task_id).await else {
+            return false;
+        };
+        for binding in bindings.iter().filter(|b| b.task_id != task_id) {
+            if self.acting_user(&binding.task_id).await.as_deref() == Some(user.as_str()) {
+                debug!(
+                    task_id,
+                    holder = %binding.task_id,
+                    "Not binding: a Task of the same user already holds the subject"
+                );
+                return true;
+            }
+        }
+        false
+    }
+
+    /// The user a Task acts as: [`TaskDescriptor::created_by`], which a Loop
+    /// firing sets to its run-as user.
+    ///
+    /// [`TaskDescriptor::created_by`]: moatless_ports::task::TaskDescriptor::created_by
+    async fn acting_user(&self, task_id: &str) -> Option<String> {
+        #[allow(clippy::disallowed_methods)]
+        // reason: event routing is a background path with no caller identity
+        let sys = ScopeContext::system();
+        self.tasks.describe(task_id, &sys).await.ok()??.created_by
     }
 
     /// The Loop's ongoing Task, when it names one that is still open.
