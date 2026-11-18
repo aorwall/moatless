@@ -31,7 +31,7 @@ pub use crate::decision_config::{
 
 /// Codex model a turn runs when neither its message nor its task names one,
 /// unless env `DEFAULT_CODEX_MODEL` overrides it.
-pub const DEFAULT_CODEX_MODEL: &str = CodexModel::Gpt61Sol.id();
+pub const DEFAULT_CODEX_MODEL: &str = CodexModel::Gpt62Sol.id();
 
 /// Default GitHub REST API base URL.
 pub const DEFAULT_GITHUB_API_BASE: &str = "https://api.github.com";

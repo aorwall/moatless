@@ -436,12 +436,14 @@ mod tests {
         assert_eq!(
             names(&list[1]),
             vec![
+                "GPT-6.2 Sol",
+                "GPT-6.2 Astra",
+                "GPT-6.1 Terra",
                 "GPT-6.1 Sol",
                 "GPT-6 Astra",
                 "GPT-6 Sol",
                 "GPT-6 Luna",
                 "GPT-5.6 Sol",
-                "GPT-6.1 Terra",
                 "GPT-5.6 Terra",
                 "GPT-5.6 Luna",
                 "GPT-5.5"
@@ -469,12 +471,14 @@ mod tests {
         assert_eq!(
             slugs(&list[1]),
             vec![
+                "gpt-6.2-sol",
+                "gpt-6.2-astra",
+                "gpt-6.1-terra",
                 "gpt-6.1-sol",
                 "gpt-6-astra",
                 "gpt-6-sol",
                 "gpt-6-luna",
                 "gpt-5.6-sol",
-                "gpt-6.1-terra",
                 "gpt-5.6-terra",
                 "gpt-5.6-luna",
                 "gpt-5.5"

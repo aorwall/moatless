@@ -69,12 +69,14 @@ impl ClaudeModel {
 /// `model/list` returns it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CodexModel {
+    Gpt62Sol,
+    Gpt62Astra,
+    Gpt61Terra,
     Gpt61Sol,
     Gpt6Astra,
     Gpt6Sol,
     Gpt6Luna,
     Gpt56Sol,
-    Gpt61Terra,
     Gpt56Terra,
     Gpt56Luna,
     Gpt55,
@@ -87,13 +89,15 @@ const CODEX_ULTRA_EFFORT_LEVELS: &[&str] = &["low", "medium", "high", "xhigh", "
 
 impl CodexModel {
     /// Every Codex model, in catalog order.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 11] = [
+        Self::Gpt62Sol,
+        Self::Gpt62Astra,
+        Self::Gpt61Terra,
         Self::Gpt61Sol,
         Self::Gpt6Astra,
         Self::Gpt6Sol,
         Self::Gpt6Luna,
         Self::Gpt56Sol,
-        Self::Gpt61Terra,
         Self::Gpt56Terra,
         Self::Gpt56Luna,
         Self::Gpt55,
@@ -102,6 +106,8 @@ impl CodexModel {
     /// The model id, the same in the catalog, on the wire and to the CLI.
     pub const fn id(self) -> &'static str {
         match self {
+            Self::Gpt62Sol => "gpt-6.2-sol",
+            Self::Gpt62Astra => "gpt-6.2-astra",
             Self::Gpt61Sol => "gpt-6.1-sol",
             Self::Gpt6Astra => "gpt-6-astra",
             Self::Gpt6Sol => "gpt-6-sol",
@@ -116,6 +122,8 @@ impl CodexModel {
 
     pub const fn label(self) -> &'static str {
         match self {
+            Self::Gpt62Sol => "GPT-6.2 Sol",
+            Self::Gpt62Astra => "GPT-6.2 Astra",
             Self::Gpt61Sol => "GPT-6.1 Sol",
             Self::Gpt6Astra => "GPT-6 Astra",
             Self::Gpt6Sol => "GPT-6 Sol",
@@ -132,7 +140,9 @@ impl CodexModel {
     /// whole turn on a level its model rejects rather than falling back.
     pub const fn effort_levels(self) -> &'static [&'static str] {
         match self {
-            Self::Gpt61Sol
+            Self::Gpt62Sol
+            | Self::Gpt62Astra
+            | Self::Gpt61Sol
             | Self::Gpt6Astra
             | Self::Gpt6Sol
             | Self::Gpt56Sol
@@ -143,11 +153,13 @@ impl CodexModel {
         }
     }
 
-    /// The GPT-6.1, GPT-6 and GPT-5.6 families at their short-context (<272K
-    /// input) rates, which apply throughout.
+    /// The GPT-6.2, GPT-6.1, GPT-6 and GPT-5.6 families at their short-context
+    /// (<272K input) rates, which apply throughout.
     pub const fn price(self) -> ModelPrice {
         match self {
             // Cached reads at a twentieth of input rather than `tiered`'s tenth.
+            Self::Gpt62Sol => ModelPrice::new(2.0, 2.5, 0.1, 10.0),
+            Self::Gpt62Astra => ModelPrice::new(8.0, 10.0, 0.4, 40.0),
             Self::Gpt61Sol => ModelPrice::new(2.0, 2.5, 0.1, 10.0),
             Self::Gpt61Terra => ModelPrice::new(1.0, 1.25, 0.05, 5.0),
             Self::Gpt6Astra => ModelPrice::tiered(10.0, 50.0),
