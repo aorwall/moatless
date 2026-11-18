@@ -7,6 +7,7 @@
 use crate::access_settings::provider_apps::ProviderApps;
 use crate::adapter_installations::AdapterInstallations;
 use crate::agent_harness_access::AgentHarnessAccess;
+use crate::forgejo_proxy::ForgejoProxy;
 use crate::git_proxy::GitProxy;
 use crate::github_proxy::GitHubProxy;
 use crate::model_gateway::ModelGateway;
@@ -140,6 +141,7 @@ pub struct AppState {
     pub git_proxy: Arc<GitProxy>,
     /// Resolves a proxied GitHub API request to an upstream and a token.
     pub github_proxy: Arc<GitHubProxy>,
+    pub forgejo_proxy: Arc<ForgejoProxy>,
     /// Resolves a pod's service proxy request to an upstream and a credential.
     pub service_proxy: Arc<crate::service_proxy::ServiceProxyGateway>,
     /// Resolves a pod's model request to an upstream and a credential.
@@ -526,6 +528,12 @@ impl axum::extract::FromRef<AppState> for Arc<GitHostAccess> {
 impl axum::extract::FromRef<AppState> for Arc<GitProxy> {
     fn from_ref(state: &AppState) -> Self {
         state.git_proxy.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<ForgejoProxy> {
+    fn from_ref(state: &AppState) -> Self {
+        state.forgejo_proxy.clone()
     }
 }
 

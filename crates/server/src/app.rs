@@ -292,6 +292,11 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         // Off the OpenAPI document too: it forwards GitHub's own API, and its
         // only client is a pod's `gh`.
         router = router.merge(crate::github_proxy::github_proxy_router(app_state.clone()));
+        // Off the OpenAPI document too: it forwards Forgejo's own API, and its
+        // only client is a pod's `moat api`.
+        router = router.merge(crate::forgejo_proxy::forgejo_proxy_router(
+            app_state.clone(),
+        ));
         // Off the OpenAPI document too: it forwards each upstream's own API,
         // and its only client is a pod's service relay.
         router = router.merge(crate::service_proxy::service_proxy_router(

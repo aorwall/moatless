@@ -249,6 +249,12 @@ impl AppState {
             )
             .with_own_events(own_events.clone()),
         );
+        let forgejo_proxy = Arc::new(crate::forgejo_proxy::ForgejoProxy::new(
+            sandbox_callers.clone(),
+            workspace_resolver.clone(),
+            git_host_tokens.clone(),
+            config.http.git_proxy,
+        ));
         let service_proxy = Arc::new(crate::service_proxy::ServiceProxyGateway::new(
             sandbox_callers.clone(),
             ports.service_access.clone(),
@@ -441,6 +447,7 @@ impl AppState {
             forgejo_instances,
             git_proxy,
             github_proxy,
+            forgejo_proxy,
             service_proxy,
             model_gateway,
             agent_harness_access,

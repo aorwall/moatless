@@ -137,6 +137,12 @@ fn is_exempt(path: &str) -> bool {
         return true;
     }
 
+    // The Forgejo API proxy. Not public: the route verifies the pod's task
+    // token from its Bearer header itself, as the GitHub proxy does.
+    if path.starts_with("/forgejo/") {
+        return true;
+    }
+
     // The service proxy. Not public: the route verifies the pod's task token
     // from its Bearer header itself, as the GitHub proxy does.
     if path.starts_with("/proxy/") {
