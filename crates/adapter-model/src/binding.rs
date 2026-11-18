@@ -54,9 +54,9 @@ pub const ROOM_BINDING_ORIGIN: &str = "room";
 
 /// The role a Binding's task holds on its subject, in `metadata.bind_reason`.
 ///
-/// A [`Self::Commenter`] hears only what its adapter marks as answering its
-/// writing; every other role hears every event. Weakest first, persisted:
-/// `PgTaskBindingDao::upsert` keeps the strongest a row has held, in this order.
+/// [`hears_only_replies`] says which roles hear every event. Weakest first,
+/// persisted: `PgTaskBindingDao::upsert` keeps the strongest a row has held, in
+/// this order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum BindReason {
     /// The task wrote on the subject without working it, as a comment does.
@@ -107,8 +107,16 @@ impl BindReason {
 }
 
 /// Whether `binding`'s task hears only replies to what it wrote.
+///
+/// A [`BindReason::Contributor`] is narrowed with a [`BindReason::Commenter`],
+/// deliberately: a push is credited to the Task its Sandbox booted with, so
+/// hearing every event would wake that Task for a pull request another Member
+/// of the Sandbox is working.
 pub fn hears_only_replies(binding: &TaskBinding) -> bool {
-    BindReason::of(binding) == Some(BindReason::Commenter)
+    matches!(
+        BindReason::of(binding),
+        Some(BindReason::Commenter | BindReason::Contributor)
+    )
 }
 
 /// Whether any of `replies_to` names something `binding`'s task wrote.
@@ -306,10 +314,13 @@ mod tests {
 
     /// A row with no reason, or one this build does not know, hears everything.
     #[test]
-    fn only_a_recorded_comment_narrows_a_binding() {
-        assert!(hears_only_replies(&scoped(&BindScope::because(
-            BindReason::Commenter
-        ))));
+    fn only_a_recorded_comment_or_push_narrows_a_binding() {
+        for narrowed in [BindReason::Commenter, BindReason::Contributor] {
+            assert!(hears_only_replies(&scoped(&BindScope::because(narrowed))));
+        }
+        for wide in [BindReason::Follower, BindReason::Creator] {
+            assert!(!hears_only_replies(&scoped(&BindScope::because(wide))));
+        }
         assert!(!hears_only_replies(&with_metadata(serde_json::json!({}))));
         assert!(!hears_only_replies(&with_metadata(
             serde_json::json!({ BIND_REASON_KEY: "later" })

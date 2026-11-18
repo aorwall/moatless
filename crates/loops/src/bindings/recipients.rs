@@ -98,11 +98,10 @@ fn or_everyone<'b>(
     }
 }
 
-/// A binding formed task-to-subject, the task reaching out first, unless it
-/// only commented: a commenter counted as producer takes build results from
-/// the review task. Negates the one responder origin, deliberately: `origin`
-/// is an open column, and a list of producers would read an undeclared origin
-/// as a responder.
+/// A binding formed task-to-subject, unless it [`hears_only_replies`]: such a
+/// task counted as producer takes build results from the review task. Negates
+/// the one responder origin, deliberately: `origin` is an open column, and a
+/// list of producers would read an undeclared origin as a responder.
 fn is_producer(binding: &TaskBinding) -> bool {
     binding.origin != ADAPTER_EVENT_BINDING_ORIGIN && !hears_only_replies(binding)
 }
@@ -175,6 +174,13 @@ mod tests {
             BIND_REASON_KEY: BindReason::Commenter.as_str(),
             REPLY_KEYS_KEY: reply_keys,
         });
+        row
+    }
+
+    /// A task that pushed to the subject, holding the reply keys of what it wrote.
+    fn contributor(task_id: &str, reply_keys: &[&str]) -> TaskBinding {
+        let mut row = commenter(task_id, reply_keys);
+        row.metadata[BIND_REASON_KEY] = BindReason::Contributor.as_str().into();
         row
     }
 
@@ -561,6 +567,34 @@ mod tests {
                 parent_author_task_id: None,
                 replies_to: keys(&["k:elsewhere"]),
                 expected: vec!["t_resp"],
+            },
+            // ---- A task that pushed to a subject it did not create ------
+            Row {
+                case: "everyone, a review with a contributor bound — only the creator receives",
+                audience: Audience::Everyone,
+                bindings: vec![contributor("t_push", &[]), creator("t_prod")],
+                made_by: None,
+                parent_author_task_id: None,
+                replies_to: vec![],
+                expected: vec!["t_prod"],
+            },
+            Row {
+                case: "producer, a build result with a contributor bound — it is no producer",
+                audience: Audience::SubjectProducer,
+                bindings: vec![contributor("t_push", &[]), creator("t_prod")],
+                made_by: None,
+                parent_author_task_id: None,
+                replies_to: vec![],
+                expected: vec!["t_prod"],
+            },
+            Row {
+                case: "everyone, a reply in the contributor's thread — both receive",
+                audience: Audience::Everyone,
+                bindings: vec![contributor("t_push", &["k:thread"]), creator("t_prod")],
+                made_by: None,
+                parent_author_task_id: None,
+                replies_to: keys(&["k:thread"]),
+                expected: vec!["t_push", "t_prod"],
             },
         ]
     }

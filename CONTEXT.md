@@ -330,7 +330,8 @@ or a Linear issue — reached through an Adapter. Tracks the subject and whether
 inbound events still route to the Task. A Task has many Bindings.
 _Note_: a Binding records its Task's role on the subject — creator, follower,
 contributor or commenter — and each Adapter maps its own actions onto those
-roles. A commenter hears only what its Adapter marks as answering its writing.
+roles. A commenter or contributor hears only what its Adapter marks as answering
+its writing.
 _Avoid_: task connection, connection, thread
 
 **Own event**:

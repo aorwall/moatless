@@ -280,7 +280,7 @@ impl GithubPrInboundRouter {
             let bound_at = bindings.iter().position(|s| s.task_id == origin_task_id);
             let widens = |bound: &TaskBinding| {
                 !scope.reply_keys.is_empty()
-                    || (hears_only_replies(bound) && scope.reason > Some(BindReason::Commenter))
+                    || (hears_only_replies(bound) && scope.reason > BindReason::of(bound))
             };
             if bound_at.is_none_or(|at| widens(&bindings[at])) {
                 match self
@@ -938,7 +938,7 @@ pub(crate) mod tests {
     }
 
     /// The event a task is named as the author of says why it is bound: the
-    /// pull request it opened or pushed to is its work; a comment is not.
+    /// pull request it opened, pushed to or commented on.
     #[test]
     fn the_authored_event_names_the_bind_reason() {
         assert_eq!(
