@@ -141,6 +141,7 @@ async fn a_request_reaches_forgejo_with_the_run_as_token_and_none_of_the_pods_cr
     headers.insert(header::AUTHORIZATION, "Bearer task-token".parse().unwrap());
     headers.insert(header::COOKIE, "i_like_gitea=abc".parse().unwrap());
     headers.insert("sudo", "root".parse().unwrap());
+    headers.insert(USER_TOKEN, "task-token".parse().unwrap());
     headers.insert(header::CONTENT_TYPE, "application/json".parse().unwrap());
 
     let response = send(
@@ -162,6 +163,7 @@ async fn a_request_reaches_forgejo_with_the_run_as_token_and_none_of_the_pods_cr
     assert_eq!(headers[header::CONTENT_TYPE], "application/json");
     assert!(headers.get(header::COOKIE).is_none());
     assert!(headers.get("sudo").is_none());
+    assert!(headers.get(USER_TOKEN).is_none());
 }
 
 #[tokio::test]
@@ -203,6 +205,15 @@ async fn a_host_the_run_as_identity_has_not_connected_says_what_to_connect() {
             .contains("Connect Forgejo at git.other.example")
     );
     assert!(seen.lock().unwrap().is_empty());
+}
+
+#[test]
+fn the_task_token_is_read_from_a_bearer_header_else_x_user_token() {
+    let mut headers = HeaderMap::new();
+    headers.insert(USER_TOKEN, "from-moat-api".parse().unwrap());
+    assert_eq!(task_token(&headers), Some("from-moat-api"));
+    headers.insert(header::AUTHORIZATION, "Bearer from-relay".parse().unwrap());
+    assert_eq!(task_token(&headers), Some("from-relay"));
 }
 
 #[test]

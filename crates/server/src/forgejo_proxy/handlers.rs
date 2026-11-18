@@ -27,7 +27,7 @@ pub async fn proxy(
         Ok(host) => host,
         Err(e) => return e.into_response(),
     };
-    let scope = match proxy.authenticate(bearer_token(&headers)).await {
+    let scope = match proxy.authenticate(task_token(&headers)).await {
         Ok(scope) => scope,
         Err(e) => return e.into_response(),
     };
@@ -45,6 +45,14 @@ pub async fn proxy(
     )
     .await
 }
+
+/// The pod's task token: a relay's `Authorization: Bearer`, else the
+/// `X-User-Token` that `moat api` sends on every request.
+fn task_token(headers: &HeaderMap) -> Option<&str> {
+    bearer_token(headers).or_else(|| headers.get(USER_TOKEN)?.to_str().ok())
+}
+
+const USER_TOKEN: &str = "x-user-token";
 
 /// The path and query after `/forgejo/{host}`, which starts with `/`.
 fn upstream_path(uri: &Uri) -> Option<String> {
@@ -106,11 +114,14 @@ pub(super) async fn forward(
     stream_back(response, "forgejo")
 }
 
-/// Headers the pod sends that never reach Forgejo: the task token, a cookie
+/// Headers the pod sends that never reach Forgejo: either task token, a cookie
 /// that could authenticate as someone else, and `Sudo` (see
 /// [`service::checked`]).
 fn withheld(name: &header::HeaderName) -> bool {
-    name == header::AUTHORIZATION || name == header::COOKIE || name.as_str() == "sudo"
+    name == header::AUTHORIZATION
+        || name == header::COOKIE
+        || name.as_str() == USER_TOKEN
+        || name.as_str() == "sudo"
 }
 
 impl IntoResponse for ForgejoProxyError {
