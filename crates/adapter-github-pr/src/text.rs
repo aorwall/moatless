@@ -127,6 +127,19 @@ pub(super) fn issue_comment_text(sender: &str, number: u64, comment_id: u64, bod
     format!("**@{sender}** commented on #{number} (comment id: {comment_id}):\n\n{body}")
 }
 
+/// Task message for an edited conversation comment, carrying its whole new
+/// body: the webhook holds the old body only as `changes.body.from`.
+pub(super) fn issue_comment_edited_text(
+    sender: &str,
+    number: u64,
+    comment_id: u64,
+    body: &str,
+) -> String {
+    format!(
+        "**@{sender}** edited a comment on #{number} (comment id: {comment_id}). It now reads:\n\n{body}"
+    )
+}
+
 /// The line [`review_comment_text`] writes for a comment that opens its own
 /// thread. [`super::adapter`] interpolates it into the agent's instructions, so
 /// the agent is told to decide on the string a message actually carries.

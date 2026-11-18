@@ -423,6 +423,86 @@ async fn an_edit_changing_nothing_a_task_reads_is_ignored() {
     assert_eq!(normalized.status_observations.len(), 1);
 }
 
+fn edited_comment(changes: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({
+        "action": "edited",
+        "sender": {"login": "github-actions[bot]"},
+        "changes": changes,
+        "issue": {"number": 42, "pull_request": {"url": "x"}},
+        "comment": {"id": 123, "body": "Plan: 1 to add, 1 to change"}
+    })
+}
+
+/// A bot rewriting its sticky comment reaches every bound Task, keyed on the
+/// new body so a redelivery collapses while the next rewrite notifies.
+#[tokio::test]
+async fn an_edited_comment_is_a_message_keyed_on_its_new_body() {
+    let payload = edited_comment(serde_json::json!({"body": {"from": "Plan: pending"}}));
+    let message = message(
+        normalize_payload("issue_comment", &payload, &fake_rule())
+            .await
+            .primary,
+    );
+    assert_eq!(message.audience, Audience::Everyone);
+    assert_eq!(
+        message.external_event_id.as_deref(),
+        Some(
+            crate::external_id::issue_comment_edited(
+                &crate::subject::GithubPrSubject::new("soaplabs", "repo", 42),
+                123,
+                &crate::external_id::edit_digest("comment", "Plan: 1 to add, 1 to change"),
+            )
+            .as_str()
+        )
+    );
+    assert_eq!(message.thread_properties["comment_id"], 123);
+    assert!(message.text.contains("edited a comment on #42"));
+    assert!(message.text.ends_with("Plan: 1 to add, 1 to change"));
+    assert_eq!(
+        message.event.map(|event| event.name),
+        Some(crate::config::ISSUE_COMMENT_EDITED.to_string())
+    );
+}
+
+#[tokio::test]
+async fn an_edit_leaving_the_comment_body_alone_is_ignored() {
+    let payload = edited_comment(serde_json::json!({}));
+    assert!(matches!(
+        normalize_payload("issue_comment", &payload, &fake_rule())
+            .await
+            .primary,
+        Ok(PrimaryWebhook::Ignore(IgnoredWebhook::UnsupportedAction))
+    ));
+}
+
+/// Edits are dropped on their own by name, and by every filter that drops the
+/// comments they edit.
+#[test]
+fn a_filter_dropping_comments_drops_their_edits() {
+    let edit = filter_key(
+        "issue_comment",
+        &edited_comment(serde_json::json!({"body": {"from": ""}})),
+        "github-actions[bot]",
+    );
+    assert_eq!(edit.event, crate::config::ISSUE_COMMENT_EDITED);
+    let config = |adapter_config: serde_json::Value| {
+        let mut rule = fake_rule();
+        rule.adapter_config = Some(adapter_config);
+        GithubPrRuleConfig::from_rule(&rule)
+    };
+
+    let edits_only = config(serde_json::json!({"ignored_events": ["issue_comment_edited"]}));
+    assert!(edits_only.mutes(&edit));
+    assert!(!edits_only.mutes(&FilterKey::new("issue_comment", "github-actions[bot]")));
+
+    let comments = config(serde_json::json!({"ignored_events": ["issue_comment"]}));
+    assert!(comments.mutes(&edit));
+    let bot = config(serde_json::json!({"ignored_senders": [
+        {"login": "github-actions[bot]", "events": ["issue_comment"]}
+    ]}));
+    assert!(bot.mutes(&edit));
+}
+
 #[tokio::test]
 async fn a_merged_pull_request_is_a_candidate_whatever_the_close_does() {
     let payload = serde_json::json!({

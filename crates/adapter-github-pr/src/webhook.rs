@@ -18,8 +18,8 @@ use super::status::{PullRequestFields, WebhookStatusObservation, github_external
 use super::subject::GithubPrSubject;
 use super::text::{
     CheckRunFailedText, PrEdit, PrOpenedText, ReviewCommentText, check_run_failed_text,
-    issue_comment_text, pr_edited_text, pr_opened_text, pr_synchronized_text, review_comment_text,
-    review_text,
+    issue_comment_edited_text, issue_comment_text, pr_edited_text, pr_opened_text,
+    pr_synchronized_text, review_comment_text, review_text,
 };
 
 /// Everything downstream workflows can derive from one raw webhook.
@@ -141,8 +141,14 @@ pub(super) fn filter_key(
 
 /// The [`super::config::KNOWN_EVENTS`] name a loop's filters match this
 /// webhook's primary message under: [`super::config::REVIEW_VERDICT`] for a
-/// body-less approval or change request, else `event_type`.
+/// body-less approval or change request, [`super::config::ISSUE_COMMENT_EDITED`]
+/// for an edited conversation comment, else `event_type`.
 fn filter_event<'a>(event_type: &'a str, payload: &serde_json::Value) -> &'a str {
+    if event_type == "issue_comment"
+        && payload.get("action").and_then(serde_json::Value::as_str) == Some("edited")
+    {
+        return super::config::ISSUE_COMMENT_EDITED;
+    }
     let review = |key: &str| {
         payload
             .pointer(&format!("/review/{key}"))
@@ -590,9 +596,11 @@ async fn normalize_issue_comment(
     payload: &serde_json::Value,
     context: &NormalizeContext<'_>,
 ) -> Result<PrimaryWebhook, AdapterError> {
-    if payload.get("action").and_then(serde_json::Value::as_str) != Some("created") {
-        return Ok(PrimaryWebhook::Ignore(IgnoredWebhook::UnsupportedAction));
-    }
+    let edited = match payload.get("action").and_then(serde_json::Value::as_str) {
+        Some("created") => false,
+        Some("edited") if payload.pointer("/changes/body").is_some() => true,
+        _ => return Ok(PrimaryWebhook::Ignore(IgnoredWebhook::UnsupportedAction)),
+    };
     if payload.pointer("/issue/pull_request").is_none() {
         return Ok(PrimaryWebhook::Ignore(IgnoredWebhook::NonPullRequestIssue));
     }
@@ -613,13 +621,29 @@ async fn normalize_issue_comment(
         .unwrap_or(0);
     let source_task_id =
         moatless_adapter_model::footer::parse_task_id_from_body(context.frontend_url, body);
+    let (text, external_id) = if edited {
+        let digest = super::external_id::edit_digest("comment", body);
+        (
+            issue_comment_edited_text(context.sender_login, pr_number, comment_id, body),
+            super::external_id::issue_comment_edited(
+                &context.subject(pr_number),
+                comment_id,
+                &digest,
+            ),
+        )
+    } else {
+        (
+            issue_comment_text(context.sender_login, pr_number, comment_id, body),
+            super::external_id::issue_comment(comment_id),
+        )
+    };
     let mut message = inbound_message(
         context,
         pr_number,
         Some(pr_number.to_string()),
-        issue_comment_text(context.sender_login, pr_number, comment_id, body),
+        text,
         Audience::Everyone,
-        super::external_id::issue_comment(comment_id),
+        external_id,
     )
     .await;
     message.thread_properties["comment_id"] = serde_json::json!(comment_id);

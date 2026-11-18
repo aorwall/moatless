@@ -21,6 +21,9 @@ pub enum Made {
     /// A pull request field the Task set, as [`Made::pull_request_edit`]
     /// digests it; its `edited` aliases onto it.
     PullRequestEdit(String),
+    /// A conversation comment body the Task wrote over, as
+    /// [`Made::issue_comment_edit`] digests it.
+    IssueCommentEdit(String),
 }
 
 impl Made {
@@ -28,6 +31,11 @@ impl Made {
     /// base branch's name) to `value`.
     pub fn pull_request_edit(field: &str, value: &str) -> Self {
         Self::PullRequestEdit(external_id::edit_digest(field, value))
+    }
+
+    /// The Task edited a conversation comment to read `body`.
+    pub fn issue_comment_edit(body: &str) -> Self {
+        Self::IssueCommentEdit(external_id::edit_digest("comment", body))
     }
 }
 
@@ -39,6 +47,7 @@ pub fn event(owner: &str, repo: &str, made: &Made) -> ExternalEvent {
         Made::ReviewComment(id) => external_id::review_comment(*id),
         Made::Review(id) => external_id::review(*id),
         Made::PullRequestEdit(digest) => external_id::pr_edit(owner, repo, digest),
+        Made::IssueCommentEdit(digest) => external_id::issue_comment_edit(owner, repo, digest),
     };
     on_repo(external_id, owner, repo)
 }
@@ -78,6 +87,20 @@ mod tests {
         assert!(
             external_id::aliases(&format!("github:pr:edited:acme/widgets#7:{digest}"))
                 .contains(&edited.external_id)
+        );
+    }
+
+    #[test]
+    fn a_comment_edit_is_filed_where_its_edited_comment_looks_for_the_maker() {
+        let made = Made::issue_comment_edit("Plan: 1 to add");
+        let filed = event("acme", "widgets", &made);
+        let Made::IssueCommentEdit(digest) = made else {
+            unreachable!()
+        };
+
+        assert!(
+            external_id::aliases(&format!("github:ic-edited:acme/widgets#7:42:{digest}"))
+                .contains(&filed.external_id)
         );
     }
 }

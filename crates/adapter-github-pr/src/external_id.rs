@@ -15,6 +15,27 @@ pub(super) fn issue_comment(id: u64) -> String {
     format!("github:ic:{id}")
 }
 
+/// The prefix [`aliases`] and [`comment_target_from_id`] recognise an
+/// edited conversation comment's id by.
+const COMMENT_EDITED_PREFIX: &str = "github:ic-edited:";
+
+/// `github:ic-edited:<owner>/<repo>#<number>:<id>:<digest>` - conversation
+/// comment `id` edited to the body [`edit_digest`] digests as `comment`.
+pub(super) fn issue_comment_edited(subject: &GithubPrSubject, id: u64, digest: &str) -> String {
+    format!("{COMMENT_EDITED_PREFIX}{}:{id}:{digest}", subject.key())
+}
+
+/// `github:ic-edit:<owner>/<repo>:<digest>` - a conversation comment body the
+/// Task wrote. No comment id: a GraphQL edit names the comment by node id
+/// only, so [`aliases`] reattaches it to the edited event instead.
+pub(super) fn issue_comment_edit(owner: &str, repo: &str, digest: &str) -> String {
+    issue_comment_edit_on(&format!("{owner}/{repo}"), digest)
+}
+
+fn issue_comment_edit_on(repo_full_name: &str, digest: &str) -> String {
+    format!("github:ic-edit:{repo_full_name}:{digest}")
+}
+
 /// `github:rc:<id>` - pull request review comment.
 pub(super) fn review_comment(id: u64) -> String {
     format!("github:rc:{id}")
@@ -209,10 +230,18 @@ pub(super) enum CommentTarget {
 }
 
 /// Parse an external id into a comment kind + id usable by the reactions API.
-/// Only `github:ic:<id>` and `github:rc:<id>` are valid reaction targets.
+/// Only `github:ic:<id>`, an edited conversation comment's id, and
+/// `github:rc:<id>` are valid reaction targets.
 pub(super) fn comment_target_from_id(external_id: &str) -> Option<CommentTarget> {
     if let Some(rest) = external_id.strip_prefix("github:ic:") {
         return rest.parse::<u64>().ok().map(CommentTarget::Issue);
+    }
+    if let Some((_, id)) = external_id
+        .strip_prefix(COMMENT_EDITED_PREFIX)
+        .and_then(|rest| rest.rsplit_once(':'))
+        .and_then(|(head, _digest)| head.rsplit_once(':'))
+    {
+        return id.parse::<u64>().ok().map(CommentTarget::Issue);
     }
     if let Some(rest) = external_id.strip_prefix("github:rc:") {
         return rest.parse::<u64>().ok().map(CommentTarget::Review);
@@ -222,10 +251,10 @@ pub(super) fn comment_target_from_id(external_id: &str) -> Option<CommentTarget>
 
 /// The ids a stored row may carry for the same event.
 ///
-/// A `synchronize` id aliases onto the [`push`] claim for the same sha (naming
-/// the Task that pushed), and an `edited` id onto the [`pr_edit`] claim for the
-/// same digest; a PR-level id never aliases its old ambiguous
-/// number-only shape — migration `0148` rewrote those rows instead.
+/// A `synchronize` id aliases onto the [`push`] claim naming the Task that
+/// pushed, and an edit onto its [`pr_edit`] or [`issue_comment_edit`] claim. A
+/// PR-level id never aliases its old number-only shape: migration `0148`
+/// rewrote those rows instead.
 pub(super) fn aliases(external_id: &str) -> Vec<String> {
     // Ahead of the digit test below: a sha is hex, so a `synchronize` id would
     // fall out of it with no alias.
@@ -246,6 +275,21 @@ pub(super) fn aliases(external_id: &str) -> Vec<String> {
             if let Some((repo_full_name, _number)) = subject_key.rsplit_once('#') {
                 if !digest.is_empty() && !repo_full_name.is_empty() {
                     out.push(pr_edit_on(repo_full_name, digest));
+                }
+            }
+        }
+        return out;
+    }
+
+    if let Some(rest) = external_id.strip_prefix(COMMENT_EDITED_PREFIX) {
+        let mut out = vec![external_id.to_string()];
+        if let Some((head, digest)) = rest.rsplit_once(':') {
+            if let Some((repo_full_name, _number)) = head
+                .rsplit_once(':')
+                .and_then(|(subject_key, _id)| subject_key.rsplit_once('#'))
+            {
+                if !digest.is_empty() && !repo_full_name.is_empty() {
+                    out.push(issue_comment_edit_on(repo_full_name, digest));
                 }
             }
         }
@@ -402,6 +446,24 @@ mod tests {
             aliases(&edited),
             vec![edited.clone(), pr_edit("acme", "widgets", &digest)]
         );
+    }
+
+    #[test]
+    fn an_edited_comment_aliases_onto_the_claim_for_its_body_and_is_a_reaction_target() {
+        let digest = edit_digest("comment", "Plan: 1 to add");
+        let edited = issue_comment_edited(&subject("widgets", 7), 42, &digest);
+
+        assert_eq!(
+            aliases(&edited),
+            vec![
+                edited.clone(),
+                issue_comment_edit("acme", "widgets", &digest)
+            ]
+        );
+        assert!(matches!(
+            comment_target_from_id(&edited),
+            Some(CommentTarget::Issue(42))
+        ));
     }
 
     #[test]

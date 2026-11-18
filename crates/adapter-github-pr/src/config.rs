@@ -37,6 +37,21 @@ pub(super) const CHECK_RUN_TRIGGER: &str = "check_run_trigger";
 /// `pull_request_review` keeps receiving verdicts.
 pub(super) const REVIEW_VERDICT: &str = "review_verdict";
 
+/// Derived event name for an `issue_comment` whose body was edited, such as a
+/// bot's sticky comment. `ignored_events` drops it alone, while a filter that
+/// drops `issue_comment` drops it too: see [`parent_event`].
+pub(super) const ISSUE_COMMENT_EDITED: &str = "issue_comment_edited";
+
+/// The webhook event a derived event refines, so a filter naming that webhook
+/// event also covers it; any other name is its own parent.
+fn parent_event(event: &str) -> &str {
+    match event {
+        REVIEW_VERDICT => "pull_request_review",
+        ISSUE_COMMENT_EDITED => "issue_comment",
+        _ => event,
+    }
+}
+
 /// Every event name a loop's include/ignore list can name: the GitHub webhook
 /// event types this adapter handles, plus the derived signals above.
 ///
@@ -55,6 +70,7 @@ pub(super) const KNOWN_EVENTS: &[&str] = &[
     PR_MERGED,
     CHECK_RUN_TRIGGER,
     REVIEW_VERDICT,
+    ISSUE_COMMENT_EDITED,
 ];
 
 /// The [`KNOWN_EVENTS`] name `name` as an inbound event kind.
@@ -71,6 +87,7 @@ pub(super) fn inbound_event(name: &str) -> InboundEvent {
                 | "pull_request_review_comment"
                 | "pull_request_review"
                 | REVIEW_VERDICT
+                | ISSUE_COMMENT_EDITED
         ),
     }
 }
@@ -254,22 +271,15 @@ impl GithubPrRuleConfig {
     /// inbox, so applying them to a Task `moat gh pr create` bound would hide
     /// that Task's CI failures from it.
     pub(super) fn mutes(&self, event: &FilterKey) -> bool {
+        let parent = parent_event(&event.event);
         let event_muted = if event.event.is_empty() {
             false
-        } else if event.event == REVIEW_VERDICT {
-            self.explicitly_ignores(REVIEW_VERDICT)
-                || self.event_filtered_out("pull_request_review")
+        } else if parent != event.event {
+            self.explicitly_ignores(&event.event) || self.event_filtered_out(parent)
         } else {
             self.event_filtered_out(&event.event)
         };
-        // A verdict is a `pull_request_review`, so a scoped entry naming that
-        // event silences it too.
-        let sender_event = if event.event == REVIEW_VERDICT {
-            "pull_request_review"
-        } else {
-            &event.event
-        };
-        event_muted || self.ignores_sender_event(&event.sender, sender_event)
+        event_muted || self.ignores_sender_event(&event.sender, parent)
     }
 }
 
@@ -454,6 +464,7 @@ mod tests {
             "pull_request_review_comment",
             "pull_request_review",
             REVIEW_VERDICT,
+            ISSUE_COMMENT_EDITED,
         ] {
             assert!(inbound_event(name).arrives_in_bursts, "{name}");
         }

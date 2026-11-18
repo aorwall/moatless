@@ -90,6 +90,7 @@ pub(super) fn closes_with_pr(
 /// check suites are absent: [`FilterKey::mutes_unlooped_task`] withholds them.
 const BOUND_TASK_EVENTS: &[&str] = &[
     "issue_comment",
+    super::config::ISSUE_COMMENT_EDITED,
     "pull_request_review_comment",
     "pull_request_review",
     "check_run",

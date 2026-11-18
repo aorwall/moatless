@@ -196,6 +196,10 @@ Notes:
 - `ignored_events` also takes `review_verdict`: an approval or change request
   with no body. Only the ignore list reads it, so an include list naming
   `pull_request_review` keeps them.
+- An edit to a conversation comment's body, such as a bot rewriting its sticky
+  plan comment, arrives as `issue_comment_edited`. Ignore it by that name, or
+  with any filter that drops `issue_comment`, including a sender entry naming
+  `issue_comment`. A task does not hear the edits it made itself.
 - `slack` loops resolve their **connection** from `teamId` (the Slack workspace id,
   e.g. `T0000000001`); if `teamId` is omitted and exactly one slack connection
   exists it's used, otherwise the loop is **skipped** with a reason. `sourceMatcher`

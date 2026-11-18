@@ -26,6 +26,7 @@ pub(super) fn from_rest(
         ("PUT" | "DELETE", ["contents", _, ..]) => Shape::Push("/commit/sha"),
         ("POST", ["merges"]) | ("PUT", ["pulls", _, "merge"]) => Shape::Push("/sha"),
         ("POST", ["issues", _, "comments"]) => Shape::IssueComment,
+        ("PATCH", ["issues", "comments", _]) => Shape::IssueCommentEdit,
         ("POST", ["pulls", _, "comments"] | ["pulls", _, "comments", _, "replies"]) => {
             Shape::ReviewComment
         }
@@ -43,6 +44,10 @@ pub(super) fn from_rest(
             .and_then(Value::as_str)
             .map(|sha| Made::Push(sha.to_string())),
         Shape::IssueComment => id().map(Made::IssueComment),
+        Shape::IssueCommentEdit => json
+            .get("body")
+            .and_then(Value::as_str)
+            .map(Made::issue_comment_edit),
         Shape::ReviewComment => id().map(Made::ReviewComment),
         Shape::Review => id().map(Made::Review),
         Shape::PullRequest => return rest_pull_request_edits(request, &json),
@@ -64,6 +69,9 @@ pub(super) fn from_graphql(request: &[u8], response: &[u8]) -> Vec<Made> {
     let mut made = Vec::new();
     if data.get("updatePullRequest").is_some_and(|r| !r.is_null()) {
         made.extend(graphql_pull_request_edits(request));
+    }
+    if data.get("updateIssueComment").is_some_and(|r| !r.is_null()) {
+        made.extend(graphql_comment_edit(request));
     }
     for result in data.values() {
         for pointer in ["/commit/oid", "/mergeCommit/oid", "/ref/target/oid"] {
@@ -100,6 +108,18 @@ fn graphql_pull_request_edits(request: &[u8]) -> Vec<Made> {
     pull_request_edits(field("title"), field("body"), field("baseRefName"))
 }
 
+/// The `updateIssueComment` input among the request's variables: the one
+/// naming both an `id` and a `body`. An input written inline is missed.
+fn graphql_comment_edit(request: &[u8]) -> Option<Made> {
+    let json = serde_json::from_slice::<Value>(request).ok()?;
+    json.get("variables")?
+        .as_object()?
+        .values()
+        .filter(|input| input.get("id").is_some())
+        .find_map(|input| input.get("body").and_then(Value::as_str))
+        .map(Made::issue_comment_edit)
+}
+
 /// The fields a REST `PATCH` set, valued as GitHub's answer holds them, so a
 /// field the request left alone makes no claim a later edit could match.
 fn rest_pull_request_edits(request: &[u8], answer: &Value) -> Vec<Made> {
@@ -129,6 +149,7 @@ enum Shape {
     /// The JSON pointer to the commit sha.
     Push(&'static str),
     IssueComment,
+    IssueCommentEdit,
     ReviewComment,
     Review,
     PullRequest,
@@ -257,5 +278,25 @@ mod tests {
         );
         assert_eq!(made, vec![Made::pull_request_edit("body", "Plan")]);
         assert!(from_graphql(request, br#"{"data":{"updatePullRequest":null}}"#).is_empty());
+    }
+
+    #[test]
+    fn a_comment_edit_names_the_body_github_holds() {
+        let made = from_rest(
+            &Method::PATCH,
+            "/repos/acme/app/issues/comments/42",
+            br#"{"body":"Plan: 1 to add\r\n"}"#,
+            br#"{"id":42,"body":"Plan: 1 to add\n"}"#,
+        );
+        assert_eq!(made, vec![Made::issue_comment_edit("Plan: 1 to add\n")]);
+
+        let request = br#"{"query":"mutation($input:UpdateIssueCommentInput!){updateIssueComment(input:$input){issueComment{id}}}","variables":{"input":{"id":"IC_kw","body":"Plan: done"}}}"#;
+        assert_eq!(
+            from_graphql(
+                request,
+                br#"{"data":{"updateIssueComment":{"issueComment":{"id":"IC_kw"}}}}"#
+            ),
+            vec![Made::issue_comment_edit("Plan: done")]
+        );
     }
 }
