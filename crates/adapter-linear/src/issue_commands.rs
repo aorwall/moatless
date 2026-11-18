@@ -553,7 +553,7 @@ pub(crate) async fn create_comment(
         }
         None => req.body.clone(),
     };
-    let comment = api.create_comment(&issue_uuid, &body).await?;
+    let comment = api.create_comment(&issue_uuid, &body, None).await?;
     let comment_id = comment
         .get("id")
         .and_then(Value::as_str)

@@ -596,7 +596,7 @@ async fn provision_issue_task(
         // binding or prompt.
         Err(AdapterError::Shared(SharedAdapterError::AccessDenied(msg))) => {
             if let Err(e) = api
-                .create_comment(&issue.id, &format!("Couldn't start this task: {msg}"))
+                .create_comment(&issue.id, &format!("Couldn't start this task: {msg}"), None)
                 .await
             {
                 warn!(issue = %issue.identifier, error = %e, "Failed to post Linear preflight error");

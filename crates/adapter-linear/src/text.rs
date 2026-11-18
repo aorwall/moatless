@@ -66,6 +66,57 @@ fn issue_read_block(identifier: &str, title: &str, url: Option<&str>) -> String 
     text
 }
 
+/// The comment a forwarded reply answers, as [`comment_inbound_text`] quotes it.
+pub(super) struct RepliedTo<'a> {
+    pub(super) author: &'a str,
+    pub(super) body: &'a str,
+}
+
+/// Longest excerpt of a [`RepliedTo`] body, in characters.
+const REPLIED_TO_EXCERPT_CHARS: usize = 200;
+
+/// The text a forwarded `Comment.create` reaches its Task as: `body` under a
+/// line naming the issue and, for a reply, quoting the comment it answers.
+///
+/// A Task bound to many issues sees only an issue uuid in its message header,
+/// so without this line it answers "this ticket" about whichever issue it last
+/// worked on. Both cases are stated, so a missing reply line is not read into.
+pub(super) fn comment_inbound_text(
+    issue: Option<&str>,
+    replied_to: Option<&RepliedTo<'_>>,
+    body: &str,
+) -> String {
+    let on = issue.map(|id| format!(" on {id}")).unwrap_or_default();
+    match replied_to {
+        Some(parent) => format!(
+            "> Reply{on} to {}'s comment: \"{}\"\n\n{body}",
+            parent.author,
+            excerpt(parent.body)
+        ),
+        None if issue.is_some() => format!("> New thread{on}\n\n{body}"),
+        None => body.to_string(),
+    }
+}
+
+/// `body` without its `Moatless task:` footer, on one line, cut to
+/// [`REPLIED_TO_EXCERPT_CHARS`].
+fn excerpt(body: &str) -> String {
+    let without_footer = body
+        .split_once(moatless_types::adapter::FOOTER_MARKER)
+        .map_or(body, |(before, _)| {
+            before.trim_end().trim_end_matches("---")
+        });
+    let line = without_footer
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    if line.chars().count() <= REPLIED_TO_EXCERPT_CHARS {
+        return line;
+    }
+    let cut: String = line.chars().take(REPLIED_TO_EXCERPT_CHARS).collect();
+    format!("{}…", cut.trim_end())
+}
+
 /// Label prefix for the Linear ↔ Moatless link when the Linear side is the
 /// parent (Moatless task spawned from a `@mention` / assignment).
 pub(super) const ATTACHMENT_TITLE_CHILD: &str = "Moatless task";
@@ -85,6 +136,38 @@ pub(super) fn format_attachment_title(prefix: &str, name: Option<&str>) -> Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_reply_names_the_issue_and_quotes_its_parent_without_the_footer() {
+        let parent = RepliedTo {
+            author: "Moatless",
+            body: "Another runner shutdown:\nrun 44138831571.\n\n---\nMoatless task: [T](https://app/tasks/t)",
+        };
+        assert_eq!(
+            comment_inbound_text(Some("SP-5048"), Some(&parent), "Still relevant?"),
+            "> Reply on SP-5048 to Moatless's comment: \"Another runner shutdown: run 44138831571.\"\n\nStill relevant?"
+        );
+    }
+
+    #[test]
+    fn a_top_level_comment_says_it_starts_a_thread() {
+        assert_eq!(
+            comment_inbound_text(Some("SP-1"), None, "please look"),
+            "> New thread on SP-1\n\nplease look"
+        );
+        assert_eq!(
+            comment_inbound_text(None, None, "please look"),
+            "please look"
+        );
+    }
+
+    #[test]
+    fn a_long_parent_is_cut_on_a_char_boundary() {
+        let body = "å".repeat(REPLIED_TO_EXCERPT_CHARS + 5);
+        let quoted = excerpt(&body);
+        assert_eq!(quoted.chars().count(), REPLIED_TO_EXCERPT_CHARS + 1);
+        assert!(quoted.ends_with('…'));
+    }
     use crate::webhook_payloads::{AgentSessionComment, AgentSessionIssue, LinearActor};
 
     fn issue() -> AgentSessionIssue {

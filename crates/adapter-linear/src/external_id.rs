@@ -17,6 +17,14 @@ pub(super) fn comment(comment_id: &str) -> String {
     format!("linear:comment:{comment_id}")
 }
 
+/// The Linear comment id a [`comment`] external id names; `None` for any other
+/// format.
+pub(super) fn comment_id(external_id: &str) -> Option<&str> {
+    external_id
+        .strip_prefix("linear:comment:")
+        .filter(|id| !id.is_empty())
+}
+
 /// A follow-up prompt, named by the Linear activity carrying it.
 ///
 /// Every other format here names the Linear resource it came from, and this one
@@ -111,6 +119,14 @@ mod tests {
             issue_labeled("issue-1", "2026-08-10T03:20:08.000Z"),
             "linear:issue-labeled:issue-1:2026-08-10T03:20:08.000Z"
         );
+    }
+
+    #[test]
+    fn a_comment_id_reads_back_only_from_a_comment() {
+        assert_eq!(comment_id(&comment("cmt-1")), Some("cmt-1"));
+        assert_eq!(comment_id(&prompt("act-1")), None);
+        assert_eq!(comment_id(&issue_created("issue-1")), None);
+        assert_eq!(comment_id("linear:comment:"), None);
     }
 
     /// No two formats collide on a shared prefix.

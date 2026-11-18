@@ -79,6 +79,11 @@ pub(super) async fn linear_stub_with_labels(labels: serde_json::Value) -> Provid
                 "agentActivityCreate": {"success": true, "agentActivity": {"id": "activity-stub"}},
                 "agentSessionUpdate": {"success": true},
                 "attachmentLinkURL": {"success": true, "attachment": {"id": "att-1", "url": "u"}},
+                "comment": {
+                    "id": "comment-r",
+                    "issue": {"identifier": "ENG-7"},
+                    "parent": {"id": "root-comment", "body": "Started on it", "user": {"name": "Moatless"}},
+                },
                 "commentCreate": {
                     "success": true,
                     "comment": {"id": "comment-stub", "url": "u", "body": "b", "createdAt": "now"},
@@ -508,6 +513,16 @@ pub(super) async fn forwarded_ids(pool: &PgPool) -> Vec<String> {
     .expect("read forwarded messages")
 }
 
+/// The text of every forwarded Linear message, oldest first.
+async fn forwarded_texts(pool: &PgPool) -> Vec<String> {
+    sqlx::query_scalar::<_, String>(
+        "SELECT text FROM task_inbox WHERE adapter = 'linear' ORDER BY created_at, id",
+    )
+    .fetch_all(pool)
+    .await
+    .expect("read forwarded message texts")
+}
+
 /// The tasks that received a forwarded Linear message.
 async fn forwarded_task_ids(pool: &PgPool) -> Vec<String> {
     sqlx::query_scalar::<_, String>(
@@ -877,6 +892,11 @@ async fn an_issue_level_comment_reaches_the_issue_binding_not_the_session(pool: 
         Some("linear:comment:comment-1"),
         "the comment's persisted identity is its Linear comment id"
     );
+    assert_eq!(
+        forwarded_texts(&pool).await,
+        vec!["> New thread on ENG-7\n\nplease look"],
+        "a top-level comment names its issue from the payload, with no lookup"
+    );
 }
 
 /// A reply to the comment a session was created from reaches that session and
@@ -916,13 +936,18 @@ async fn a_reply_to_a_sessions_origin_comment_reaches_and_heartbeats_it(pool: Pg
 
     assert_eq!(
         stub.graphql_operations(),
-        vec!["agentActivityCreate"],
-        "the session's panel is heartbeated"
+        vec!["comment", "agentActivityCreate"],
+        "the reply's parent is read once, and the session's panel is heartbeated"
     );
     assert_eq!(
         forwarded_task_ids(&pool).await,
         vec![TASK.to_string()],
         "a reply to the origin comment reaches the session it spawned"
+    );
+    assert_eq!(
+        forwarded_texts(&pool).await,
+        vec!["> Reply on ENG-7 to Moatless's comment: \"Started on it\"\n\nfollow-up"],
+        "the reply names its issue and the comment it answers"
     );
 }
 

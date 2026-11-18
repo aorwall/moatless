@@ -315,66 +315,98 @@ impl AdapterBindingReply for LinearAdapter {
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
         let api = self.agent_api_for_connection(connection).await?;
+        post_on_binding(&api, binding, message, None).await
+    }
+}
 
-        if binding.subject_kind == SUBJECT_KIND_ISSUE {
-            let issue_uuid = binding
-                .destination_config
-                .get("issue_id")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or(&binding.subject_key);
-            let body = build_comment_body(message);
-            let comment = api.create_comment(issue_uuid, &body).await?;
-            let comment_id = comment
-                .get("id")
-                .and_then(serde_json::Value::as_str)
-                .ok_or_else(|| {
-                    SharedAdapterError::AdapterApi("Linear commentCreate missing comment.id".into())
-                })?;
-            return Ok(Some(super::external_id::comment(comment_id)));
-        }
-
-        // AgentSession binding: post the reply as a comment on the bound
-        // Linear issue (where conversation actually happens). The session is
-        // finalized later by `handle_agent_completed` posting a `response`
-        // activity with the last assistant message body.
-        let session_id = binding
-            .destination_config
-            .get("session_id")
-            .and_then(serde_json::Value::as_str)
-            .ok_or_else(|| {
-                SharedAdapterError::BadRequest(
-                    "Linear binding missing session_id in destination_config".into(),
-                )
-            })?;
-
+/// Post `message` as a comment on `binding`'s issue, under `thread` when set.
+async fn post_on_binding(
+    api: &LinearAgentApi,
+    binding: &TaskBinding,
+    message: &OutboundReply,
+    thread: Option<&str>,
+) -> Result<Option<String>, AdapterError> {
+    if binding.subject_kind == SUBJECT_KIND_ISSUE {
         let issue_uuid = binding
             .destination_config
             .get("issue_id")
             .and_then(serde_json::Value::as_str)
-            .ok_or_else(|| {
-                SharedAdapterError::BadRequest(
-                    "Linear binding missing issue_id in destination_config".into(),
-                )
-            })?;
-
+            .unwrap_or(&binding.subject_key);
         let body = build_comment_body(message);
-        match api.create_comment(issue_uuid, &body).await {
-            Ok(comment) => {
-                let comment_id = comment
-                    .get("id")
-                    .and_then(serde_json::Value::as_str)
-                    .map(str::to_string);
-                Ok(comment_id.as_deref().map(super::external_id::comment))
-            }
-            Err(e) => {
-                warn!(
-                    issue_id = issue_uuid,
-                    session_id,
-                    error = %e,
-                    "Linear issue comment failed; the session will still be finalized on agent.completed"
-                );
-                Ok(None)
-            }
+        let comment = api.create_comment(issue_uuid, &body, thread).await?;
+        let comment_id = comment
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| {
+                SharedAdapterError::AdapterApi("Linear commentCreate missing comment.id".into())
+            })?;
+        return Ok(Some(super::external_id::comment(comment_id)));
+    }
+
+    // AgentSession binding: post the reply as a comment on the bound
+    // Linear issue (where conversation actually happens). The session is
+    // finalized later by `handle_agent_completed` posting a `response`
+    // activity with the last assistant message body.
+    let session_id = binding
+        .destination_config
+        .get("session_id")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| {
+            SharedAdapterError::BadRequest(
+                "Linear binding missing session_id in destination_config".into(),
+            )
+        })?;
+
+    let issue_uuid = binding
+        .destination_config
+        .get("issue_id")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| {
+            SharedAdapterError::BadRequest(
+                "Linear binding missing issue_id in destination_config".into(),
+            )
+        })?;
+
+    let body = build_comment_body(message);
+    match api.create_comment(issue_uuid, &body, thread).await {
+        Ok(comment) => {
+            let comment_id = comment
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string);
+            Ok(comment_id.as_deref().map(super::external_id::comment))
+        }
+        Err(e) => {
+            warn!(
+                issue_id = issue_uuid,
+                session_id,
+                error = %e,
+                "Linear issue comment failed; the session will still be finalized on agent.completed"
+            );
+            Ok(None)
+        }
+    }
+}
+
+/// The thread a reply to `target_external_id` belongs under: the top-level
+/// comment of the thread holding it. `None` — post top-level — when the target
+/// is no comment, or its lookup fails.
+///
+/// Linear nests one level, so the root is the comment's parent when it has one
+/// and the comment itself otherwise.
+async fn reply_thread(api: &LinearAgentApi, target_external_id: &str) -> Option<String> {
+    let comment_id = super::external_id::comment_id(target_external_id)?;
+    match api.get_comment(comment_id).await {
+        Ok(comment) => Some(
+            comment
+                .pointer("/parent/id")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or(comment_id)
+                .to_string(),
+        ),
+        Err(e) => {
+            warn!(comment_id, error = %e, "Linear reply target lookup failed; posting top-level");
+            None
         }
     }
 }
@@ -385,12 +417,13 @@ impl AdapterMessageReply for LinearAdapter {
         &self,
         binding: &TaskBinding,
         connection: &AdapterConnection,
-        rule: Option<&SubscriptionMatch>,
-        _target_external_id: &str,
+        _rule: Option<&SubscriptionMatch>,
+        target_external_id: &str,
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
-        self.send_reply_for_binding(binding, connection, rule, message)
-            .await
+        let api = self.agent_api_for_connection(connection).await?;
+        let thread = reply_thread(&api, target_external_id).await;
+        post_on_binding(&api, binding, message, thread.as_deref()).await
     }
 }
 
@@ -434,7 +467,7 @@ impl AdapterDirectDestination for LinearAdapter {
             .and_then(serde_json::Value::as_str)
             .map(str::to_string);
 
-        let comment = api.create_comment(&issue_uuid, &message.text).await?;
+        let comment = api.create_comment(&issue_uuid, &message.text, None).await?;
         let comment_id = comment
             .get("id")
             .and_then(serde_json::Value::as_str)
@@ -666,5 +699,128 @@ mod tests {
             parse_task_id_from_body("https://app.example.com", &body),
             None
         );
+    }
+
+    /// A Linear that answers `comment` with `comment` and records every call.
+    async fn linear_answering(
+        comment: serde_json::Value,
+    ) -> (
+        moatless_adapter_model::test_support::ProviderStub,
+        LinearAgentApi,
+    ) {
+        let stub = moatless_adapter_model::test_support::ProviderStub::start(move |_| {
+            serde_json::json!({ "data": {
+                "comment": comment.clone(),
+                "commentCreate": { "success": true, "comment": { "id": "c-new" } },
+            }})
+        })
+        .await;
+        let mut tokens = moatless_ports::identity::MockAppCredentials::new();
+        tokens.expect_app_token().returning(|_| {
+            Ok(Some(moatless_ports::identity::AppToken {
+                access_token: "lin_test".into(),
+                refresh_token: None,
+                token_type: None,
+                expires_at: Some(chrono::Utc::now() + chrono::Duration::days(1)),
+                metadata: None,
+            }))
+        });
+        let api = LinearAgentApi::with_base_url(
+            crate::agent_api::http_client(moatless_core::config::HttpConfig::default().linear),
+            Arc::new(tokens),
+            "test-org".to_string(),
+            None,
+            None,
+            stub.base_url(),
+        );
+        (stub, api)
+    }
+
+    fn issue_binding() -> TaskBinding {
+        let now = chrono::Utc::now();
+        TaskBinding {
+            id: "tb-1".into(),
+            task_id: "task-1".into(),
+            adapter_kind: AdapterKind::Linear,
+            subject_kind: SUBJECT_KIND_ISSUE.into(),
+            subject_key: "issue-1".into(),
+            connection_id: "conn-1".into(),
+            loop_id: None,
+            destination_config: serde_json::json!({ "issue_id": "issue-1" }),
+            metadata: serde_json::json!({}),
+            last_external_event_id: None,
+            origin: "api".into(),
+            created_at: now,
+            last_event_at: now,
+            external_status: None,
+            external_state_kind: None,
+            external_status_raw: None,
+            external_review_decision: None,
+            external_mergeable_state: None,
+            external_status_updated_at: None,
+            active: true,
+            deactivated_at: None,
+            watching: true,
+        }
+    }
+
+    /// The `parentId` the `commentCreate` `stub` recorded carried.
+    fn posted_parent(
+        stub: &moatless_adapter_model::test_support::ProviderStub,
+    ) -> serde_json::Value {
+        let create = stub
+            .requests()
+            .into_iter()
+            .find(|r| r.body.contains("commentCreate"))
+            .expect("a comment was posted");
+        let body: serde_json::Value = serde_json::from_str(&create.body).expect("JSON body");
+        body.pointer("/variables/input/parentId")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null)
+    }
+
+    async fn reply_to(api: &LinearAgentApi, target: &str) -> Option<String> {
+        let thread = reply_thread(api, target).await;
+        post_on_binding(
+            api,
+            &issue_binding(),
+            &reply("answer", None),
+            thread.as_deref(),
+        )
+        .await
+        .expect("the stub answers")
+    }
+
+    #[tokio::test]
+    async fn a_reply_to_a_threaded_comment_posts_under_its_thread_root() {
+        let (stub, api) = linear_answering(serde_json::json!({
+            "id": "c-reply", "parent": { "id": "c-root" },
+        }))
+        .await;
+
+        let posted = reply_to(&api, &crate::external_id::comment("c-reply")).await;
+
+        assert_eq!(posted.as_deref(), Some("linear:comment:c-new"));
+        assert_eq!(posted_parent(&stub), serde_json::json!("c-root"));
+    }
+
+    #[tokio::test]
+    async fn a_reply_to_a_top_level_comment_opens_a_thread_under_it() {
+        let (stub, api) =
+            linear_answering(serde_json::json!({ "id": "c-root", "parent": null })).await;
+
+        reply_to(&api, &crate::external_id::comment("c-root")).await;
+
+        assert_eq!(posted_parent(&stub), serde_json::json!("c-root"));
+    }
+
+    #[tokio::test]
+    async fn a_reply_to_no_comment_posts_top_level_without_a_lookup() {
+        let (stub, api) = linear_answering(serde_json::Value::Null).await;
+
+        reply_to(&api, &crate::external_id::prompt("act-1")).await;
+
+        assert_eq!(stub.graphql_operations(), vec!["commentCreate"]);
+        assert_eq!(posted_parent(&stub), serde_json::Value::Null);
     }
 }

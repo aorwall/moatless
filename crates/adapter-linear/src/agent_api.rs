@@ -694,21 +694,24 @@ impl LinearAgentApi {
             })
     }
 
-    /// Post a comment on an issue. Returns the created comment subobject (`id`,
-    /// `url`, `body`).
+    /// Post a comment on an issue, under the thread `parent_id` opens when set.
+    /// Returns the created comment subobject (`id`, `url`, `body`).
     pub async fn create_comment(
         &self,
         issue_id: &str,
         body: &str,
+        parent_id: Option<&str>,
     ) -> Result<serde_json::Value, AdapterError> {
+        let mut input = serde_json::json!({ "issueId": issue_id, "body": body });
+        if let Some(parent_id) = parent_id {
+            input["parentId"] = serde_json::json!(parent_id);
+        }
         let value = self
             .graphql(serde_json::json!({
                 "query": "mutation($input: CommentCreateInput!) { \
                     commentCreate(input: $input) { success comment { id url body createdAt } } \
                 }",
-                "variables": {
-                    "input": { "issueId": issue_id, "body": body }
-                }
+                "variables": { "input": input }
             }))
             .await?;
         require_mutation_success(&value, "/data/commentCreate", "commentCreate")?;
@@ -719,6 +722,21 @@ impl LinearAgentApi {
                 SharedAdapterError::AdapterApi("commentCreate missing comment subobject".into())
                     .into()
             })
+    }
+
+    /// Fetch one comment with its issue's identifier and its parent (`id`,
+    /// `body`, author). Returns the comment subobject.
+    pub async fn get_comment(&self, comment_id: &str) -> Result<serde_json::Value, AdapterError> {
+        let value = self
+            .graphql(serde_json::json!({
+                "query": "query($id: String!) { comment(id: $id) { id issue { identifier } \
+                    parent { id body user { name } botActor { name } } } }",
+                "variables": { "id": comment_id }
+            }))
+            .await?;
+        value.pointer("/data/comment").cloned().ok_or_else(|| {
+            SharedAdapterError::NotFound(format!("Linear comment {comment_id} not found")).into()
+        })
     }
 
     /// Attach an external URL to a Linear issue as a "source" pill.

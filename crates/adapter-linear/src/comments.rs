@@ -61,8 +61,7 @@ pub(super) async fn handle_comment_created(
 
     // Our own outbound comments end with a `Moatless task:` footer link (see
     // `LinearAdapter::send_reply_for_binding`); recovering that id is how the
-    // resolver drops the comment for its own authoring task. The footer is
-    // visible, so the body is forwarded unchanged.
+    // resolver drops the comment for its own authoring task.
     let external_event_id = super::external_id::comment(&comment.id);
     let made_by = match moatless_adapter_model::footer::parse_task_id_from_body(
         &config.auth.frontend_url,
@@ -76,8 +75,6 @@ pub(super) async fn handle_comment_created(
                 .await?
         }
     };
-    let forwarded_body = comment.body.as_str();
-
     let audience = comment_audience(comment);
     let parent_author_task_id = routing
         .parent_author_task_id(ADAPTER_LABEL, &audience)
@@ -104,6 +101,7 @@ pub(super) async fn handle_comment_created(
         return Ok(());
     }
 
+    let forwarded_body = forwarded_text(api, comment).await;
     let rule = super::subject::rule_for_binding(loops, recipients[0]).await?;
     let author = super::webhook_payloads::actor_handle(comment.user.as_ref());
 
@@ -136,7 +134,7 @@ pub(super) async fn handle_comment_created(
         if let Err(e) = message_send
             .accept(InboundTurn {
                 task_id: binding.task_id.clone(),
-                text: forwarded_body.to_string(),
+                text: forwarded_body.clone(),
                 file_ids: Vec::new(),
                 resume: true,
                 origin: TurnOrigin {
@@ -171,6 +169,44 @@ pub(super) async fn handle_comment_created(
     }
 
     Ok(())
+}
+
+/// [`super::text::comment_inbound_text`] for `comment`. A reply costs one
+/// `comment` lookup for its parent; when it fails the reply goes out unquoted.
+async fn forwarded_text(api: &LinearAgentApi, comment: &CommentPayloadData) -> String {
+    let payload_issue = comment
+        .issue
+        .as_ref()
+        .map(|issue| issue.identifier.as_str())
+        .filter(|id| !id.is_empty());
+    if comment.parent_id.is_none() {
+        return super::text::comment_inbound_text(payload_issue, None, &comment.body);
+    }
+    let looked_up = match api.get_comment(&comment.id).await {
+        Ok(found) => found,
+        Err(e) => {
+            warn!(comment_id = %comment.id, error = %e, "Linear reply's parent lookup failed");
+            return super::text::comment_inbound_text(payload_issue, None, &comment.body);
+        }
+    };
+    let issue = payload_issue.or_else(|| {
+        looked_up
+            .pointer("/issue/identifier")
+            .and_then(serde_json::Value::as_str)
+    });
+    let parent = looked_up.get("parent");
+    let field = |pointer: &str| {
+        parent
+            .and_then(|p| p.pointer(pointer))
+            .and_then(serde_json::Value::as_str)
+    };
+    let replied_to = field("/body").map(|body| super::text::RepliedTo {
+        author: field("/user/name")
+            .or_else(|| field("/botActor/name"))
+            .unwrap_or("someone"),
+        body,
+    });
+    super::text::comment_inbound_text(issue, replied_to.as_ref(), &comment.body)
 }
 
 /// The bound tasks a `Comment.create` is delivered to, scoped by binding shape.
