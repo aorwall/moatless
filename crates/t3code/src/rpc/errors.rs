@@ -382,9 +382,24 @@ pub(crate) fn terminal_failure_exit(
     identity: &UiRpcAuthIdentity,
 ) -> Value {
     log_terminal_failure(error, identity);
+    if let Some(refusal) = terminal_access_refusal(error, Scope::TerminalOperate) {
+        return typed_failure_exit(request_id, refusal);
+    }
     match terminal::typed_error(error, input) {
         Some(error) => typed_failure_exit(request_id, error),
         None => failure_exit(request_id, terminal::message(error)),
+    }
+}
+
+/// A viewer refused this Task's Sandbox, as the `EnvironmentAuthorizationError`
+/// every method declares rather than a `Die` the client renders as a server
+/// error.
+fn terminal_access_refusal(error: &terminal::TerminalError, scope: Scope) -> Option<Value> {
+    match error {
+        terminal::TerminalError::Workspace(
+            access @ (WorkspaceAccessError::NoWrite | WorkspaceAccessError::NotOwner),
+        ) => Some(authorization_error(scope, access.message())),
+        _ => None,
     }
 }
 
@@ -466,7 +481,10 @@ pub(crate) fn scripts_failure_exit(
             log_terminal_failure(terminal_error, identity);
             // `scripts.run` does not declare the `Terminal*` tags, so one of
             // them reaches the browser as a `Fail` the client cannot decode.
-            if terminal::means_not_running(terminal_error) {
+            if let Some(refusal) = terminal_access_refusal(terminal_error, Scope::OrchestrationRead)
+            {
+                typed_failure_exit(request_id, refusal)
+            } else if terminal::means_not_running(terminal_error) {
                 typed_failure_exit(request_id, sandbox_not_running(thread_id))
             } else {
                 failure_exit(request_id, terminal::message(terminal_error))

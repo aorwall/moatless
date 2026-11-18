@@ -80,7 +80,8 @@ pub(crate) enum Outcome {
     /// so its `tag` is not used as a label either.
     Unsupported,
     /// `Fail` carrying `EnvironmentAuthorizationError`: this deployment does
-    /// not grant the scope the method needs.
+    /// not grant the scope the method needs, or this viewer may not use it on
+    /// the Task the request names.
     Unauthorized,
     /// A `Fail` its site marked with [`refused`]: the request named something
     /// absent or asked in a state that cannot answer it, such as a missing file

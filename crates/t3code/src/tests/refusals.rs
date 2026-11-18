@@ -138,3 +138,48 @@ fn a_preview_of_an_unreadable_thread_is_unauthorized() {
         rpc_metrics::Outcome::Unauthorized
     );
 }
+
+/// Found in production by `moatless_ui_rpc_requests_total{outcome="die"}`: a
+/// `terminal.attach` from a visitor who may write but does not own the Task
+/// answered `Die`, so the drawer showed a server error for a correct refusal.
+#[test]
+fn a_terminal_the_viewer_may_not_drive_is_a_typed_refusal_not_a_defect() {
+    for access in [
+        WorkspaceAccessError::NotOwner,
+        WorkspaceAccessError::NoWrite,
+    ] {
+        let message = access.message();
+        let frames = vec![crate::rpc::errors::terminal_failure_exit(
+            &request_id("1"),
+            &terminal::TerminalInput::default(),
+            &terminal::TerminalError::Workspace(access),
+            &viewer(),
+        )];
+
+        let cause = &frames[0]["exit"]["cause"][0];
+        assert_eq!(cause["_tag"], "Fail", "{message}");
+        assert_eq!(cause["error"]["_tag"], "EnvironmentAuthorizationError");
+        assert_eq!(cause["error"]["requiredScope"], "terminal:operate");
+        assert_eq!(cause["error"]["message"], message);
+        assert_eq!(
+            rpc_metrics::classify(&frames),
+            rpc_metrics::Outcome::Unauthorized
+        );
+    }
+}
+
+/// `scripts.run` opens its session through `terminal::open`, so the same
+/// refusal reaches it and must not be a defect there either.
+#[test]
+fn a_script_the_viewer_may_not_run_is_a_typed_refusal_not_a_defect() {
+    let error = ScriptsError::Terminal(terminal::TerminalError::Workspace(
+        WorkspaceAccessError::NoWrite,
+    ));
+
+    let frame = scripts_failure_exit(&request_id("1"), &error, "task-1", &viewer());
+
+    let cause = &frame["exit"]["cause"][0];
+    assert_eq!(cause["_tag"], "Fail");
+    assert_eq!(cause["error"]["_tag"], "EnvironmentAuthorizationError");
+    assert_eq!(cause["error"]["requiredScope"], "orchestration:read");
+}
