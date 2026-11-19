@@ -839,12 +839,9 @@ fn with_fragments(query: &str) -> String {
     let mut document = query.to_string();
     let mut included = Vec::new();
     loop {
-        let spread = FRAGMENTS.iter().find(|(name, _)| {
-            !included.contains(name)
-                && document
-                    .match_indices("...")
-                    .any(|(at, _)| document[at + 3..].starts_with(&format!("{name} ")))
-        });
+        let spread = FRAGMENTS
+            .iter()
+            .find(|(name, _)| !included.contains(name) && spreads(&document).any(|s| s == *name));
         let Some((name, definition)) = spread else {
             return document;
         };
@@ -852,6 +849,18 @@ fn with_fragments(query: &str) -> String {
         document.push('\n');
         document.push_str(definition);
     }
+}
+
+/// The fragment name after each `...` in `document`, whatever follows it: a
+/// spread ends a line as often as it precedes a space.
+fn spreads(document: &str) -> impl Iterator<Item = &str> {
+    document.match_indices("...").map(|(at, _)| {
+        let rest = &document[at + 3..];
+        let end = rest
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+            .unwrap_or(rest.len());
+        &rest[..end]
+    })
 }
 
 fn decode<T: serde::de::DeserializeOwned>(

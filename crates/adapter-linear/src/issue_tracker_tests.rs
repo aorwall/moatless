@@ -43,6 +43,36 @@ fn a_query_carries_only_the_fragments_it_spreads() {
 }
 
 #[test]
+fn every_query_defines_each_fragment_it_spreads_and_no_other() {
+    for query in [
+        LIST_QUERY,
+        DETAIL_QUERY,
+        COMMENTS_QUERY,
+        USER_QUERY,
+        TEAM_EXISTS_QUERY,
+        ORGANIZATION_QUERY,
+        TEAM_QUERY,
+    ] {
+        let document = with_fragments(query);
+        let spread: Vec<&str> = spreads(&document).collect();
+        for name in &spread {
+            assert!(
+                document.contains(&format!("fragment {name} on ")),
+                "`...{name}` has no definition in {document}"
+            );
+        }
+        for (name, _) in FRAGMENTS {
+            if document.contains(&format!("fragment {name} on ")) {
+                assert!(
+                    spread.contains(&name),
+                    "unused fragment {name} in {document}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn an_open_listing_filters_on_the_team_and_excludes_closed_state_types() {
     let filter = list_filter(&query(), None).unwrap();
     assert_eq!(filter["team"], json!({ "key": { "eq": "SP" } }));
