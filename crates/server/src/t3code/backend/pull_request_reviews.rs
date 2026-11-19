@@ -31,31 +31,34 @@ use std::sync::Arc;
 
 #[async_trait]
 impl PullRequestReviewSource for AppStateBoundPullRequests {
-    async fn project_repository(
+    async fn project_repositories(
         &self,
         viewer: &ScopeContext,
         workspace_id: &str,
-    ) -> Result<Option<String>, PullRequestError> {
+    ) -> Result<Vec<String>, PullRequestError> {
         let store = |e: sqlx::Error| PullRequestError::Failed(e.to_string());
-        let Some(repository_id) = self
+        let repository_ids = self
             .0
             .workspaces
-            .readable_primary_repository(viewer, workspace_id)
-            .await
-            .map_err(store)?
-        else {
-            return Ok(None);
-        };
-        let repository = self
-            .0
-            .repositories
-            .find_by_id(&repository_id, viewer)
+            .readable_repositories(viewer, workspace_id)
             .await
             .map_err(store)?;
-        Ok(repository
-            .and_then(|repository| repository.remote?.host_repo)
-            .filter(|repo| repo.provider() == RepositoryProvider::Github)
-            .map(|repo| format!("{}/{}", repo.owner(), repo.name())))
+        let mut repositories = Vec::new();
+        for id in repository_ids {
+            let repository = self
+                .0
+                .repositories
+                .find_by_id(&id, viewer)
+                .await
+                .map_err(store)?;
+            if let Some(repo) = repository
+                .and_then(|repository| repository.remote?.host_repo)
+                .filter(|repo| repo.provider() == RepositoryProvider::Github)
+            {
+                repositories.push(format!("{}/{}", repo.owner(), repo.name()));
+            }
+        }
+        Ok(repositories)
     }
 
     async fn task_repositories(

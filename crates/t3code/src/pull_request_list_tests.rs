@@ -131,20 +131,23 @@ fn projects(
     workspaces
 }
 
-/// A host whose projects' primary repositories `repository_of` names, and
+/// A host whose projects' repositories `repository_of` names, and
 /// which counts the listings asked of it and refuses them.
 pub(crate) struct ProjectRepositories {
-    pub(crate) repository_of: fn(&str) -> Result<Option<String>, PullRequestError>,
+    pub(crate) repository_of: fn(&str) -> Result<Vec<String>, PullRequestError>,
     /// What every project's readable Tasks work in.
     pub(crate) task_repositories: Vec<String>,
+    /// When set, every Task lookup fails.
+    pub(crate) task_repositories_fail: bool,
     pub(crate) listed: AtomicUsize,
 }
 
 impl ProjectRepositories {
-    pub(crate) fn new(repository_of: fn(&str) -> Result<Option<String>, PullRequestError>) -> Self {
+    pub(crate) fn new(repository_of: fn(&str) -> Result<Vec<String>, PullRequestError>) -> Self {
         Self {
             repository_of,
             task_repositories: Vec::new(),
+            task_repositories_fail: false,
             listed: AtomicUsize::new(0),
         }
     }
@@ -152,11 +155,11 @@ impl ProjectRepositories {
 
 #[async_trait]
 impl PullRequestReviewSource for ProjectRepositories {
-    async fn project_repository(
+    async fn project_repositories(
         &self,
         _viewer: &ScopeContext,
         workspace_id: &str,
-    ) -> Result<Option<String>, PullRequestError> {
+    ) -> Result<Vec<String>, PullRequestError> {
         (self.repository_of)(workspace_id)
     }
     async fn task_repositories(
@@ -164,6 +167,9 @@ impl PullRequestReviewSource for ProjectRepositories {
         _viewer: &ScopeContext,
         _workspace_id: &str,
     ) -> Result<Vec<String>, PullRequestError> {
+        if self.task_repositories_fail {
+            return Err(PullRequestError::Failed("tasks unreadable".into()));
+        }
         Ok(self.task_repositories.clone())
     }
     async fn list(
@@ -327,15 +333,16 @@ impl PullRequestReviewSource for ProjectRepositories {
     }
 }
 
-/// `ws-1` and `ws-2` share `acme/app`, `ws-3` lists `acme/api`, `ws-4` is not
-/// on GitHub and `ws-5`'s repository could not be read.
+/// `ws-1` and `ws-2` share `acme/app`, `ws-3` places `acme/api` and then
+/// `acme/app`, `ws-4` is not on GitHub and `ws-5`'s repositories could not be
+/// read.
 fn repositories() -> ProjectRepositories {
     ProjectRepositories::new(|project_id| match project_id {
-        "ws-1" => Ok(Some("acme/app".into())),
-        "ws-2" => Ok(Some("Acme/App".into())),
-        "ws-3" => Ok(Some("acme/api".into())),
+        "ws-1" => Ok(vec!["acme/app".into()]),
+        "ws-2" => Ok(vec!["Acme/App".into()]),
+        "ws-3" => Ok(vec!["acme/api".into(), "acme/app".into()]),
         "ws-5" => Err(PullRequestError::Unavailable("The store is down.".into())),
-        _ => Ok(None),
+        _ => Ok(Vec::new()),
     })
 }
 
@@ -392,6 +399,47 @@ async fn named_projects_narrow_the_listing() {
         repositories_of(&sources),
         vec![("ws-2", "Acme/App"), ("ws-3", "acme/api")]
     );
+}
+
+#[tokio::test]
+async fn every_repository_a_project_places_is_listed() {
+    let viewer = ScopeContext::user("user-1".to_string());
+    let named = projects_named(&input(json!({ "projectId": "ws-3" })));
+    let (sources, _) = sources(&every_project(), &repositories(), &viewer, &named, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        repositories_of(&sources),
+        vec![("ws-3", "acme/api"), ("ws-3", "acme/app")]
+    );
+}
+
+#[tokio::test]
+async fn a_repository_a_projects_task_works_in_is_listed_after_its_own() {
+    let viewer = ScopeContext::user("user-1".to_string());
+    let mut host = repositories();
+    host.task_repositories = vec!["acme/web".into(), "ACME/app".into()];
+    let named = projects_named(&input(json!({ "projectId": "ws-1" })));
+    let (sources, _) = sources(&every_project(), &host, &viewer, &named, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        repositories_of(&sources),
+        vec![("ws-1", "acme/app"), ("ws-1", "acme/web")]
+    );
+}
+
+#[tokio::test]
+async fn a_failed_task_lookup_keeps_the_placed_repositories() {
+    let viewer = ScopeContext::user("user-1".to_string());
+    let mut host = repositories();
+    host.task_repositories_fail = true;
+    let named = projects_named(&input(json!({ "projectId": "ws-1" })));
+    let (sources, errors) = sources(&every_project(), &host, &viewer, &named, None)
+        .await
+        .unwrap();
+    assert_eq!(repositories_of(&sources), vec![("ws-1", "acme/app")]);
+    assert!(errors.is_empty());
 }
 
 #[tokio::test]

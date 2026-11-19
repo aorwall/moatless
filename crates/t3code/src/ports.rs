@@ -603,14 +603,14 @@ pub struct PullRequestListPage {
 /// caller has already checked the viewer may read it.
 #[async_trait]
 pub trait PullRequestReviewSource: Send + Sync {
-    /// `owner/name` of the GitHub repository `workspace_id` lists pull
-    /// requests of: its primary one. `None` when the viewer cannot read the
-    /// Workspace or its primary repository is not on GitHub.
-    async fn project_repository(
+    /// `owner/name` of each GitHub repository `workspace_id` places, primary
+    /// first: the ones it lists pull requests of. Empty when the viewer cannot
+    /// read the Workspace or it places none on GitHub.
+    async fn project_repositories(
         &self,
         viewer: &ScopeContext,
         workspace_id: &str,
-    ) -> Result<Option<String>, PullRequestError>;
+    ) -> Result<Vec<String>, PullRequestError>;
 
     /// `owner/name` of each GitHub repository a Task in `workspace_id` works
     /// in, over the Tasks `viewer` may read.

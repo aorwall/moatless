@@ -51,6 +51,15 @@ impl Workspaces {
             .await
     }
 
+    /// See [`WorkspaceDao::readable_repositories`].
+    pub async fn readable_repositories(
+        &self,
+        ctx: &ScopeContext,
+        workspace_id: &str,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        self.store.readable_repositories(ctx, workspace_id).await
+    }
+
     /// See [`WorkspaceDao::scripts_unscoped`], whose precondition binds every
     /// caller.
     pub async fn scripts_unscoped(

@@ -406,6 +406,37 @@ async fn readable_primary_repository_is_scoped_and_skips_deleted(pool: PgPool) {
     assert_eq!(deleted, None);
 }
 
+#[sqlx::test]
+async fn readable_repositories_lists_every_placement_primary_first(pool: PgPool) {
+    let repo = PgWorkspaceDao(pool.clone());
+    repo.insert_workspace(&make_workspace_row("ws-1", "user-1"))
+        .await
+        .unwrap();
+    for (id, repository, primary, position) in [
+        ("wsr-1b", "repo-b", false, 0),
+        ("wsr-1a", "repo-a", true, 1),
+    ] {
+        repo.add_repo(
+            &make_workspace_repo_row(id, "ws-1", repository, primary, position),
+            &scope_ctx("user-1"),
+        )
+        .await
+        .unwrap();
+    }
+
+    let owner = repo
+        .readable_repositories(&scope_ctx("user-1"), "ws-1")
+        .await
+        .unwrap();
+    assert_eq!(owner, ["repo-a", "repo-b"]);
+
+    let stranger = repo
+        .readable_repositories(&scope_ctx("user-2"), "ws-1")
+        .await
+        .unwrap();
+    assert!(stranger.is_empty());
+}
+
 /// The Script read a Task's scope authorizes: any viewer's, empty for a
 /// Workspace that declared none, and absent once the Workspace is deleted.
 #[sqlx::test]

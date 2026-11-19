@@ -1,5 +1,5 @@
-//! `pullRequests.list`: the pull requests of each readable project's primary
-//! GitHub repository, read from GitHub with the viewer's credentials.
+//! `pullRequests.list`: the pull requests of every GitHub repository each
+//! readable project places, read from GitHub with the viewer's credentials.
 
 use std::collections::{BTreeMap, HashSet};
 
@@ -177,9 +177,11 @@ fn projects_named(input: &PullRequestListInput) -> Vec<String> {
     named
 }
 
-/// The projects to read, each with its primary GitHub repository, read once
-/// per repository, and an `errors` entry for each project whose repository
-/// could not be resolved. A continuation reads only the repositories it names.
+/// The repositories to read — each project's placed ones, then those its
+/// readable Tasks work in, as [`crate::pull_request_review::reach`] opens —
+/// each under the first project naming it, and an `errors` entry for each
+/// project whose placed repositories could not be resolved. A continuation
+/// reads only the repositories it names.
 async fn sources(
     workspaces: &dyn WorkspaceListing,
     host: &dyn PullRequestReviewSource,
@@ -201,8 +203,22 @@ async fn sources(
     // `buffered` keeps the projects' order, so the first project naming a
     // repository is the one that lists it.
     let resolved = futures::stream::iter(projects.into_iter().map(|(project_id, title)| async {
-        let repository = host.project_repository(viewer, &project_id).await;
-        (project_id, title, repository)
+        let repositories = match host.project_repositories(viewer, &project_id).await {
+            // A failed Task lookup costs only the Tasks' repositories, never
+            // the placed ones.
+            Ok(mut repositories) => match host.task_repositories(viewer, &project_id).await {
+                Ok(worked_in) => {
+                    repositories.extend(worked_in);
+                    Ok(repositories)
+                }
+                Err(error) => {
+                    tracing::warn!(?error, project_id, "Task repositories read failed");
+                    Ok(repositories)
+                }
+            },
+            Err(error) => Err(error),
+        };
+        (project_id, title, repositories)
     }))
     .buffered(CONCURRENCY)
     .collect::<Vec<_>>()
@@ -211,35 +227,36 @@ async fn sources(
     let mut seen = HashSet::new();
     let mut sources = Vec::new();
     let mut errors = Vec::new();
-    for (project_id, title, repository) in resolved {
-        let repository = match repository {
-            Ok(Some(repository)) => repository,
-            Ok(None) => continue,
+    for (project_id, title, repositories) in resolved {
+        let repositories = match repositories {
+            Ok(repositories) => repositories,
             Err(error) => {
                 errors.push(source_error(&project_id, &title, &error));
                 continue;
             }
         };
-        if !seen.insert(repository.to_ascii_lowercase()) {
-            continue;
+        for repository in repositories {
+            if !seen.insert(repository.to_ascii_lowercase()) {
+                continue;
+            }
+            let cursor = match cursors {
+                Some(cursors) => match cursors.get(&format!("{HOST} {repository}")) {
+                    Some(cursor) => Some(cursor.clone()),
+                    None => continue,
+                },
+                None => None,
+            };
+            sources.push(Source {
+                project_title: if title.is_empty() {
+                    repository.clone()
+                } else {
+                    title.clone()
+                },
+                project_id: project_id.clone(),
+                repository,
+                cursor,
+            });
         }
-        let cursor = match cursors {
-            Some(cursors) => match cursors.get(&format!("{HOST} {repository}")) {
-                Some(cursor) => Some(cursor.clone()),
-                None => continue,
-            },
-            None => None,
-        };
-        sources.push(Source {
-            project_title: if title.is_empty() {
-                repository.clone()
-            } else {
-                title
-            },
-            project_id,
-            repository,
-            cursor,
-        });
     }
     Ok((sources, errors))
 }

@@ -120,6 +120,15 @@ pub(crate) trait WorkspaceDao: Send + Sync {
         workspace_id: &str,
     ) -> Result<Option<String>, sqlx::Error>;
 
+    /// The repository id of every placement, ordered as [`Self::find_repos`],
+    /// read only when the caller may read the live Workspace; empty when
+    /// [`Self::readable_primary_repository`] would be `None`.
+    async fn readable_repositories(
+        &self,
+        ctx: &ScopeContext,
+        workspace_id: &str,
+    ) -> Result<Vec<String>, sqlx::Error>;
+
     /// Insert a workspace row, recording a listing change.
     async fn insert_workspace(&self, row: &Workspace) -> Result<(), sqlx::Error>;
 
@@ -148,6 +157,21 @@ pub(crate) trait WorkspaceDao: Send + Sync {
 
 /// PostgreSQL implementation of [`WorkspaceDao`].
 pub(crate) struct PgWorkspaceDao(pub(crate) DbPool);
+
+/// A readable live Workspace's placed repository ids, primary first; binds
+/// `$1` the Workspace id and `$2`, `$3` the access filter's.
+fn readable_repositories_sql(limit: &str) -> String {
+    let access = moatless_core::db::access_control::access_filter(ScopedEntity::Resource, "w.", 2);
+    format!(
+        "SELECT r.repository_id FROM workspace_repos r \
+         JOIN workspaces w ON w.id = r.workspace_id \
+         WHERE r.workspace_id = $1 \
+         AND (w.deleted IS NULL OR w.deleted = false) \
+         AND {} \
+         ORDER BY r.is_primary DESC, r.position ASC, r.id ASC {limit}",
+        access.sql()
+    )
+}
 
 #[async_trait]
 impl WorkspaceDao for PgWorkspaceDao {
@@ -241,23 +265,24 @@ impl WorkspaceDao for PgWorkspaceDao {
         ctx: &ScopeContext,
         workspace_id: &str,
     ) -> Result<Option<String>, sqlx::Error> {
-        let access =
-            moatless_core::db::access_control::access_filter(ScopedEntity::Resource, "w.", 2);
-        let sql = format!(
-            "SELECT r.repository_id FROM workspace_repos r \
-             JOIN workspaces w ON w.id = r.workspace_id \
-             WHERE r.workspace_id = $1 \
-             AND (w.deleted IS NULL OR w.deleted = false) \
-             AND {} \
-             ORDER BY r.is_primary DESC, r.position ASC, r.id ASC \
-             LIMIT 1",
-            access.sql()
-        );
-        sqlx::query_scalar::<_, String>(AssertSqlSafe(sql))
+        sqlx::query_scalar::<_, String>(AssertSqlSafe(readable_repositories_sql("LIMIT 1")))
             .bind(workspace_id)
             .bind(ctx.is_admin)
             .bind(&ctx.user_id)
             .fetch_optional(&self.0)
+            .await
+    }
+
+    async fn readable_repositories(
+        &self,
+        ctx: &ScopeContext,
+        workspace_id: &str,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        sqlx::query_scalar::<_, String>(AssertSqlSafe(readable_repositories_sql("")))
+            .bind(workspace_id)
+            .bind(ctx.is_admin)
+            .bind(&ctx.user_id)
+            .fetch_all(&self.0)
             .await
     }
 

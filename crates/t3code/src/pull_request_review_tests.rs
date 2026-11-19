@@ -232,7 +232,8 @@ fn truncation_keeps_whole_characters() {
     assert_eq!(truncate("ab", 5), "ab");
 }
 
-/// `ws-1`'s primary repository is `project_repository`; no Task is bound to
+/// `ws-1` places `project_repository`, or `acme/api` then `acme/app` when it
+/// is `"acme/api+acme/app"`; no Task is bound to
 /// the pull request, so a fallback finds nothing. `fallback` is how many
 /// times the bindings are asked.
 async fn reach_with(
@@ -250,9 +251,10 @@ async fn reach_with_tasks(
 ) -> Result<Option<String>, PullRequestReviewError> {
     let mut host =
         crate::pull_request_list::tests::ProjectRepositories::new(match project_repository {
-            Some("acme/app") => |_| Ok(Some("acme/app".to_string())),
-            Some(_) => |_| Ok(Some("acme/api".to_string())),
-            None => |_| Ok(None),
+            Some("acme/app") => |_| Ok(vec!["acme/app".to_string()]),
+            Some("acme/api+acme/app") => |_| Ok(vec!["acme/api".into(), "acme/app".into()]),
+            Some(_) => |_| Ok(vec!["acme/api".to_string()]),
+            None => |_| Ok(Vec::new()),
         });
     host.task_repositories = task_repositories.iter().map(ToString::to_string).collect();
     let mut bound = crate::ports::MockBoundPullRequestSource::new();
@@ -268,6 +270,12 @@ async fn reach_with_tasks(
 #[tokio::test]
 async fn a_pull_request_in_the_projects_primary_repository_is_reached_through_it() {
     let reached = reach_with(Some("acme/app"), 0).await.unwrap();
+    assert_eq!(reached.as_deref(), Some("ws-1"));
+}
+
+#[tokio::test]
+async fn a_pull_request_in_a_projects_other_repository_is_reached_through_it() {
+    let reached = reach_with(Some("acme/api+acme/app"), 0).await.unwrap();
     assert_eq!(reached.as_deref(), Some("ws-1"));
 }
 

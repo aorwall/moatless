@@ -2,8 +2,8 @@
 //! and its guided review, which a Task the viewer starts writes and submits
 //! with `moat review-guide submit`.
 //!
-//! Every read is authorized through the project it names, whose primary
-//! repository must be the pull request's, or else through a Task the viewer
+//! Every read is authorized through the project it names, which must place
+//! the pull request's repository, or else through a Task the viewer
 //! may read that is bound to it: an arbitrary reference answers not found.
 
 use chrono::{DateTime, Duration, Utc};
@@ -149,7 +149,7 @@ pub(crate) fn review_ports(state: &crate::state::UiRpcState) -> ReviewPorts<'_> 
 }
 
 /// The Workspace the viewer reaches `target` through: the named project when
-/// its primary repository is the pull request's or one a readable Task in it
+/// it places the pull request's repository or a readable Task in it
 /// works in, else that of a readable Task bound to it. `None` inside `Ok` is a
 /// bound Task with no Workspace.
 pub(crate) async fn reach(
@@ -168,9 +168,11 @@ async fn reach_through(
     viewer: &ScopeContext,
     target: &PullRequestTarget<'_>,
 ) -> Result<Option<String>, PullRequestReviewError> {
-    let project_repository = host.project_repository(viewer, target.project_id).await?;
-    if project_repository
-        .is_some_and(|repository| repository.eq_ignore_ascii_case(target.repository))
+    if host
+        .project_repositories(viewer, target.project_id)
+        .await?
+        .iter()
+        .any(|repository| repository.eq_ignore_ascii_case(target.repository))
     {
         return Ok(Some(target.project_id.to_string()));
     }
