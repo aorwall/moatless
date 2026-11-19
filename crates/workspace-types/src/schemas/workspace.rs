@@ -158,6 +158,9 @@ pub struct WorkspaceResponse {
     /// Reasoning-effort level paired with `default_model`.
     #[serde(default)]
     pub default_effort: Option<String>,
+    /// Key of the Linear team (`SP`) this workspace's issues come from.
+    #[serde(default)]
+    pub linear_team: Option<String>,
     /// `manual` or `git`. Git-synced workspaces are read-only in the UI and
     /// write API — only a re-sync from git changes them.
     #[serde(default)]

@@ -48,6 +48,7 @@ pub struct WorkspaceRow {
     // --- Task defaults ---
     pub default_model: Option<String>,
     pub default_effort: Option<String>,
+    pub linear_team: Option<String>,
     // --- Provenance ---
     pub source: String,
     pub source_repository_id: Option<String>,
@@ -87,6 +88,7 @@ impl TryFrom<WorkspaceRow> for Workspace {
             description: row.description,
             default_model: row.default_model,
             default_effort: row.default_effort,
+            linear_team: row.linear_team,
             docker_image: row.docker_image,
             docker_access: row.docker_access,
             sandbox_service_account: row.sandbox_service_account,
@@ -244,6 +246,7 @@ pub struct WorkspacePatch {
     pub services: Option<Option<Vec<String>>>,
     pub default_model: Option<Option<String>>,
     pub default_effort: Option<Option<String>>,
+    pub linear_team: Option<Option<String>>,
     pub source: Option<WorkspaceSource>,
     pub source_repository_id: Option<Option<String>>,
     pub source_key: Option<Option<String>>,

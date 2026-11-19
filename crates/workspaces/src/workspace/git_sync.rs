@@ -100,6 +100,8 @@ pub struct MoatlessWorkspaceEntry {
     // --- Task defaults ---
     pub default_model: Option<String>,
     pub default_effort: Option<String>,
+    /// Key of the Linear team T3's Issues page lists (`SP`).
+    pub linear_team: Option<String>,
     // --- Run configuration ---
     pub docker_image: Option<String>,
     pub docker_access: Option<bool>,
@@ -779,6 +781,7 @@ struct RunConfig {
     icon: Option<WorkspaceIcon>,
     default_model: Option<String>,
     default_effort: Option<String>,
+    linear_team: Option<String>,
     docker_image: Option<String>,
     docker_access: Option<bool>,
     sandbox_service_account: Option<String>,
@@ -853,6 +856,11 @@ fn run_config_from_entry(entry: &MoatlessWorkspaceEntry) -> RunConfig {
         icon: parse_icon(entry),
         default_model: entry.default_model.clone(),
         default_effort: entry.default_effort.clone(),
+        linear_team: entry
+            .linear_team
+            .as_deref()
+            .map(|team| team.trim().to_uppercase())
+            .filter(|team| !team.is_empty()),
         docker_image: entry.docker_image.clone(),
         docker_access: entry.docker_access,
         sandbox_service_account: entry.sandbox_service_account.clone(),
@@ -906,6 +914,7 @@ impl GitSyncService {
                     icon: desired.run.icon.clone(),
                     default_model: desired.run.default_model.clone(),
                     default_effort: desired.run.default_effort.clone(),
+                    linear_team: desired.run.linear_team.clone(),
                     kind: WorkspaceKind::Single, // `replace_git_placements` derives it
                     docker_image: desired.run.docker_image.clone(),
                     docker_access: desired.run.docker_access,
@@ -955,6 +964,7 @@ impl GitSyncService {
             icon: Some(desired.run.icon.clone()),
             default_model: Some(desired.run.default_model.clone()),
             default_effort: Some(desired.run.default_effort.clone()),
+            linear_team: Some(desired.run.linear_team.clone()),
             docker_image: Some(desired.run.docker_image.clone()),
             docker_access: Some(desired.run.docker_access),
             sandbox_service_account: Some(desired.run.sandbox_service_account.clone()),

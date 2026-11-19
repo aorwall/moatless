@@ -397,6 +397,7 @@ mod tests {
             icon: None,
             default_model: None,
             default_effort: None,
+            linear_team: None,
             kind: moatless_workspace_types::workspace::WorkspaceKind::Single,
             docker_image: None,
             docker_access: None,

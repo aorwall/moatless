@@ -33,6 +33,7 @@ const WORKSPACE_COLUMNS: &str = "w.id, w.name, w.description, w.icon, w.kind,
     w.docker_image, w.docker_access, w.sandbox_service_account, w.system_prompt,
     w.setup_commands, w.env_vars, w.scripts, w.resources, w.language_servers,
     w.network_profile, w.node_selector, w.services, w.default_model, w.default_effort,
+    w.linear_team,
     w.source, w.source_repository_id, w.source_key, w.source_config_path,
     w.scope, w.owner_user_id, w.run_as_user_id, w.created_by, w.deleted,
     w.created_at, w.updated_at";
@@ -296,11 +297,11 @@ impl WorkspaceDao for PgWorkspaceDao {
                    language_servers, network_profile, node_selector, default_model,
                    default_effort, source, source_repository_id, source_key,
                    source_config_path, scope, owner_user_id, run_as_user_id,
-                   created_by, deleted, services
+                   created_by, deleted, services, linear_team
                ) VALUES (
                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
                    $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26,
-                   $27, $28
+                   $27, $28, $29
                )"#,
         )
         .bind(&row.id)
@@ -337,6 +338,7 @@ impl WorkspaceDao for PgWorkspaceDao {
         .bind(&row.created_by)
         .bind(row.deleted)
         .bind(encode_column(row.services.as_ref(), "services")?)
+        .bind(&row.linear_team)
         .execute(&mut *tx)
         .await?;
         // A new project is a listing change before any thread runs in it: a
@@ -463,6 +465,7 @@ impl WorkspaceDao for PgWorkspaceDao {
         push_set!(services);
         push_set!(default_model);
         push_set!(default_effort);
+        push_set!(linear_team);
         push_set!(source);
         push_set!(source_repository_id);
         push_set!(source_key);
@@ -547,6 +550,7 @@ impl WorkspaceDao for PgWorkspaceDao {
         bind_json!(services);
         bind_opt!(default_model);
         bind_opt!(default_effort);
+        bind_opt!(linear_team);
         if let Some(source) = patch.source {
             q = q.bind(source.as_str());
         }

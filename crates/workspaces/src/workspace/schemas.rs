@@ -114,6 +114,7 @@ pub fn workspace_response(w: Workspace, repos: Vec<WorkspaceRepo>) -> WorkspaceR
         node_selector: w.node_selector,
         default_model: w.default_model,
         default_effort: w.default_effort,
+        linear_team: w.linear_team,
         synced_from_git: w.source == WorkspaceSource::Git,
         source_config_path: w.source_config_path,
         source: w.source.to_string(),

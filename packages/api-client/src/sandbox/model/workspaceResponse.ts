@@ -52,6 +52,11 @@ export interface WorkspaceResponse {
   kind: string;
   /** @nullable */
   languageServers?: LanguageServer[] | null;
+  /**
+     * Key of the Linear team (`SP`) this workspace's issues come from.
+     * @nullable
+     */
+  linearTeam?: string | null;
   name: string;
   /** @nullable */
   networkProfile?: string | null;

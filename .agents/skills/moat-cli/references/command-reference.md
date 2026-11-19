@@ -66,7 +66,8 @@ edit `.moatless/workspaces.json` in the owning repository: an entry with
 An entry with no `repos` places the owning repository alone; add
 `"placeRepository": false` to place none, so its Tasks start with nothing
 cloned.
-An entry also takes `icon`, `defaultModel`, `defaultEffort`, and
+An entry also takes `icon`, `defaultModel`, `defaultEffort`, `linearTeam` (the
+Linear team key, such as `SP`, whose issues T3 lists for the Workspace), and
 `"skills": {"enable": [...], "disable": [...]}` naming `<plugin>` or
 `<plugin>:<skill>`, which replaces the Workspace's activation records on every
 sync (deleting the key keeps the last ones, so commit `{}` to clear).

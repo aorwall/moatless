@@ -63,6 +63,7 @@ pub fn make_workspace_row(id: &str, user_id: &str) -> Workspace {
         icon: None,
         default_model: None,
         default_effort: None,
+        linear_team: None,
         kind: moatless_workspace_types::workspace::WorkspaceKind::Blank,
         docker_image: None,
         docker_access: None,

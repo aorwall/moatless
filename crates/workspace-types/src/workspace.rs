@@ -106,6 +106,9 @@ pub struct Workspace {
     pub default_model: Option<String>,
     /// Reasoning-effort level paired with [`Self::default_model`] (`high`).
     pub default_effort: Option<String>,
+    /// Key of the Linear team (`SP`) T3's Issues page lists for this
+    /// Workspace. `None` gives the Workspace no issue tracker.
+    pub linear_team: Option<String>,
     // --- Provenance ---
     pub source: WorkspaceSource,
     /// The repository whose git tree declared this Workspace.

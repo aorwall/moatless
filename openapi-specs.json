@@ -21684,6 +21684,13 @@
               "$ref": "#/components/schemas/LanguageServer"
             }
           },
+          "linearTeam": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Key of the Linear team (`SP`) this workspace's issues come from."
+          },
           "name": {
             "type": "string"
           },

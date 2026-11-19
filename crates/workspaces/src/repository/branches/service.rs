@@ -222,6 +222,7 @@ mod tests {
             icon: None,
             default_model: None,
             default_effort: None,
+            linear_team: None,
             kind: WorkspaceKind::Single,
             docker_image: None,
             docker_access: None,

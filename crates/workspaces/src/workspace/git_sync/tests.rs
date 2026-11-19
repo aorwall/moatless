@@ -253,6 +253,32 @@ fn language_servers_keep_known_ids_and_name_unknown_ones() {
     assert_eq!(warnings[0].message, UNKNOWN_LANGUAGE_SERVER);
 }
 
+/// Linear team keys are upper case and an issue's identifier carries its
+/// team's key, so a lowercase or padded key would match no issue.
+#[test]
+fn a_linear_team_is_read_as_its_upper_case_key() {
+    let json = r#"{
+        "workspaces": [
+            { "name": "API", "repos": [], "linearTeam": " sp " },
+            { "name": "Web", "repos": [], "linearTeam": "  " }
+        ]
+    }"#;
+    let file: MoatlessWorkspacesFile = serde_json::from_str(json).expect("parse");
+
+    assert_eq!(
+        run_config_from_entry(&file.workspaces[0])
+            .linear_team
+            .as_deref(),
+        Some("SP")
+    );
+    assert!(
+        run_config_from_entry(&file.workspaces[1])
+            .linear_team
+            .is_none()
+    );
+    assert!(unknown_key_warnings(&file).is_empty());
+}
+
 /// The Task defaults and the icon reach the row from git, so changing one
 /// no longer costs an override; an absent key clears the column.
 #[test]
