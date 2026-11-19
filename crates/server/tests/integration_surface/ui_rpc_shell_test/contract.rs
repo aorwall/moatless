@@ -34,6 +34,7 @@ const THREAD_OPTIONAL: &[&str] = &[
     "backgroundLiveness",
     "linkedPullRequest",
     "pullRequests",
+    "issues",
     "visibility",
     "interactionMode",
     "archivedAt",
