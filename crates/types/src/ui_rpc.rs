@@ -75,6 +75,10 @@ pub struct T3UiRpcConfig {
     /// `T3_UI_RPC_SCRATCH_WORKSPACE`: the id of the Workspace a thread with no
     /// project runs in. Unset, a viewer's only readable blank Workspace is it.
     pub scratch_workspace: Option<String>,
+    /// `T3_UI_RPC_LINEAR_DEFAULT_TEAM`: the Linear team key (`SP`) a Workspace
+    /// declaring no `linearTeam` lists issues for. Unset, such a Workspace has
+    /// no Linear team.
+    pub linear_default_team: Option<String>,
 }
 
 #[allow(clippy::missing_fields_in_debug)]
@@ -96,6 +100,7 @@ impl fmt::Debug for T3UiRpcConfig {
             )
             .field("review_guide_fork_author", &self.review_guide_fork_author)
             .field("scratch_workspace", &self.scratch_workspace)
+            .field("linear_default_team", &self.linear_default_team)
             .finish()
     }
 }

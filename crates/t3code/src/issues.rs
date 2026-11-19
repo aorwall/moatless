@@ -32,6 +32,8 @@ pub(crate) struct IssuePorts<'a> {
     pub(crate) workspaces: &'a dyn WorkspaceListing,
     pub(crate) tracker: &'a dyn IssueTrackerSource,
     pub(crate) conversations: &'a dyn ConversationDao,
+    /// [`crate::config::UiRpcConfig::linear_default_team`].
+    pub(crate) default_team: Option<&'a str>,
 }
 
 pub(crate) fn issue_ports(state: &crate::state::UiRpcState) -> IssuePorts<'_> {
@@ -39,6 +41,7 @@ pub(crate) fn issue_ports(state: &crate::state::UiRpcState) -> IssuePorts<'_> {
         workspaces: state.reads.workspaces(),
         tracker: state.issues.as_ref(),
         conversations: state.reads.conversations(),
+        default_team: state.rpc.linear_default_team.as_deref(),
     }
 }
 
@@ -117,8 +120,8 @@ struct Project {
     team: String,
 }
 
-/// Every readable project declaring a Linear team, by name; only `named` when
-/// given.
+/// Every readable project with a Linear team, its own or
+/// [`IssuePorts::default_team`], by name; only `named` when given.
 async fn projects(
     ports: &IssuePorts<'_>,
     viewer: &ScopeContext,
@@ -137,7 +140,8 @@ async fn projects(
                 .linear_team
                 .as_deref()
                 .map(str::trim)
-                .filter(|team| !team.is_empty())?
+                .filter(|team| !team.is_empty())
+                .or(ports.default_team)?
                 .to_ascii_uppercase();
             let title = listed.workspace.name.trim();
             Some(Project {

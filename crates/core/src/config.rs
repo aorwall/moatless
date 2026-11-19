@@ -744,6 +744,9 @@ fn t3_ui_rpc_from_env() -> Result<T3UiRpcConfig, ConfigError> {
         scratch_workspace: env_opt("T3_UI_RPC_SCRATCH_WORKSPACE")
             .map(|id| id.trim().to_string())
             .filter(|id| !id.is_empty()),
+        linear_default_team: env_opt("T3_UI_RPC_LINEAR_DEFAULT_TEAM")
+            .map(|team| team.trim().to_ascii_uppercase())
+            .filter(|team| !team.is_empty()),
     })
 }
 

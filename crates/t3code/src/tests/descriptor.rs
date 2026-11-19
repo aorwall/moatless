@@ -153,6 +153,7 @@ fn a_deployment_that_cannot_sign_an_upload_url_omits_both_keys() {
         orchestration_protocol_version: 1,
         review_guide_fork_author: false,
         scratch_workspace: None,
+        linear_default_team: None,
     };
     let capabilities = &descriptor(&config)["capabilities"];
 
@@ -174,6 +175,7 @@ fn a_deployment_with_a_hub_declares_the_usage_limit_source_capability() {
         orchestration_protocol_version: 1,
         review_guide_fork_author: false,
         scratch_workspace: None,
+        linear_default_team: None,
     };
 
     assert_eq!(
@@ -195,6 +197,7 @@ fn the_descriptor_reports_the_contract_version_the_code_implements() {
         orchestration_protocol_version: 1,
         review_guide_fork_author: false,
         scratch_workspace: None,
+        linear_default_team: None,
     };
 
     assert_eq!(
@@ -218,6 +221,7 @@ fn config_at(orchestration_protocol_version: u8) -> UiRpcConfig {
         orchestration_protocol_version,
         review_guide_fork_author: false,
         scratch_workspace: None,
+        linear_default_team: None,
     }
 }
 

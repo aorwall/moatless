@@ -96,6 +96,7 @@ async fn a_listing_reads_each_declared_team_once_through_its_first_project() {
         workspaces: &listed,
         tracker: &tracker,
         conversations: &conversations,
+        default_team: None,
     };
 
     let result = list(&ports, &viewer(), &IssueListInput::default())
@@ -142,6 +143,7 @@ async fn a_continuation_reads_only_the_teams_it_names() {
         workspaces: &listed,
         tracker: &tracker,
         conversations: &conversations,
+        default_team: None,
     };
     let input: IssueListInput = serde_json::from_value(json!({
         "state": "open",
@@ -166,6 +168,7 @@ async fn a_project_lends_its_connection_to_another_teams_issue() {
         workspaces: &listed,
         tracker: &tracker,
         conversations: &conversations,
+        default_team: None,
     };
 
     let failure = detail(
@@ -196,6 +199,7 @@ async fn a_project_declaring_no_team_is_refused_before_linear_is_asked() {
         workspaces: &listed,
         tracker: &tracker,
         conversations: &conversations,
+        default_team: None,
     };
 
     let failure = detail(
@@ -238,6 +242,7 @@ async fn a_comment_goes_out_under_the_viewers_login_on_the_projects_team() {
         workspaces: &listed,
         tracker: &tracker,
         conversations: &conversations,
+        default_team: None,
     };
 
     let answer = comment(
@@ -289,6 +294,7 @@ async fn the_tracker_listing_binds_each_project_to_its_team() {
         workspaces: &listed,
         tracker: &tracker,
         conversations: &conversations,
+        default_team: None,
     };
 
     let result = trackers(&ports, &viewer()).await.unwrap();
@@ -302,5 +308,36 @@ async fn the_tracker_listing_binds_each_project_to_its_team() {
     assert_eq!(
         result["trackers"][0]["scopes"],
         json!([{ "key": "SP", "name": "Product" }])
+    );
+}
+
+#[tokio::test]
+async fn a_project_declaring_no_team_reads_the_deployment_default() {
+    let listed = workspaces(vec![
+        project("ws-1", "App", None),
+        project("ws-3", "Infra", Some("OPS")),
+    ]);
+    let tracker = MockIssueTrackerSource::new();
+    let conversations = MockConversationDao::new();
+    let ports = IssuePorts {
+        workspaces: &listed,
+        tracker: &tracker,
+        conversations: &conversations,
+        default_team: Some("sp"),
+    };
+
+    let teams: Vec<(String, String)> = projects(&ports, &viewer(), None)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|project| (project.id, project.team))
+        .collect();
+
+    assert_eq!(
+        teams,
+        [
+            ("ws-1".to_string(), "SP".to_string()),
+            ("ws-3".to_string(), "OPS".to_string()),
+        ]
     );
 }

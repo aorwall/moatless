@@ -103,6 +103,7 @@ pub async fn mount(
         orchestration_protocol_version: settings.orchestration_protocol_version,
         review_guide_fork_author: settings.review_guide_fork_author,
         scratch_workspace: settings.scratch_workspace,
+        linear_default_team: settings.linear_default_team,
         allowed_origins: settings.allowed_origins,
         otlp_traces_enabled,
         attachment_uploads: session_jwt_secret.is_some(),

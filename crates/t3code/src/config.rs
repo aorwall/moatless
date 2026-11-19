@@ -42,6 +42,8 @@ pub(crate) struct UiRpcConfig {
     /// See [`moatless_types::ui_rpc::T3UiRpcConfig::scratch_workspace`] and
     /// [`crate::scratch`].
     pub(crate) scratch_workspace: Option<String>,
+    /// See [`moatless_types::ui_rpc::T3UiRpcConfig::linear_default_team`].
+    pub(crate) linear_default_team: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]

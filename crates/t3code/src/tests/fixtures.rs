@@ -964,6 +964,7 @@ fn state_from(
             orchestration_protocol_version: 1,
             review_guide_fork_author: false,
             scratch_workspace: None,
+            linear_default_team: None,
         }),
         environment: Arc::new(stub_identity()),
         session_cookie_name: Arc::from("moatless_session"),
