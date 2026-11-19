@@ -22,10 +22,17 @@ async fn create_upload_url_answers_an_id_and_a_url_under_the_upload_prefix() {
             .as_str()
             .is_some_and(|id| !id.is_empty())
     );
+    // `AttachmentCreateUploadUrlResult.relativeUrl`'s pattern; the client
+    // drops a mint that fails it, and the upload never starts.
+    let token = value["relativeUrl"]
+        .as_str()
+        .and_then(|url| url.strip_prefix("/api/attachments/upload/"))
+        .unwrap_or_default();
     assert!(
-        value["relativeUrl"]
-            .as_str()
-            .is_some_and(|url| url.starts_with("/api/attachments/")),
+        !token.is_empty()
+            && token
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-')),
         "{value}"
     );
     assert!(value["expiresAt"].as_i64().is_some_and(|at| at > 0));

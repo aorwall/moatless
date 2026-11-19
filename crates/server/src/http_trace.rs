@@ -7,7 +7,7 @@ use moatless_types::http::{RefusedAtCapacity, RelayedUpstreamFailure};
 /// Path prefixes whose next segment is a page or attachment upload token.
 /// Copies of `PAGE_RECORDS_ROUTE`'s and `UPLOAD_ROUTE_PREFIX`'s prefixes: a
 /// route renamed without this list writes its token to every request log.
-const TOKEN_PATH_PREFIXES: [&str; 2] = ["/api/artifact-data/", "/api/attachments/"];
+const TOKEN_PATH_PREFIXES: [&str; 2] = ["/api/artifact-data/", "/api/attachments/upload/"];
 
 pub(crate) async fn request_trace_middleware(
     req: axum::extract::Request,
@@ -113,8 +113,8 @@ mod tests {
     #[test]
     fn an_attachment_upload_token_is_redacted() {
         assert_eq!(
-            redact_path("/api/attachments/abc.def"),
-            "/api/attachments/:token"
+            redact_path("/api/attachments/upload/abc.def"),
+            "/api/attachments/upload/:token"
         );
     }
 

@@ -107,7 +107,7 @@ fn is_exempt(path: &str) -> bool {
     // write, verified before any read (`moatless_t3code::attachments`).
     // CSRF-exempt: uploads use bare `xhr.send(file)`, no CSRF header;
     // falling back to the cookie would be the CSRF. 404s when unmounted.
-    if path.starts_with("/api/attachments/") {
+    if path.starts_with("/api/attachments/upload/") {
         return true;
     }
 

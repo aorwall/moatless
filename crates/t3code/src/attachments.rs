@@ -23,14 +23,13 @@ use tracing::{debug, error, warn};
 use crate::UiRpcState;
 use crate::ports::{AttachmentStore, AttachmentStoreError, DeclaredAttachment};
 
-/// Where [`create_upload_url`]'s answers point, and what [`receive`] is mounted
-/// at; the rest of the path is the signed token.
+/// Where [`create_upload_url`]'s answers point and [`receive`] is mounted.
 ///
-/// Exempt from the auth middleware's cookie handling in
-/// `moatless_identity::auth::middleware`, and redacted from request logs by
-/// `moatless_backend::http_trace`; both know this prefix by name.
-pub(crate) const UPLOAD_ROUTE_PREFIX: &str = "/api/attachments";
-pub(crate) const UPLOAD_ROUTE_PATTERN: &str = "/api/attachments/{token}";
+/// `moatless_identity::auth::middleware` and `moatless_backend::http_trace`
+/// copy this prefix. The client drops a mint outside
+/// `AttachmentCreateUploadUrlResult`'s pattern, so a rename breaks uploads.
+pub(crate) const UPLOAD_ROUTE_PREFIX: &str = "/api/attachments/upload";
+pub(crate) const UPLOAD_ROUTE_PATTERN: &str = "/api/attachments/upload/{token}";
 
 /// `PROVIDER_SEND_TURN_MAX_IMAGE_BYTES` (`contracts/src/orchestration.ts:158`).
 pub(crate) const MAX_IMAGE_BYTES: i64 = 10 * 1024 * 1024;

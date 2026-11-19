@@ -117,7 +117,7 @@ async fn a_url_this_server_did_not_mint_stores_nothing() {
     let minted = minted_url(&state, 8).await;
 
     for url in [
-        "/api/attachments/not-a-token".to_string(),
+        "/api/attachments/upload/not-a-token".to_string(),
         format!("{minted}x"),
     ] {
         assert_eq!(
