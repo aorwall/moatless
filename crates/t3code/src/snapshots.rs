@@ -408,14 +408,11 @@ impl ShellSnapshot {
     }
 
     pub(crate) fn ids(&self, collection: &str, key: &str) -> Vec<String> {
-        self.value[collection]
-            .as_array()
-            .map(|rows| {
-                rows.iter()
-                    .filter_map(|row| row[key].as_str().map(str::to_owned))
-                    .collect()
-            })
-            .unwrap_or_default()
+        self.value[collection].as_array().map_or_default(|rows| {
+            rows.iter()
+                .filter_map(|row| row[key].as_str().map(str::to_owned))
+                .collect()
+        })
     }
 }
 

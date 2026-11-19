@@ -1052,10 +1052,7 @@ fn refusal(status: reqwest::StatusCode, body: &str, app_id: u64) -> AuthError {
              stored."
         ),
         _ => {
-            let detail = github_said
-                .as_deref()
-                .map(|m| format!(" ({m})"))
-                .unwrap_or_default();
+            let detail = github_said.as_deref().map_or_default(|m| format!(" ({m})"));
             format!("GitHub refused the request with {status}{detail}, so the App was not stored.")
         }
     })

@@ -199,9 +199,7 @@ pub(super) async fn handle_issue_labeled(
             continue;
         }
 
-        let by = actor_handle(labeled.actor.as_ref())
-            .map(|name| format!(" by {name}"))
-            .unwrap_or_default();
+        let by = actor_handle(labeled.actor.as_ref()).map_or_default(|name| format!(" by {name}"));
         let (reason, clock) = match labeled.trigger {
             LabelTrigger::Created => (
                 format!("was created with the label \"{label}\"{by}"),

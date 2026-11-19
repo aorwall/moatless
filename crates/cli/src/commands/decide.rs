@@ -222,10 +222,7 @@ pub fn pick_each<'a>(
 }
 
 pub fn summary(response: &PickDecisionResponse) -> String {
-    let confidence = response
-        .confidence
-        .map(|c| format!("{c:.2}, "))
-        .unwrap_or_default();
+    let confidence = response.confidence.map_or_default(|c| format!("{c:.2}, "));
     let mut lines = vec![format!(
         "choice: {} ({confidence}{})",
         response.choice,

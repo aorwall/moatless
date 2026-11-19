@@ -275,9 +275,7 @@ async fn set_activation(
         let state = if stored.enabled { "on" } else { "off" };
         // Whose record only when the command named somebody: on one's own it
         // adds an id the caller did not type and does not need.
-        let whose = named_user
-            .map(|id| format!(" (user {id})"))
-            .unwrap_or_default();
+        let whose = named_user.map_or_default(|id| format!(" (user {id})"));
         println!("{what} is now {state} for {:?}{whose}.", stored.reach);
         if stored.always {
             println!("  always: a workspace record cannot overturn this one.");

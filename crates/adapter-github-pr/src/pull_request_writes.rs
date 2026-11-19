@@ -314,17 +314,14 @@ pub async fn label_candidates(
     let repository = data
         .repository
         .ok_or_else(|| refused("GitHub has no such repository"))?;
-    let applied: Vec<String> = repository
-        .pull_request
-        .map(|pr| {
-            pr.labels
-                .nodes
-                .into_iter()
-                .flatten()
-                .map(|l| l.name)
-                .collect()
-        })
-        .unwrap_or_default();
+    let applied: Vec<String> = repository.pull_request.map_or_default(|pr| {
+        pr.labels
+            .nodes
+            .into_iter()
+            .flatten()
+            .map(|l| l.name)
+            .collect()
+    });
     let candidates: Vec<PullRequestLabelCandidate> = repository
         .labels
         .nodes

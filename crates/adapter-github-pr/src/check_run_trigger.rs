@@ -362,8 +362,7 @@ fn repeat_text(request: &Execution, fresh: &[String], new_head: bool) -> String 
         )
     } else {
         let rules = rules_asking_for(&request.matched, fresh)
-            .map(|ids| format!(" (rule {ids})"))
-            .unwrap_or_default();
+            .map_or_default(|ids| format!(" (rule {ids})"));
         format!(
             "The {} check added {} for {sha7}{rules}.",
             request.check_name,

@@ -229,8 +229,7 @@ impl DockerStatusResolver {
 
                 let status_str = state
                     .and_then(|s| s.status.as_ref())
-                    .map(std::string::ToString::to_string)
-                    .unwrap_or_default();
+                    .map_or_default(std::string::ToString::to_string);
 
                 let sandbox_status = DockerContainerState::try_from(status_str.as_str())
                     .map_or(SandboxStatus::Error, DockerContainerState::sandbox_status);

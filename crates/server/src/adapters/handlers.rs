@@ -21,8 +21,7 @@ pub async fn list_adapters(State(state): State<AppState>) -> Json<Vec<String>> {
     let types = state
         .adapters
         .as_ref()
-        .map(|p| p.registered_types())
-        .unwrap_or_default();
+        .map_or_default(|p| p.registered_types());
 
     let adapters = types
         .into_iter()

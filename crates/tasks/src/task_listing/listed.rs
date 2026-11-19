@@ -282,8 +282,7 @@ impl ListingCursor {
     pub fn encode(&self) -> String {
         let updated_at = self
             .updated_at
-            .map(|at| at.to_rfc3339_opts(chrono::SecondsFormat::Micros, true))
-            .unwrap_or_default();
+            .map_or_default(|at| at.to_rfc3339_opts(chrono::SecondsFormat::Micros, true));
         format!("{updated_at}|{}", self.task_id)
     }
 

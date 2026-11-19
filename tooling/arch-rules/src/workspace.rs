@@ -114,15 +114,12 @@ impl Workspace {
                 .ok_or_else(|| anyhow!("manifest {manifest} has no parent"))?
                 .to_path_buf();
 
-            let normal_deps = pkg["dependencies"]
-                .as_array()
-                .map(|deps| {
-                    deps.iter()
-                        .filter(|d| d["kind"].is_null())
-                        .filter_map(|d| d["name"].as_str().map(str::to_string))
-                        .collect()
-                })
-                .unwrap_or_default();
+            let normal_deps = pkg["dependencies"].as_array().map_or_default(|deps| {
+                deps.iter()
+                    .filter(|d| d["kind"].is_null())
+                    .filter_map(|d| d["name"].as_str().map(str::to_string))
+                    .collect()
+            });
 
             let dependencies = pkg["dependencies"]
                 .as_array()

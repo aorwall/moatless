@@ -871,13 +871,12 @@ fn print_issue(issue: &Value) {
     let labels: Vec<&str> = issue
         .pointer("/labels/nodes")
         .and_then(Value::as_array)
-        .map(|nodes| {
+        .map_or_default(|nodes| {
             nodes
                 .iter()
                 .filter_map(|n| n.get("name").and_then(Value::as_str))
                 .collect()
-        })
-        .unwrap_or_default();
+        });
     let url = issue.get("url").and_then(Value::as_str).unwrap_or("");
     let description = issue
         .get("description")
@@ -915,8 +914,7 @@ fn comments_oldest_first(issue: &Value) -> Vec<&Value> {
     issue
         .pointer("/comments/nodes")
         .and_then(Value::as_array)
-        .map(|nodes| nodes.iter().rev().collect())
-        .unwrap_or_default()
+        .map_or_default(|nodes| nodes.iter().rev().collect())
 }
 
 /// A comment's author: a person's display name, or the app that posted it.

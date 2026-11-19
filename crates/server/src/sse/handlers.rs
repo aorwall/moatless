@@ -95,8 +95,7 @@ pub(crate) async fn sse_handler(
 
     let type_filters: Vec<String> = query
         .types
-        .map(|t| t.split(',').map(|s| s.trim().to_string()).collect())
-        .unwrap_or_default();
+        .map_or_default(|t| t.split(',').map(|s| s.trim().to_string()).collect());
 
     let ndjson_stream = stream! {
         let mut rx = rx;

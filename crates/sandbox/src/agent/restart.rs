@@ -270,9 +270,7 @@ impl WorkspaceOrigin {
             }
             Self::Recloned => workspace_recloned_note(workspace_dir),
         };
-        let cause = stop_cause
-            .map(|cause| format!("{cause}\n"))
-            .unwrap_or_default();
+        let cause = stop_cause.map_or_default(|cause| format!("{cause}\n"));
         format!("<sandbox-restart-note>\n{cause}{body}\n</sandbox-restart-note>\n\n")
     }
 }
@@ -333,8 +331,7 @@ fn describe_stop_cause(cause: Option<&sandbox_proto::StopCause>) -> String {
             .to_string();
     };
     let at = chrono::DateTime::from_timestamp_millis(cause.occurred_at_unix_ms)
-        .map(|at| format!(" at {}", at.format("%H:%M:%S UTC")))
-        .unwrap_or_default();
+        .map_or_default(|at| format!(" at {}", at.format("%H:%M:%S UTC")));
     let mut facts = Vec::new();
     if let Some(code) = cause.exit_code {
         facts.push(format!("exit {code}"));

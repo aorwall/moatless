@@ -100,7 +100,7 @@ pub(super) async fn get_pending_messages(
         .as_ref()
         .map_or(AgentProfile::ClaudeCode, |t| t.agent_profile);
     let task_model = task.as_ref().and_then(|t| t.model.clone());
-    let task_skills = task.as_ref().map(|t| t.skills.clone()).unwrap_or_default();
+    let task_skills = task.as_ref().map_or_default(|t| t.skills.clone());
 
     let moatless_tasks::inbox::view::PendingView {
         messages: pending,

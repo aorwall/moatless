@@ -179,15 +179,11 @@ impl GithubPrRuleConfig {
     /// Parse from an `SubscriptionMatch`'s `event_filter` and `adapter_config`
     /// JSONB columns plus scalar boolean columns.
     pub(super) fn from_rule(rule: &SubscriptionMatch) -> Self {
-        let events_filter = rule
-            .event_filter
-            .as_array()
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(String::from))
-                    .collect()
-            })
-            .unwrap_or_default();
+        let events_filter = rule.event_filter.as_array().map_or_default(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        });
         Self {
             events_filter,
             close_task_on_close: rule.close_task_on_close,
@@ -392,12 +388,11 @@ fn string_array(adapter_config: Option<&serde_json::Value>, key: &str) -> Vec<St
     adapter_config
         .and_then(|pc| pc.get(key))
         .and_then(|v| v.as_array())
-        .map(|arr| {
+        .map_or_default(|arr| {
             arr.iter()
                 .filter_map(|v| v.as_str().map(String::from))
                 .collect()
         })
-        .unwrap_or_default()
 }
 
 /// Parse `ignored_title_patterns` from a `adapter_config` JSONB value.
@@ -442,8 +437,7 @@ fn check_run(adapter_config: Option<&serde_json::Value>) -> CheckRunTriggerConfi
         app_ids: section
             .get("app_ids")
             .and_then(serde_json::Value::as_array)
-            .map(|ids| ids.iter().filter_map(serde_json::Value::as_u64).collect())
-            .unwrap_or_default(),
+            .map_or_default(|ids| ids.iter().filter_map(serde_json::Value::as_u64).collect()),
         conclusions: strings("conclusions"),
     }
 }

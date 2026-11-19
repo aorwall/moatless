@@ -276,8 +276,7 @@ pub(crate) async fn dispatch_result(ctx: &CommandContext<'_>) -> Result<Value, C
         .conversations
         .listing_head()
         .await
-        .map(|head| head.position)
-        .unwrap_or_default();
+        .map_or_default(|head| head.position);
     Ok(json!({ "sequence": sequence.max(0) }))
 }
 

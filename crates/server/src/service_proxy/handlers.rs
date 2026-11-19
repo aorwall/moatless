@@ -174,7 +174,7 @@ fn log_forwarded(
 fn split(uri: &Uri) -> (String, String) {
     let rest = uri.path().strip_prefix("/proxy/").unwrap_or_default();
     let (name, path) = rest.split_once('/').unwrap_or((rest, ""));
-    let query = uri.query().map(|q| format!("?{q}")).unwrap_or_default();
+    let query = uri.query().map_or_default(|q| format!("?{q}"));
     (name.to_string(), format!("/{path}{query}"))
 }
 

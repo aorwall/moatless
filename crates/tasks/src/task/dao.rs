@@ -737,7 +737,7 @@ impl TaskDao for PgTaskDao {
                     // NULL here — and that row is rejected before this point.
                     skills: self.skills.unwrap_or_default(),
                     memory_preload: self.memory_preload.unwrap_or_default(),
-                    agent_properties: self.agent_properties.map(|p| p.0).unwrap_or_default(),
+                    agent_properties: self.agent_properties.map_or_default(|p| p.0),
                 })
             }
         }

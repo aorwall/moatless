@@ -335,8 +335,7 @@ impl Coordinator {
                         self.hold_run_id = false;
                         self.session_id = original
                             .as_ref()
-                            .map(|input| stale_session_id(&input.resume))
-                            .unwrap_or_default();
+                            .map_or_default(|input| stale_session_id(&input.resume));
                         // Settle this batch against its error Run rather than
                         // dropping the ack, which redelivers a permanent failure.
                         self.publish_error(&err).await;

@@ -104,8 +104,7 @@ impl MemoryTrajectoryBackend {
         state
             .sessions
             .get(harness_session_id)
-            .map(|s| s.own.clone())
-            .unwrap_or_default()
+            .map_or_default(|s| s.own.clone())
     }
 
     /// Every event stored under any session, counting each once.

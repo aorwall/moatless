@@ -281,8 +281,7 @@ pub async fn run(
                     entry
                         .expires_at
                         .as_deref()
-                        .map(|at| format!(", expires {at}"))
-                        .unwrap_or_default()
+                        .map_or_default(|at| format!(", expires {at}"))
                 );
             });
         }
@@ -370,8 +369,7 @@ fn print_entry(entry: &MemoryEntryResponse) {
         let by_loop = entry
             .created_by_loop_id
             .as_deref()
-            .map(|l| format!(" (loop {l})"))
-            .unwrap_or_default();
+            .map_or_default(|l| format!(" (loop {l})"));
         println!("created {} by task {task}{by_loop}", entry.created_at);
     }
     if entry.stale {

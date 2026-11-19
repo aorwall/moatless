@@ -60,13 +60,12 @@ async fn stored_app_from_row(
             .try_get::<Value, _>("secret_fingerprints")
             .unwrap_or_else(|_| json!({}))
             .as_object()
-            .map(|object| {
+            .map_or_default(|object| {
                 object
                     .iter()
                     .filter_map(|(key, value)| value.as_str().map(|v| (key.clone(), v.to_string())))
                     .collect()
-            })
-            .unwrap_or_default();
+            });
     Ok(StoredAdapterApp {
         id: row.id,
         adapter_kind: row.adapter_kind,

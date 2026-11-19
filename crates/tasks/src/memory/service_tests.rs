@@ -346,7 +346,7 @@ async fn a_get_reads_one_scope_the_loop_by_default_and_records_the_read() {
         let scopes: Option<Vec<MemoryScope>> =
             got.ok().map(|v| v.iter().map(|e| e.scope).collect());
         assert_eq!(scopes, Some(vec![expected.scope]));
-        let recorded = reads.lock().map(|r| r.clone()).unwrap_or_default();
+        let recorded = reads.lock().map_or_default(|r| r.clone());
         assert_eq!(recorded, vec![(format!("{}-state", expected.scope), 3)]);
     }
 }

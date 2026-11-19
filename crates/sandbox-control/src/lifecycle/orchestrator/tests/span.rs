@@ -80,11 +80,7 @@ async fn a_detached_operation_gets_a_root_span_linked_back_to_the_caller() {
         }
 
         fn on_follows_from(&self, id: &tracing::Id, follows: &tracing::Id, ctx: Context<'_, S>) {
-            let name = |id| {
-                ctx.span(id)
-                    .map(|s| s.name().to_owned())
-                    .unwrap_or_default()
-            };
+            let name = |id| ctx.span(id).map_or_default(|s| s.name().to_owned());
             self.0
                 .lock()
                 .expect("lock")

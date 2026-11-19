@@ -65,8 +65,7 @@ impl ServiceAccess {
             .resolve(workspace_id)
             .await
             .map_err(|e| e.to_string())?
-            .map(|workspace| workspace.services)
-            .unwrap_or_default();
+            .map_or_default(|workspace| workspace.services);
         let grant = if opted_in.is_empty() {
             None
         } else {

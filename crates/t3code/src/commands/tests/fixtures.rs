@@ -227,8 +227,7 @@ impl ThreadCommandSink for RecordingSink {
             provision: thread.provision,
             skills: thread
                 .first_message
-                .map(|message| message.skills)
-                .unwrap_or_default(),
+                .map_or_default(|message| message.skills),
         });
         Ok(())
     }

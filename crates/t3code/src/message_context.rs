@@ -307,8 +307,7 @@ fn render_preview_body(record: &Value) -> String {
     let changes: Vec<&str> = record
         .get("styleChanges")
         .and_then(Value::as_array)
-        .map(|changes| changes.iter().filter_map(Value::as_str).collect())
-        .unwrap_or_default();
+        .map_or_default(|changes| changes.iter().filter_map(Value::as_str).collect());
     if !changes.is_empty() {
         lines.push("Requested visual changes:".to_owned());
         lines.extend(changes.iter().map(|change| format!("- {change}")));

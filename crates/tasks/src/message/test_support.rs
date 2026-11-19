@@ -182,12 +182,11 @@ fn inbox_item(
         .as_ref()
         .and_then(|a| a.get("file_ids"))
         .and_then(Value::as_array)
-        .map(|ids| {
+        .map_or_default(|ids| {
             ids.iter()
                 .filter_map(|id| id.as_str().map(str::to_string))
                 .collect()
-        })
-        .unwrap_or_default();
+        });
     NewInboxItem {
         id,
         task_id: msg.task_id.clone(),

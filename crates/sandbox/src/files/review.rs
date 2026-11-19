@@ -228,8 +228,7 @@ async fn untracked_patch(repo: &GitRepo, prefixes: &[String]) -> Patch {
         patch.push(&Patch {
             diff: capture(&repo.abs_path, &args, DIFF_TIMEOUT_SECS)
                 .await
-                .map(|output| output.stdout)
-                .unwrap_or_default(),
+                .map_or_default(|output| output.stdout),
             truncated: false,
         });
     }
@@ -582,8 +581,7 @@ async fn default_branch(repo_dir: &str) -> Option<String> {
     .await
     .ok()
     .filter(git::GitOutput::succeeded)
-    .map(|output| output.stdout)
-    .unwrap_or_default();
+    .map_or_default(|output| output.stdout);
     if let Some(branch) = symbolic.trim().strip_prefix("origin/") {
         if !branch.is_empty() {
             return Some(branch.to_string());

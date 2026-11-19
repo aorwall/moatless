@@ -474,8 +474,7 @@ impl SessionFormat for ClaudeSessionFormat {
             return payload.to_string();
         };
         let fields: Vec<(&str, String)> = str_at(&value, &["sessionId"])
-            .map(|old| vec![("sessionId", old.to_string())])
-            .unwrap_or_default();
+            .map_or_default(|old| vec![("sessionId", old.to_string())]);
         replace_fields(payload, &fields, id)
     }
 
@@ -633,7 +632,7 @@ impl SessionFormat for CodexSessionFormat {
             .filter(|item| str_at(item, &["type"]) == Some("CommandExecution"));
         let content = match kind.as_str() {
             _ if is_item => codex_item_content(&payload),
-            _ if command.is_some() => command.map(codex_command_content).unwrap_or_default(),
+            _ if command.is_some() => command.map_or_default(codex_command_content),
             "compacted" => EventContent {
                 role: Some(Role::User),
                 blocks: vec![CanonicalContentBlock::Text {
@@ -801,8 +800,9 @@ fn codex_item_content(item: &Value) -> EventContent {
             let summary: Vec<&str> = item
                 .get("summary")
                 .and_then(Value::as_array)
-                .map(|parts| parts.iter().filter_map(|p| str_at(p, &["text"])).collect())
-                .unwrap_or_default();
+                .map_or_default(|parts| {
+                    parts.iter().filter_map(|p| str_at(p, &["text"])).collect()
+                });
             if summary.is_empty() {
                 return assistant(Vec::new());
             }

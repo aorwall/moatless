@@ -62,7 +62,7 @@ fn split_upstream(uri: &Uri) -> Option<(GitHubUpstream, String)> {
     let rest = uri.path().strip_prefix("/github/")?;
     let (segment, path) = rest.split_once('/').unwrap_or((rest, ""));
     let upstream = GitHubUpstream::named(segment)?;
-    let query = uri.query().map(|q| format!("?{q}")).unwrap_or_default();
+    let query = uri.query().map_or_default(|q| format!("?{q}"));
     Some((upstream, format!("/{path}{query}")))
 }
 

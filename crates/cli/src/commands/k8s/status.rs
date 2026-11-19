@@ -204,13 +204,12 @@ async fn gather_ingresses(
             let hosts: Vec<String> = item
                 .pointer("/spec/rules")
                 .and_then(|r| r.as_array())
-                .map(|rules| {
+                .map_or_default(|rules| {
                     rules
                         .iter()
                         .filter_map(|r| r.get("host").and_then(|h| h.as_str()).map(String::from))
                         .collect()
-                })
-                .unwrap_or_default();
+                });
             let address = item
                 .pointer("/status/loadBalancer/ingress/0/hostname")
                 .or_else(|| item.pointer("/status/loadBalancer/ingress/0/ip"))

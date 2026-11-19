@@ -486,17 +486,15 @@ mod tests {
     /// `stash` is the App user token held behind a PAT, which is what makes a
     /// restore possible and so what `has_pat_override` reports.
     fn access_with_stash(tokens: Arc<StubProviderTokens>, stash: Option<&str>) -> GitHostAccess {
-        let records = stash
-            .map(|token| {
-                vec![crate::secret::test_support::secret(
-                    "user",
-                    Some("u1"),
-                    SecretKind::Internal.as_str(),
-                    GITHUB_OAUTH_STASH_KEY,
-                    token,
-                )]
-            })
-            .unwrap_or_default();
+        let records = stash.map_or_default(|token| {
+            vec![crate::secret::test_support::secret(
+                "user",
+                Some("u1"),
+                SecretKind::Internal.as_str(),
+                GITHUB_OAUTH_STASH_KEY,
+                token,
+            )]
+        });
         GitHostAccess::new(
             tokens,
             Arc::new(service_with(records)),

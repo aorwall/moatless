@@ -139,8 +139,7 @@ fn activity_change_events(
     let slot = usize::try_from(activity_slot(activity)).unwrap_or(usize::MAX);
     change
         .sequence(slot.saturating_add(1))
-        .map(|sequence| vec![event(conversation, sequence, &at, kind, payload)])
-        .unwrap_or_default()
+        .map_or_default(|sequence| vec![event(conversation, sequence, &at, kind, payload)])
 }
 
 /// The conversation's session as an event, or nothing when it has none.

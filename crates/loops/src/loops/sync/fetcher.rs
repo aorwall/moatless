@@ -96,9 +96,8 @@ impl LoopFetcher for GitHubLoopFetcher {
         }
         let (owner, repo) = (parsed.owner().to_string(), parsed.name().to_string());
 
-        let reference = branch
-            .map(|branch| format!("?ref={}", urlencoding::encode(branch)))
-            .unwrap_or_default();
+        let reference =
+            branch.map_or_default(|branch| format!("?ref={}", urlencoding::encode(branch)));
         let api_base = self.api_base.as_str();
         let list_url =
             format!("{api_base}/repos/{owner}/{repo}/contents/{LOOPS_PREFIX}{reference}");

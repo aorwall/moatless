@@ -295,8 +295,7 @@ mod tests {
                 .into_body()
                 .collect()
                 .await
-                .map(|b| String::from_utf8_lossy(&b.to_bytes()).into_owned())
-                .unwrap_or_default();
+                .map_or_default(|b| String::from_utf8_lossy(&b.to_bytes()).into_owned());
             (status, body)
         }
 

@@ -82,15 +82,14 @@ impl PromptResponse {
             answers: stored
                 .get("answers")
                 .and_then(Value::as_object)
-                .map(|answers| {
+                .map_or_default(|answers| {
                     answers
                         .iter()
                         .filter_map(|(question, given)| {
                             Some((question.clone(), given.as_str()?.to_string()))
                         })
                         .collect()
-                })
-                .unwrap_or_default(),
+                }),
             approved: stored.get("approved").and_then(Value::as_bool) == Some(true),
             feedback: field("feedback").filter(|feedback| !feedback.trim().is_empty()),
         })

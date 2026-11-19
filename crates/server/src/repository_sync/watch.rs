@@ -227,8 +227,7 @@ impl DefaultBranchWatch {
             Err(e) => {
                 let workspace_failure = workspaces
                     .err()
-                    .map(|e| format!("; workspace sync failed too: {e}"))
-                    .unwrap_or_default();
+                    .map_or_default(|e| format!("; workspace sync failed too: {e}"));
                 self.failed(repo, format!("Loop sync failed: {e}{workspace_failure}"));
                 return;
             }

@@ -245,14 +245,12 @@ pub(super) fn statement(
     // The cap is inside `picked`, which is also where the order it takes the
     // newest rows by has to live: the outer `ORDER BY` runs after the
     // laterals, and ordering there would cap an arbitrary set.
-    let capped = page
-        .map(|Page { cap, .. }| {
-            format!(
-                "\n                 ORDER BY t.updated_at DESC NULLS LAST, \
+    let capped = page.map_or_default(|Page { cap, .. }| {
+        format!(
+            "\n                 ORDER BY t.updated_at DESC NULLS LAST, \
                      t.task_id ASC LIMIT {cap}"
-            )
-        })
-        .unwrap_or_default();
+        )
+    });
     // The follow rule is the join, so widening past it is the join kind and
     // nothing else: `${follower}` moves into the `ON` clause, leaving the
     // status rule, the read rule and the narrowing exactly as they are, at

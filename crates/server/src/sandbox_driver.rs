@@ -121,7 +121,7 @@ impl SandboxDrivers {
         // The login only labels the token, so an unreadable one is no reason
         // to leave the pod with a refused token.
         let login = match self.users.git_identity(user_id).await {
-            Ok(identity) => identity.map(|identity| identity.login).unwrap_or_default(),
+            Ok(identity) => identity.map_or_default(|identity| identity.login),
             Err(e) => {
                 warn!(user_id, error = %e, "Failed to read the new driver's login");
                 String::new()

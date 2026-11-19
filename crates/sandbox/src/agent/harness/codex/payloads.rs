@@ -291,10 +291,7 @@ pub(crate) fn build_dynamic_tool_result(
     let is_error = matches!(status, CodexToolStatus::Failed) || item.success == Some(false);
 
     let content = item.content_items.clone();
-    let summary_text = content
-        .as_ref()
-        .map(|items| text_of(items))
-        .unwrap_or_default();
+    let summary_text = content.as_ref().map_or_default(|items| text_of(items));
 
     let result = CodexMcpResult {
         status,

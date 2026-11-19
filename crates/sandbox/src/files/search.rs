@@ -81,8 +81,7 @@ fn walk_and_rank(
 
         let filename = rel
             .file_name()
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_default();
+            .map_or_default(|s| s.to_string_lossy().to_string());
 
         let (path_cmp, filename_cmp) = if case_sensitive {
             (rel_str.clone(), filename.clone())

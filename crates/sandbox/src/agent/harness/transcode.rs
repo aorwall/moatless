@@ -133,11 +133,7 @@ fn hunk(old: &str, new: &str) -> String {
 fn claude_search(name: &str, input: &Value) -> Option<String> {
     let field = |key: &str| input.get(key).and_then(Value::as_str);
     let number = |key: &str| input.get(key).and_then(Value::as_u64);
-    let path = || {
-        field("path")
-            .map(|p| format!(" {}", quoted(p)))
-            .unwrap_or_default()
-    };
+    let path = || field("path").map_or_default(|p| format!(" {}", quoted(p)));
     match name {
         "Read" => {
             let file = quoted(field("file_path")?);

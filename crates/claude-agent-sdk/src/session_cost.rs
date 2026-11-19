@@ -140,12 +140,11 @@ impl SessionCost {
                     .ok()
             })
             .find(|line| line.kind == "cost-state" && line.session_id == session_id)
-            .map(|line| Self {
+            .map_or_default(|line| Self {
                 total_cost_usd: line.total_cost_usd,
                 model_usage: line.model_usage,
                 ..Self::default()
             })
-            .unwrap_or_default()
     }
 
     /// Net out a `Result`, and note the Session a `System` init names. A

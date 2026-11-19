@@ -518,10 +518,9 @@ impl MessageDao for PgMessageDao {
                     Some(inbox) => read_dao::inbox_items(&self.0, &[inbox])
                         .await?
                         .get(&inbox)
-                        .map(|item| {
+                        .map_or_default(|item| {
                             item.context_rows(i32::try_from(record.position).unwrap_or(i32::MAX))
-                        })
-                        .unwrap_or_default(),
+                        }),
                     None => Vec::new(),
                 };
                 (vec![assemble::load_one(&self.0, record).await?], contexts)

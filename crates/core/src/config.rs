@@ -73,16 +73,14 @@ fn oidc_config_from_env() -> Option<OidcConfig> {
         callback_url: env_opt("OIDC_CALLBACK_URL").unwrap_or_default(),
         auto_provision: env_bool("OIDC_AUTO_PROVISION", true),
         auto_link_verified_email: env_bool("OIDC_AUTO_LINK_VERIFIED_EMAIL", true),
-        allowed_domains: env_opt("OIDC_ALLOWED_DOMAINS")
-            .map(|value| {
-                value
-                    .split(',')
-                    .map(str::trim)
-                    .filter(|domain| !domain.is_empty())
-                    .map(str::to_ascii_lowercase)
-                    .collect()
-            })
-            .unwrap_or_default(),
+        allowed_domains: env_opt("OIDC_ALLOWED_DOMAINS").map_or_default(|value| {
+            value
+                .split(',')
+                .map(str::trim)
+                .filter(|domain| !domain.is_empty())
+                .map(str::to_ascii_lowercase)
+                .collect()
+        }),
     })
 }
 
@@ -116,15 +114,13 @@ fn env_opt(key: &str) -> Option<String> {
 
 /// Read a comma-separated environment variable, dropping blank entries.
 fn env_csv(key: &str) -> Vec<String> {
-    env_opt(key)
-        .map(|s| {
-            s.split(',')
-                .map(str::trim)
-                .filter(|p| !p.is_empty())
-                .map(String::from)
-                .collect()
-        })
-        .unwrap_or_default()
+    env_opt(key).map_or_default(|s| {
+        s.split(',')
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+            .map(String::from)
+            .collect()
+    })
 }
 
 /// Read an environment variable with a string default.
@@ -996,14 +992,12 @@ impl Config {
                 backend_hostname: env_str("DOCKER_BACKEND_HOSTNAME", "moatless-backend"),
                 enable_socket_mount: env_bool("DOCKER_ENABLE_SOCKET_MOUNT", false),
                 socket_path: env_str("DOCKER_SOCKET_PATH", "/var/run/docker.sock"),
-                extra_networks: env_opt("DOCKER_EXTRA_NETWORKS")
-                    .map(|s| {
-                        s.split(',')
-                            .map(|n| n.trim().to_string())
-                            .filter(|n| !n.is_empty())
-                            .collect()
-                    })
-                    .unwrap_or_default(),
+                extra_networks: env_opt("DOCKER_EXTRA_NETWORKS").map_or_default(|s| {
+                    s.split(',')
+                        .map(|n| n.trim().to_string())
+                        .filter(|n| !n.is_empty())
+                        .collect()
+                }),
             },
 
             local_sandbox: LocalSandboxConfig {
@@ -1051,15 +1045,13 @@ impl Config {
                 admin_username: env_str("ADMIN_USERNAME", "admin"),
                 admin_email: Some(env_str("ADMIN_EMAIL", "admin@localhost")),
                 admin_password: env_opt("ADMIN_PASSWORD"),
-                admin_user_ids: env_opt("ADMIN_USER_IDS")
-                    .map(|s| {
-                        s.split(',')
-                            .map(str::trim)
-                            .filter(|id| !id.is_empty())
-                            .map(String::from)
-                            .collect()
-                    })
-                    .unwrap_or_default(),
+                admin_user_ids: env_opt("ADMIN_USER_IDS").map_or_default(|s| {
+                    s.split(',')
+                        .map(str::trim)
+                        .filter(|id| !id.is_empty())
+                        .map(String::from)
+                        .collect()
+                }),
                 break_glass_enabled: env_bool("AUTH_BREAK_GLASS_ENABLED", false),
                 cache_ttl_secs: env_or("AUTH_CACHE_TTL_SECS", 30),
                 sandbox_token_scope: match env_opt("SANDBOX_TOKEN_SCOPE") {

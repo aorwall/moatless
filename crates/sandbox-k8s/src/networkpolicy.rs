@@ -210,23 +210,19 @@ pub async fn admit_preview_port(
 
 /// The TCP ports a preview policy currently admits.
 fn admitted_ports(policy: &NetworkPolicy) -> BTreeSet<u16> {
-    policy
-        .spec
-        .as_ref()
-        .map(|spec| {
-            spec.ingress
-                .iter()
-                .flatten()
-                .filter_map(|rule| rule.ports.as_ref())
-                .flatten()
-                .filter_map(|p| p.port.as_ref())
-                .filter_map(|port| match port {
-                    IntOrString::Int(value) => u16::try_from(*value).ok(),
-                    IntOrString::String(_) => None,
-                })
-                .collect()
-        })
-        .unwrap_or_default()
+    policy.spec.as_ref().map_or_default(|spec| {
+        spec.ingress
+            .iter()
+            .flatten()
+            .filter_map(|rule| rule.ports.as_ref())
+            .flatten()
+            .filter_map(|p| p.port.as_ref())
+            .filter_map(|port| match port {
+                IntOrString::Int(value) => u16::try_from(*value).ok(),
+                IntOrString::String(_) => None,
+            })
+            .collect()
+    })
 }
 
 /// Delete the per-task preview `NetworkPolicy`. Handles 404 and a missing

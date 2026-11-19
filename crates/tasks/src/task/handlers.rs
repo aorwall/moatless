@@ -746,7 +746,7 @@ pub async fn close_task(
         .close_requested(
             &auth.scope_context(),
             task_id.clone(),
-            req.map(|Json(req)| req).unwrap_or_default(),
+            req.map_or_default(|Json(req)| req),
         )
         .await?;
     let updated = tasks

@@ -99,8 +99,7 @@ pub(super) async fn provision_selected_session_task(
     let (issue_id, issue_identifier) = session
         .issue
         .as_ref()
-        .map(|i| (i.id.as_str(), i.identifier.as_str()))
-        .unwrap_or_default();
+        .map_or_default(|i| (i.id.as_str(), i.identifier.as_str()));
     let Some((rule, labels)) =
         select_session_spawn_rule(api, rules, issue_id, issue_identifier).await
     else {
@@ -164,13 +163,12 @@ async fn select_session_spawn_rule(
             let labels = detail
                 .pointer("/labels/nodes")
                 .and_then(serde_json::Value::as_array)
-                .map(|arr| {
+                .map_or_default(|arr| {
                     arr.iter()
                         .filter_map(|n| n.get("name").and_then(serde_json::Value::as_str))
                         .map(str::to_string)
                         .collect()
-                })
-                .unwrap_or_default();
+                });
             (project_id, labels)
         }
         Err(e) => {

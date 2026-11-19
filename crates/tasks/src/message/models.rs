@@ -222,12 +222,11 @@ impl TaskMessage {
             .as_ref()
             .and_then(|v| v.get("file_ids"))
             .and_then(|v| v.as_array())
-            .map(|arr| {
+            .map_or_default(|arr| {
                 arr.iter()
                     .filter_map(|x| x.as_str().map(String::from))
                     .collect()
             })
-            .unwrap_or_default()
     }
 }
 

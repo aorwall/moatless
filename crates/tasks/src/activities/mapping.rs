@@ -329,14 +329,13 @@ fn asked_questions(input: &Value) -> Vec<Value> {
     input
         .get("questions")
         .and_then(Value::as_array)
-        .map(|questions| {
+        .map_or_default(|questions| {
             questions
                 .iter()
                 .enumerate()
                 .filter_map(|(index, question)| asked_question(index, question))
                 .collect()
         })
-        .unwrap_or_default()
 }
 
 fn asked_question(index: usize, question: &Value) -> Option<Value> {
@@ -347,7 +346,7 @@ fn asked_question(index: usize, question: &Value) -> Option<Value> {
     let options: Vec<Value> = question
         .get("options")
         .and_then(Value::as_array)
-        .map(|options| {
+        .map_or_default(|options| {
             options
                 .iter()
                 .filter_map(|option| {
@@ -362,8 +361,7 @@ fn asked_question(index: usize, question: &Value) -> Option<Value> {
                     Some(json!({ "label": label, "description": description }))
                 })
                 .collect()
-        })
-        .unwrap_or_default();
+        });
     if options.is_empty() {
         return None;
     }
@@ -403,22 +401,19 @@ fn plan_steps(tool: &str, input: &Value) -> Vec<Value> {
     } else {
         input.get("items")
     };
-    entries
-        .and_then(Value::as_array)
-        .map(|entries| {
-            entries
-                .iter()
-                .filter_map(|entry| {
-                    let step = entry
-                        .get("content")
-                        .or_else(|| entry.get("text"))
-                        .and_then(Value::as_str)
-                        .filter(|step| !step.is_empty())?;
-                    Some(json!({ "step": step, "status": step_status(entry) }))
-                })
-                .collect()
-        })
-        .unwrap_or_default()
+    entries.and_then(Value::as_array).map_or_default(|entries| {
+        entries
+            .iter()
+            .filter_map(|entry| {
+                let step = entry
+                    .get("content")
+                    .or_else(|| entry.get("text"))
+                    .and_then(Value::as_str)
+                    .filter(|step| !step.is_empty())?;
+                Some(json!({ "step": step, "status": step_status(entry) }))
+            })
+            .collect()
+    })
 }
 
 /// A step's state in the client's vocabulary. `status` is read first, since it

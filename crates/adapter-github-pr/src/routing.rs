@@ -188,13 +188,12 @@ fn origin_scope(msg: &InboundMessage) -> BindScope {
         .adapter_context
         .get(super::reply_keys::OPENS_KEY)
         .and_then(serde_json::Value::as_array)
-        .map(|keys| {
+        .map_or_default(|keys| {
             keys.iter()
                 .filter_map(serde_json::Value::as_str)
                 .map(str::to_string)
                 .collect()
-        })
-        .unwrap_or_default();
+        });
     BindScope {
         reason: Some(BindReason::Commenter),
         reply_keys,

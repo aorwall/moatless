@@ -1132,8 +1132,7 @@ pub(super) async fn http_get(
 pub(super) fn rel_from(root: &Path, path: &Path) -> String {
     path.strip_prefix(root)
         .ok()
-        .map(|r| r.to_string_lossy().to_string())
-        .unwrap_or_default()
+        .map_or_default(|r| r.to_string_lossy().to_string())
 }
 
 /// Recursively append everything under `dir` to the archive, keyed at paths

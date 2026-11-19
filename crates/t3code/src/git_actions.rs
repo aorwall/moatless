@@ -278,7 +278,7 @@ pub async fn prepare_pull_request_thread(
     viewer: &ScopeContext,
     input: &GitPreparePullRequestThreadInput,
 ) -> Result<PreparedThread, PullRequestError> {
-    let mode = input.mode.as_deref().map(str::trim).unwrap_or_default();
+    let mode = input.mode.as_deref().map_or_default(str::trim);
     match mode {
         "worktree" => Ok(PreparedThread::WorktreeUnsupported),
         "local" => {

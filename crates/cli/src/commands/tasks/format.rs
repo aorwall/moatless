@@ -91,8 +91,7 @@ pub(super) fn format_task_detail(t: &TaskResponse) {
                 .context
                 .get("via")
                 .and_then(|v| v.as_str())
-                .map(|s| format!(" (via {s})"))
-                .unwrap_or_default();
+                .map_or_default(|s| format!(" (via {s})"));
             println!("  {} → {}{}", r.relation_type.as_str(), r.to_task_id, via);
         }
     }

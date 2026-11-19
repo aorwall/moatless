@@ -98,8 +98,7 @@ pub(super) async fn run(args: InitArgs, json: bool) -> Result<(), ClientError> {
         let existing = current
             .iter()
             .find(|(k, _)| k == key)
-            .map(|(_, v)| v.clone())
-            .unwrap_or_default();
+            .map_or_default(|(_, v)| v.clone());
         if is_placeholder(key, &existing) {
             let new_value = match *key {
                 "TASK_TOKEN_SECRET" => {

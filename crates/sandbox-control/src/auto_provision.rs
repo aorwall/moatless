@@ -152,8 +152,7 @@ pub(crate) async fn build_provision_request(
         .map_or("", |provider| provider.as_str());
     let git_clone_url = repo
         .and_then(|repo| repo.remote.as_ref())
-        .map(|remote| remote.url.clone())
-        .unwrap_or_default();
+        .map_or_default(|remote| remote.url.clone());
     let git_branch = repo.and_then(|repo| shape.branch.clone().or(repo.default_branch.clone()));
     // The identity the pod authenticates back to the backend as — the one the
     // gRPC control gate checks, which is why it is the Sandbox's driver and not
@@ -395,8 +394,7 @@ fn resolve_placements(
         let clone_url = repo
             .remote
             .as_ref()
-            .map(|remote| remote.url.clone())
-            .unwrap_or_default();
+            .map_or_default(|remote| remote.url.clone());
         if clone_url.is_empty() {
             warn!(
                 sandbox_id = %sandbox_id,

@@ -289,8 +289,7 @@ fn ignored(envelope: &LinearWebhookEnvelope, reason: &'static str) -> Outcome {
         .data
         .as_ref()
         .and_then(|v| v.as_object())
-        .map(|m| m.keys().map(String::as_str).collect())
-        .unwrap_or_default();
+        .map_or_default(|m| m.keys().map(String::as_str).collect());
     info!(
         event_type = %envelope.event_type,
         action = %envelope.action,

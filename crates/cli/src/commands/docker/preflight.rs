@@ -174,9 +174,7 @@ fn missing_compose_hint(source: ComposeDirSource) -> String {
         }
         ComposeDirSource::Repo => format!(
             "Expected {COMPOSE_FILE} at {}/docker-compose/{COMPOSE_FILE}",
-            std::env::current_dir()
-                .map(|d| d.display().to_string())
-                .unwrap_or_default()
+            std::env::current_dir().map_or_default(|d| d.display().to_string())
         ),
         ComposeDirSource::Cache => {
             let cache_display = cache_compose_dir().map_or_else(

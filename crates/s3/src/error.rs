@@ -78,14 +78,11 @@ impl DeleteFailure {
 }
 
 fn first_failure(failures: &[DeleteFailure]) -> String {
-    failures
-        .first()
-        .map(|failure| {
-            format!(
-                "{}: {}",
-                failure.key.as_deref().unwrap_or("?"),
-                failure.message.as_deref().unwrap_or("?")
-            )
-        })
-        .unwrap_or_default()
+    failures.first().map_or_default(|failure| {
+        format!(
+            "{}: {}",
+            failure.key.as_deref().unwrap_or("?"),
+            failure.message.as_deref().unwrap_or("?")
+        )
+    })
 }

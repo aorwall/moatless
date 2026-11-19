@@ -131,9 +131,7 @@ pub(crate) async fn list(
         }
     }
     entries.sort_by(|a, b| b["updatedAt"].as_str().cmp(&a["updatedAt"].as_str()));
-    let viewers = viewer_login
-        .map(|login| BTreeMap::from([(HOST.to_string(), login)]))
-        .unwrap_or_default();
+    let viewers = viewer_login.map_or_default(|login| BTreeMap::from([(HOST.to_string(), login)]));
     Ok(result(
         &viewers,
         sources.len(),

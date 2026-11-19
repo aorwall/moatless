@@ -410,12 +410,11 @@ fn build_user_contexts(
         .map(|file_id| {
             let data = file_metadata
                 .get(&file_id)
-                .map(|m| FileContextData {
+                .map_or_default(|m| FileContextData {
                     filename: m.filename.clone(),
                     mime_type: m.mime_type.clone(),
                     size: m.size,
-                })
-                .unwrap_or_default();
+                });
             MessageContextInput::File {
                 reference_id: file_id,
                 data,
@@ -583,19 +582,17 @@ fn transform_result(msg: &TaskMessage) -> UiMessage {
 /// rendering, and a Message with no text is only ever a row predating that
 /// write path.
 fn text_blocks(text: Option<&str>) -> Vec<UiContentBlock> {
-    text.filter(|text| !text.is_empty())
-        .map(|text| {
-            vec![UiContentBlock {
-                block_type: "text".to_string(),
-                text: Some(text.to_string()),
-                tool_use_id: None,
-                tool_name: None,
-                tool_input: None,
-                show_in_ui: Some(true),
-                subagent_summary: None,
-            }]
-        })
-        .unwrap_or_default()
+    text.filter(|text| !text.is_empty()).map_or_default(|text| {
+        vec![UiContentBlock {
+            block_type: "text".to_string(),
+            text: Some(text.to_string()),
+            tool_use_id: None,
+            tool_name: None,
+            tool_input: None,
+            show_in_ui: Some(true),
+            subagent_summary: None,
+        }]
+    })
 }
 
 /// For codex tool calls, re-validate the stored `tool_use_result` against the

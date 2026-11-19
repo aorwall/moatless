@@ -285,8 +285,7 @@ impl ThreadCommandSink for AppStateCommands {
             skills: thread
                 .first_message
                 .as_ref()
-                .map(|message| message.skills.clone())
-                .unwrap_or_default(),
+                .map_or_default(|message| message.skills.clone()),
             agent_properties: Default::default(),
         };
 

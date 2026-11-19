@@ -722,8 +722,7 @@ impl DockerSandboxAdapter {
                     .state
                     .as_ref()
                     .and_then(|s| s.status.as_ref())
-                    .map(std::string::ToString::to_string)
-                    .unwrap_or_default();
+                    .map_or_default(std::string::ToString::to_string);
 
                 if status_str == "running" {
                     Ok(())
@@ -856,8 +855,7 @@ impl DockerSandboxAdapter {
                     .state
                     .as_ref()
                     .and_then(|s| s.status.as_ref())
-                    .map(std::string::ToString::to_string)
-                    .unwrap_or_default();
+                    .map_or_default(std::string::ToString::to_string);
 
                 if status_str == "running" {
                     ExistingContainerResult::Running

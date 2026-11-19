@@ -425,14 +425,11 @@ fn tree_nodes(root: &str, listing: &SnapshotListing, recursive: bool) -> Vec<Fil
     }
     let root_key = root.trim_matches('/');
     let root_key = if root_key == "." { "" } else { root_key };
-    children_of
-        .get(root_key)
-        .map(|kids| {
-            kids.iter()
-                .map(|e| tree_node(e, &children_of, recursive))
-                .collect()
-        })
-        .unwrap_or_default()
+    children_of.get(root_key).map_or_default(|kids| {
+        kids.iter()
+            .map(|e| tree_node(e, &children_of, recursive))
+            .collect()
+    })
 }
 
 fn tree_node(
@@ -447,14 +444,11 @@ fn tree_node(
         .to_string();
     let children = entry.is_dir.then(|| {
         if recursive {
-            children_of
-                .get(entry.path.as_str())
-                .map(|kids| {
-                    kids.iter()
-                        .map(|e| tree_node(e, children_of, recursive))
-                        .collect()
-                })
-                .unwrap_or_default()
+            children_of.get(entry.path.as_str()).map_or_default(|kids| {
+                kids.iter()
+                    .map(|e| tree_node(e, children_of, recursive))
+                    .collect()
+            })
         } else {
             Vec::new()
         }

@@ -340,16 +340,14 @@ mod tests {
         resolved
             .iter()
             .find(|r| r.plugin_id == plugin_id)
-            .map(|r| r.skills.names.clone())
-            .unwrap_or_default()
+            .map_or_default(|r| r.skills.names.clone())
     }
 
     fn frontloaded(resolved: &[ResolvedPlugin], plugin_id: &str) -> Vec<String> {
         resolved
             .iter()
             .find(|r| r.plugin_id == plugin_id)
-            .map(|r| r.skills.frontloaded.clone())
-            .unwrap_or_default()
+            .map_or_default(|r| r.skills.frontloaded.clone())
     }
 
     // ---- Resolution ----

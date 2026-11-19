@@ -108,8 +108,7 @@ where
             .map(str::to_string);
         let body = axum::body::to_bytes(request.into_body(), usize::MAX)
             .await
-            .map(|bytes| String::from_utf8(bytes.to_vec()).unwrap_or_default())
-            .unwrap_or_default();
+            .map_or_default(|bytes| String::from_utf8(bytes.to_vec()).unwrap_or_default());
         state.requests.lock().await.push(RecordedGithubRequest {
             method: method.to_string(),
             uri: uri.clone(),

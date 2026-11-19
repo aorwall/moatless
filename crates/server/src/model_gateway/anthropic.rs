@@ -152,7 +152,7 @@ async fn forward(
         Err(e) => return error_response(&e),
     };
 
-    let query = uri.query().map(|q| format!("?{q}")).unwrap_or_default();
+    let query = uri.query().map_or_default(|q| format!("?{q}"));
     let url = format!("{}{path}{query}", upstream.base);
     let body = match stream::buffered(body).await {
         Ok(body) => body,

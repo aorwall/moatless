@@ -703,9 +703,7 @@ async fn completion_notice(
         Some(name) => format!("Child task `{child_task_id}` ({name})"),
         None => format!("Child task `{child_task_id}`"),
     };
-    let turn = turn_number
-        .map(|t| format!(" turn {t}"))
-        .unwrap_or_default();
+    let turn = turn_number.map_or_default(|t| format!(" turn {t}"));
     format!(
         "{child} completed{turn}. This notice is automatic and carries no result; \
          read the child's conversation if you need one. It needs no reply."

@@ -638,9 +638,7 @@ impl ApiClient {
         &self,
         adapter_kind: Option<&str>,
     ) -> Result<Vec<moatless_api_schemas::adapters::AdapterConnectionResponse>, ApiError> {
-        let qs = adapter_kind
-            .map(|p| format!("?adapterKind={}", urlenc(p)))
-            .unwrap_or_default();
+        let qs = adapter_kind.map_or_default(|p| format!("?adapterKind={}", urlenc(p)));
         self.get(&format!("/api/v1/adapters/connections{qs}")).await
     }
 
@@ -733,9 +731,7 @@ impl ApiClient {
         id: &str,
         limit: Option<u32>,
     ) -> Result<Vec<moatless_api_schemas::loops::LoopRecentTaskItem>, ApiError> {
-        let qs = limit
-            .map(|limit| format!("?limit={limit}"))
-            .unwrap_or_default();
+        let qs = limit.map_or_default(|limit| format!("?limit={limit}"));
         self.get(&format!("/api/v1/loops/{id}/tasks{qs}")).await
     }
 
@@ -1148,15 +1144,9 @@ impl ApiClient {
             moatless_workspace_types::schemas::plugin::ActivationReach::Personal => "personal",
             moatless_workspace_types::schemas::plugin::ActivationReach::Workspace => "workspace",
         };
-        let skill_qs = skill_name
-            .map(|skill| format!("&skillName={skill}"))
-            .unwrap_or_default();
-        let workspace_qs = workspace_id
-            .map(|id| format!("&workspaceId={id}"))
-            .unwrap_or_default();
-        let user_qs = user_id
-            .map(|id| format!("&userId={id}"))
-            .unwrap_or_default();
+        let skill_qs = skill_name.map_or_default(|skill| format!("&skillName={skill}"));
+        let workspace_qs = workspace_id.map_or_default(|id| format!("&workspaceId={id}"));
+        let user_qs = user_id.map_or_default(|id| format!("&userId={id}"));
         let path = format!(
             "/api/v1/plugins/{plugin_id}/activation?reach={reach}{skill_qs}{workspace_qs}{user_qs}"
         );
@@ -1403,9 +1393,7 @@ fn linear_list_issues_qs(params: &moatless_api_schemas::linear::LinearIssueListP
 
 /// Build the `?connectionId=...` query string fragment (or empty).
 fn linear_connection_qs(connection_id: Option<&str>) -> String {
-    connection_id
-        .map(|id| format!("?connectionId={}", urlenc(id)))
-        .unwrap_or_default()
+    connection_id.map_or_default(|id| format!("?connectionId={}", urlenc(id)))
 }
 
 /// Percent-encode a value for use in a query string.

@@ -211,8 +211,7 @@ impl ClaudePersistentProcess {
         let session = self
             .fingerprint
             .as_ref()
-            .map(|f| f.session_id.clone())
-            .unwrap_or_default();
+            .map_or_default(|f| f.session_id.clone());
         handle
             .send_user_message(&make_user_message(&input.text, &session))
             .await

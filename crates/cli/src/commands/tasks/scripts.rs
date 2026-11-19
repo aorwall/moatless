@@ -174,7 +174,7 @@ fn script_rows(scripts: &[ListedScript]) -> Vec<Vec<String>> {
                 s.scope.clone().unwrap_or_else(|| "workspace".to_string()),
                 s.label.clone().unwrap_or_default(),
                 summarize_command(&s.command),
-                s.port.map(|p| p.to_string()).unwrap_or_default(),
+                s.port.map_or_default(|p| p.to_string()),
                 if s.run_on_start { "yes" } else { "" }.to_string(),
             ]
         })

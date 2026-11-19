@@ -881,8 +881,7 @@ fn parse_repo_config() -> ParsedRepoConfig {
 
     let setup_commands = repo_config
         .code_execution
-        .map(|ce| ce.setup_commands)
-        .unwrap_or_default();
+        .map_or_default(|ce| ce.setup_commands);
 
     let plugins = repo_config.plugins.unwrap_or_default();
     let removed_plugins = repo_config.removed_plugins.unwrap_or_default();

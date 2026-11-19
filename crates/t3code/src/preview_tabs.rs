@@ -161,8 +161,7 @@ impl PreviewTabs {
             Some(tab_id) => task
                 .tabs
                 .remove(tab_id)
-                .map(|tab| vec![tab.tab_id])
-                .unwrap_or_default(),
+                .map_or_default(|tab| vec![tab.tab_id]),
             None => task.tabs.drain().map(|(tab_id, _)| tab_id).collect(),
         };
         tab_ids.sort();

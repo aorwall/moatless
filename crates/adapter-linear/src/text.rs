@@ -86,7 +86,7 @@ pub(super) fn comment_inbound_text(
     replied_to: Option<&RepliedTo<'_>>,
     body: &str,
 ) -> String {
-    let on = issue.map(|id| format!(" on {id}")).unwrap_or_default();
+    let on = issue.map_or_default(|id| format!(" on {id}"));
     match replied_to {
         Some(parent) => format!(
             "> Reply{on} to {}'s comment: \"{}\"\n\n{body}",

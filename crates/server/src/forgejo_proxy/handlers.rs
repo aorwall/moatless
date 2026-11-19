@@ -58,7 +58,7 @@ const USER_TOKEN: &str = "x-user-token";
 fn upstream_path(uri: &Uri) -> Option<String> {
     let rest = uri.path().strip_prefix("/forgejo/")?;
     let (_, path) = rest.split_once('/')?;
-    let query = uri.query().map(|q| format!("?{q}")).unwrap_or_default();
+    let query = uri.query().map_or_default(|q| format!("?{q}"));
     Some(format!("/{path}{query}"))
 }
 

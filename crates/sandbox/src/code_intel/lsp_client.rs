@@ -315,10 +315,7 @@ fn track_progress(progress: &std::sync::Mutex<HashSet<String>>, message: &Value)
     let Some(params) = message.get("params") else {
         return;
     };
-    let token = params
-        .get("token")
-        .map(Value::to_string)
-        .unwrap_or_default();
+    let token = params.get("token").map_or_default(Value::to_string);
     let Ok(mut tokens) = progress.lock() else {
         return;
     };

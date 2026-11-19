@@ -675,10 +675,7 @@ impl Reconciler {
         // failure) waits for a new caller operation or a wake. A markerless
         // first attempt has no generation to key on and is always allowed:
         // it establishes the marker the next tick keys against.
-        if generation.is_some() && retry.budget.exhausted() {
-            return false;
-        }
-        true
+        !(generation.is_some() && retry.budget.exhausted())
     }
 
     /// Returns what the give-up event needs only when this call is the one that

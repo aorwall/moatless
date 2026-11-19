@@ -199,13 +199,12 @@ fn frozen(record: &MessageRecord, legacy: &Map<String, Value>) -> TaskMessage {
         skills: legacy
             .get("skills")
             .and_then(Value::as_array)
-            .map(|skills| {
+            .map_or_default(|skills| {
                 skills
                     .iter()
                     .filter_map(|s| s.as_str().map(str::to_string))
                     .collect()
-            })
-            .unwrap_or_default(),
+            }),
         resume: flag("resume").unwrap_or(false),
         sent_at: time("sent_at"),
         created_at: Some(record.created_at),

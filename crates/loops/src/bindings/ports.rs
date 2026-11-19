@@ -169,9 +169,7 @@ fn summarize(
     };
 
     TaskBindingSummary {
-        loop_id: subscription
-            .map(|subscription| subscription.id.clone())
-            .unwrap_or_default(),
+        loop_id: subscription.map_or_default(|subscription| subscription.id.clone()),
         adapter_kind: binding.adapter_kind,
         source_id: source_id.clone(),
         source_name: Some(source_id),

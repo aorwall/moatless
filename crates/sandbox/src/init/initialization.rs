@@ -117,8 +117,7 @@ fn describe_clone(config: &crate::config::Config, summary: &git::CloneSummary) -
                 .find(|repo| &repo.mount_name == mount)
                 .and_then(|repo| repo.branch.as_deref())
                 .filter(|branch| !branch.is_empty())
-                .map(|branch| format!(" ({branch})"))
-                .unwrap_or_default();
+                .map_or_default(|branch| format!(" ({branch})"));
             format!("{mount}{branch}")
         })
         .collect();

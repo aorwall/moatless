@@ -182,8 +182,7 @@ impl LifecycleDao for InMemoryLifecycleDao {
         Ok(intent
             .filter(|i| i.desired_state == SandboxDesiredState::Stopped)
             .filter(|_| !*self.storage_reclaimed.lock().expect("lock"))
-            .map(|i| vec![("t".to_string(), i.desired_state_updated_at)])
-            .unwrap_or_default())
+            .map_or_default(|i| vec![("t".to_string(), i.desired_state_updated_at)]))
     }
     async fn mark_storage_reclaimed(&self, _task_id: &str) -> Result<(), StoreError> {
         *self.storage_reclaimed.lock().expect("lock") = true;

@@ -285,7 +285,7 @@ async fn read_status(
             .flatten()
             .next_back()
             .and_then(|node| node.commit.status_check_rollup)
-            .map(|rollup| {
+            .map_or_default(|rollup| {
                 rollup
                     .contexts
                     .nodes
@@ -293,8 +293,7 @@ async fn read_status(
                     .flatten()
                     .filter_map(RawCheck::into_check)
                     .collect()
-            })
-            .unwrap_or_default(),
+            }),
     })
 }
 
