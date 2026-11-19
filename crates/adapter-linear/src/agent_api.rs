@@ -724,6 +724,36 @@ impl LinearAgentApi {
             })
     }
 
+    /// Post a top-level comment on an issue as the app, shown under
+    /// `display_name` through `createAsUser`.
+    pub async fn create_comment_as(
+        &self,
+        issue_id: &str,
+        body: &str,
+        display_name: &str,
+    ) -> Result<serde_json::Value, AdapterError> {
+        let value = self
+            .graphql(serde_json::json!({
+                "query": "mutation($input: CommentCreateInput!) { \
+                    commentCreate(input: $input) { success comment { id url body createdAt } } \
+                }",
+                "variables": { "input": {
+                    "issueId": issue_id,
+                    "body": body,
+                    "createAsUser": display_name,
+                } }
+            }))
+            .await?;
+        require_mutation_success(&value, "/data/commentCreate", "commentCreate")?;
+        value
+            .pointer("/data/commentCreate/comment")
+            .cloned()
+            .ok_or_else(|| {
+                SharedAdapterError::AdapterApi("commentCreate missing comment subobject".into())
+                    .into()
+            })
+    }
+
     /// Fetch one comment with its issue's identifier and its parent (`id`,
     /// `body`, author). Returns the comment subobject.
     pub async fn get_comment(&self, comment_id: &str) -> Result<serde_json::Value, AdapterError> {

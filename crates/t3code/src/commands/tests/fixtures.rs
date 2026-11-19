@@ -158,6 +158,12 @@ pub(super) enum Call {
         number: i64,
         linked: bool,
     },
+    SetIssueLink {
+        task_id: String,
+        scope: String,
+        key: String,
+        linked: bool,
+    },
 }
 
 /// One attachment as the sink received it. An inline one is recorded by what
@@ -495,6 +501,22 @@ impl ThreadCommandSink for RecordingSink {
             .push(pull_request_call(reference, false));
         Ok(())
     }
+    async fn link_issue(
+        &self,
+        _viewer: &ScopeContext,
+        reference: ThreadIssueRef,
+    ) -> Result<(), CommandRefusal> {
+        self.0.lock().unwrap().push(issue_call(reference, true));
+        Ok(())
+    }
+    async fn unlink_issue(
+        &self,
+        _viewer: &ScopeContext,
+        reference: ThreadIssueRef,
+    ) -> Result<(), CommandRefusal> {
+        self.0.lock().unwrap().push(issue_call(reference, false));
+        Ok(())
+    }
     async fn change_queue(
         &self,
         _viewer: &ScopeContext,
@@ -580,6 +602,15 @@ fn pull_request_call(reference: ThreadPullRequestRef, linked: bool) -> Call {
         host: reference.host,
         repository: reference.repository,
         number: reference.number,
+        linked,
+    }
+}
+
+fn issue_call(reference: ThreadIssueRef, linked: bool) -> Call {
+    Call::SetIssueLink {
+        task_id: reference.task_id,
+        scope: reference.scope,
+        key: reference.key,
         linked,
     }
 }
@@ -679,6 +710,7 @@ pub(super) fn conversation(agent_profile: AgentProfile) -> Conversation {
         active_order_key: None,
         auto_settle_disabled_at: None,
         pull_requests: None,
+        issues: None,
         tags: Vec::new(),
     }
 }

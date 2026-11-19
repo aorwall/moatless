@@ -21,6 +21,7 @@ pub mod files;
 mod git_actions;
 mod handlers;
 pub mod hub_models;
+mod issues;
 mod lineage;
 mod message_context;
 mod nominal_path;

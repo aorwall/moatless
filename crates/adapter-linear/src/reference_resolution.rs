@@ -185,7 +185,7 @@ pub(super) async fn resolve_issue_reporter(
 
 /// A Moatless user's non-app Linear user: their stored `linear` id, else their
 /// email.
-async fn linear_user_of(
+pub(super) async fn linear_user_of(
     api: &LinearAgentApi,
     users: &dyn UserDisplay,
     identity: &dyn ProviderIdentityLink,

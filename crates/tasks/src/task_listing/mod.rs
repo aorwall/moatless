@@ -15,7 +15,7 @@ mod listed_db_tests;
 #[cfg(all(test, feature = "db-tests"))]
 mod names_db_tests;
 
-pub use listed::{ListedAgent, ListedPullRequest, ListedTask, ListingCursor};
+pub use listed::{ListedAgent, ListedIssue, ListedPullRequest, ListedTask, ListingCursor};
 pub use operations::{
     ARCHIVED_LIMIT, BROWSE_LIMIT, FOLLOWED_LIMIT, LISTED_STATUSES, ListingError, ListingFilter,
     READABLE_STATUSES, TaskListing, status_list,

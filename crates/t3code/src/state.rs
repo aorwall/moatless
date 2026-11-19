@@ -81,6 +81,8 @@ pub(crate) struct UiRpcState {
     /// Linked pull requests read from their git host, and the Task a guided
     /// review starts.
     pub(crate) pull_request_reviews: Arc<dyn ports::PullRequestReviewSource>,
+    /// [`crate::compose::UiRpcDependencies::issues`].
+    pub(crate) issues: Arc<dyn ports::IssueTrackerSource>,
     /// Stored guided reviews and the runs writing them.
     pub(crate) review_guides: Arc<moatless_tasks::review_guide::operations::ReviewGuides>,
     /// The viewer's usable GitHub credential, for the Source Control panel's

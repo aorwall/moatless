@@ -333,6 +333,7 @@ pub(super) fn statement(
                    t.active_order_key,
                    t.auto_settle_disabled_at,
                    COALESCE(pr.pull_requests, '[]'::jsonb) AS pull_requests,
+                   COALESCE(issue.issues, '[]'::jsonb) AS issues,
                    COALESCE(tagged.names, '[]'::jsonb) AS tags,
                    parent.task_id AS parent_task_id,
                    parent.relation_type AS parent_relation,
@@ -547,6 +548,45 @@ pub(super) fn statement(
                          AND b.subject_key ~ '{PULL_REQUEST_KEY_PATTERN}'
                    ) bound
                ) pr ON TRUE
+               -- The Linear issues the thread row links to. A Binding written
+               -- before it named its issue's identifier is left out: T3 keys a
+               -- link by it. Destination keys as `status::binding_label_and_url`
+               -- in `adapter-linear` reads them.
+               LEFT JOIN LATERAL (
+                   SELECT jsonb_agg(
+                              jsonb_build_object(
+                                  'identifier', bound.identifier,
+                                  'url', bound.url,
+                                  'title', bound.title,
+                                  'linked_at', bound.linked_at,
+                                  'origin', bound.origin,
+                                  'bind_reason', bound.bind_reason
+                              )
+                              ORDER BY bound.linked_at, bound.identifier
+                          ) AS issues
+                   FROM (
+                       SELECT DISTINCT ON (identifier)
+                           COALESCE(
+                               NULLIF(b.destination_config ->> 'identifier', ''),
+                               NULLIF(b.destination_config ->> 'issue_identifier', '')
+                           ) AS identifier,
+                           COALESCE(
+                               NULLIF(b.destination_config ->> 'issue_url', ''),
+                               NULLIF(b.destination_config ->> 'url', '')
+                           ) AS url,
+                           NULLIF(b.destination_config ->> 'issue_title', '') AS title,
+                           b.created_at AS linked_at,
+                           b.origin AS origin,
+                           b.metadata ->> 'bind_reason' AS bind_reason
+                       FROM task_bindings b
+                       WHERE b.task_id = t.task_id
+                         AND b.active
+                         AND b.adapter_kind = 'linear'
+                         AND b.subject_kind = 'linear_issue'
+                       ORDER BY identifier, b.created_at
+                   ) bound
+                   WHERE bound.identifier IS NOT NULL
+               ) issue ON TRUE
                LEFT JOIN LATERAL (
                    SELECT jsonb_agg(tg.name ORDER BY tg.name) AS names
                    FROM task_tags tt

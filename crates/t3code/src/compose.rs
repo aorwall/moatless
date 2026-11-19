@@ -82,6 +82,7 @@ pub async fn mount(
         relations,
         pull_requests,
         pull_request_reviews,
+        issues,
         source_control_auth,
         commands,
         attachments,
@@ -184,6 +185,7 @@ pub async fn mount(
         skills,
         pull_requests,
         pull_request_reviews,
+        issues,
         review_guides: graph.review_guides.clone(),
         source_control_auth,
         commands,
@@ -335,6 +337,8 @@ pub struct UiRpcDependencies {
     /// Linked pull requests read from their git host, and the Task a guided
     /// review starts.
     pub pull_request_reviews: Arc<dyn ports::PullRequestReviewSource>,
+    /// Linear issues of the team each Workspace declares.
+    pub issues: Arc<dyn ports::IssueTrackerSource>,
     /// The viewer's usable GitHub credential, for the Source Control panel.
     pub source_control_auth: Arc<dyn ports::SourceControlAuthSource>,
     /// Carries out the commands the T3 client dispatches.

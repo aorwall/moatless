@@ -121,6 +121,12 @@ pub(crate) fn descriptor(config: &UiRpcConfig) -> Value {
             // repository, its pull requests' reads, and their writes made with
             // the viewer's own credential. Stacks and viewed files are refused.
             "pullRequests": true,
+            // `issues.*` over the Linear team each Workspace declares, and
+            // `thread.issue.link`/`.unlink` with `issues` on each thread row.
+            // Reactions and templates are refused, `issueTrackers.list` is
+            // read-only.
+            "issues": true,
+            "issueLinkedThreads": true,
             // `thread.pin`, `thread.unpin`, `thread.pin.reorder` and
             // `thread.active.reorder`, stored per viewer on their follow.
             "threadPinning": true,

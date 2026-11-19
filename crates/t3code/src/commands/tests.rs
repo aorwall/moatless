@@ -15,6 +15,7 @@ mod attachments;
 mod create;
 mod discarded_and_refused;
 mod fork;
+mod issues;
 mod lifecycle;
 mod meta;
 mod models;

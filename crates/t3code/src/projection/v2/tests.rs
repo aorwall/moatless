@@ -1,6 +1,5 @@
 use super::*;
-use crate::projection::v2_items::command_exit_code;
-use crate::projection::v2_items::plans;
+use crate::projection::v2_items::{command_exit_code, plans};
 use crate::transcript::TranscriptEntry;
 use chrono::Utc;
 use moatless_types::agent::AgentProfile;
@@ -56,6 +55,7 @@ fn conversation(task_id: &str) -> Conversation {
         active_order_key: None,
         auto_settle_disabled_at: None,
         pull_requests: None,
+        issues: None,
         tags: Vec::new(),
     }
 }

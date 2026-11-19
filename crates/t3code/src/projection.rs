@@ -9,6 +9,7 @@ mod compact;
 mod detail;
 mod events;
 mod find;
+mod issue;
 mod model;
 mod origin;
 mod project;

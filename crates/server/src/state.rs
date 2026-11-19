@@ -880,3 +880,23 @@ impl axum::extract::FromRef<AppState>
             .map(|installation| installation.linear_installation())
     }
 }
+
+impl axum::extract::FromRef<AppState>
+    for Option<moatless_adapter_linear::issue_tracker::LinearIssueTracker>
+{
+    fn from_ref(state: &AppState) -> Self {
+        let linear = state.adapter_installations.as_ref()?.linear();
+        Some(
+            moatless_adapter_linear::issue_tracker::LinearIssueTracker::new(
+                linear,
+                moatless_adapter_linear::issue_tracker::LinearIssueTrackerPorts {
+                    tasks: state.task_reader.clone(),
+                    users: state.user_directory.clone(),
+                    identity: state.user_directory.clone(),
+                    task_bindings: state.task_bindings.clone(),
+                    own_events: state.own_events.clone(),
+                },
+            ),
+        )
+    }
+}

@@ -128,6 +128,9 @@ pub(crate) async fn ui_rpc(
             relations: app_state.task_relations.clone(),
             pull_requests: bound_pull_requests.clone(),
             pull_request_reviews: bound_pull_requests,
+            issues: Arc::new(t3code::backend::LinearIssues(
+                axum::extract::FromRef::from_ref(app_state),
+            )),
             source_control_auth: Arc::new(moatless_t3code::owners::GithubAuth {
                 credentials: app_state.credentials.clone(),
                 git_host_tokens: app_state.git_host_tokens.clone(),

@@ -624,6 +624,20 @@ mod tests {
         ) -> Result<(), crate::ports::CommandRefusal> {
             unreachable!("a git action never unlinks a pull request")
         }
+        async fn link_issue(
+            &self,
+            _viewer: &ScopeContext,
+            _reference: crate::ports::ThreadIssueRef,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!("a git action never links an issue")
+        }
+        async fn unlink_issue(
+            &self,
+            _viewer: &ScopeContext,
+            _reference: crate::ports::ThreadIssueRef,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!("a git action never unlinks an issue")
+        }
         async fn change_queue(
             &self,
             _viewer: &ScopeContext,

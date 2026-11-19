@@ -25,6 +25,7 @@ pub mod event;
 pub mod feedback;
 pub mod git_host;
 pub mod http;
+pub mod issue_tracker;
 pub mod loops;
 pub mod memory;
 pub mod message;

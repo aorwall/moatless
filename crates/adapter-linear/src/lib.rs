@@ -9,11 +9,11 @@
 // Allow unwrap/expect in test code. Production code still enforces the deny.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 //!
-//! Four modules face outward, each with a caller that names it: [`adapter`]
+//! Five modules face outward, each with a caller that names it: [`adapter`]
 //! (the registry), [`delivery`] (the worker and `backend/tests/`), [`handlers`]
-//! (the webhook route), and [`activity`] (the event pipeline, per Decision 6).
-//! [`ingress`] is a fifth, exported only because `receive` is the seam
-//! `backend/tests/` drives to build an `AppState`.
+//! (the webhook route), [`activity`] (the event pipeline, per Decision 6) and
+//! [`issue_tracker`] (T3's Issues page). [`ingress`] is exported only because
+//! `receive` is the seam `backend/tests/` drives to build an `AppState`.
 //!
 //! Everything else is internal; [`active_turns`] and [`api_routes`] are public
 //! only because `state.rs` and `adapters/routes.rs` name them through the
@@ -34,6 +34,7 @@ mod external_id;
 pub mod handlers;
 pub mod ingress;
 pub mod installation;
+pub mod issue_tracker;
 mod issues;
 mod notifications;
 mod sessions;

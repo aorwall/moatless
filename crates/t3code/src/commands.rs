@@ -19,8 +19,8 @@ use base64::Engine;
 use super::dao::{Conversation, ConversationDao};
 use super::ports::{
     AgentCatalogSource, AttachmentKind, CommandRefusal, ForkThread, NewThread, QuestionAnswer,
-    QueueChange, SkillCatalog, ThreadCommandSink, ThreadMeta, ThreadPullRequestRef, ThreadTurn,
-    TurnAttachment,
+    QueueChange, SkillCatalog, ThreadCommandSink, ThreadIssueRef, ThreadMeta, ThreadPullRequestRef,
+    ThreadTurn, TurnAttachment,
 };
 use super::providers;
 use crate::message_context::inline_message_text;
@@ -201,6 +201,14 @@ pub async fn dispatch(
         "thread.pull-request.unlink" => {
             let reference = pull_request_ref(ctx, viewer, command).await?;
             ctx.sink.unlink_pull_request(viewer, reference).await?;
+        }
+        "thread.issue.link" => {
+            let reference = issue_ref(ctx, viewer, command).await?;
+            ctx.sink.link_issue(viewer, reference).await?;
+        }
+        "thread.issue.unlink" => {
+            let reference = issue_ref(ctx, viewer, command).await?;
+            ctx.sink.unlink_issue(viewer, reference).await?;
         }
         "thread.pull-request.watch" => {
             let watching = command
@@ -941,6 +949,38 @@ async fn pull_request_ref(
         host: field("host")?,
         repository: field("repository")?,
         number,
+    })
+}
+
+/// The `ThreadIssueKey` a link or unlink command carries, on a Thread this
+/// viewer may write to, as [`pull_request_ref`] gates it. Only Linear issues
+/// can be bound.
+async fn issue_ref(
+    ctx: &CommandContext<'_>,
+    viewer: &ScopeContext,
+    command: &Value,
+) -> Result<ThreadIssueRef, CommandRefusal> {
+    let task_id = thread_id(command)?.to_string();
+    require_writable(ctx, viewer, &task_id).await?;
+    let field = |name: &'static str| -> Result<String, CommandRefusal> {
+        command
+            .get(name)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .ok_or_else(|| missing(name))
+    };
+    let tracker = field("tracker")?;
+    if tracker != crate::issues::LINEAR_TRACKER {
+        return Err(CommandRefusal::Rejected {
+            message: format!("Only Linear issues can be linked on this server, not `{tracker}`."),
+        });
+    }
+    Ok(ThreadIssueRef {
+        task_id,
+        scope: field("scope")?,
+        key: field("key")?,
     })
 }
 

@@ -17,6 +17,7 @@ static METHODS: LazyLock<MethodTable> = LazyLock::new(|| {
         .merge(super::preview::preview_methods())
         .merge(super::terminal::terminal_methods())
         .merge(super::vcs::vcs_methods())
+        .merge(super::issues::issue_methods())
 });
 
 /// Every method this surface answers or the contract declares.

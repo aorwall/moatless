@@ -77,7 +77,9 @@ pub(crate) fn translate(command: &Value) -> Result<Translated, CommandRefusal> {
         | "thread.unfollow"
         | "thread.visibility.set"
         | "thread.pull-request.link"
-        | "thread.pull-request.unlink" => renamed(tag),
+        | "thread.pull-request.unlink"
+        | "thread.issue.link"
+        | "thread.issue.unlink" => renamed(tag),
         "thread.metadata.update" | "thread.model-selection.set" => renamed("thread.meta.update"),
         // `stopDelegatedTasks` is moot: a Stop here ends this Task's agent
         // alone, and a child Task keeps running until it is stopped itself.

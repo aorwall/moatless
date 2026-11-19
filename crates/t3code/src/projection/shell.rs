@@ -6,6 +6,7 @@ use chrono::{SecondsFormat, Utc};
 use serde_json::{Map, Value, json};
 use tracing::warn;
 
+use super::issue::thread_issues;
 use super::model::model_selection;
 use super::project::project;
 use super::pull_request::legacy_linked_pull_request;
@@ -212,6 +213,7 @@ pub(super) fn conversation_row(
         // list.
         "linkedPullRequest": legacy_linked_pull_request(pull_requests.first(), project_id),
         "pullRequests": Value::Array(pull_requests),
+        "issues": thread_issues(conversation, project_id),
         "latestTurn": latest_turn(conversation),
         "createdAt": instant(created),
         "updatedAt": instant(conversation.updated_at.unwrap_or(created)),

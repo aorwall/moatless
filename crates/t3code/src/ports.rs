@@ -8,6 +8,10 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use moatless_api_schemas::agent::AgentDescriptor;
 use moatless_types::access_control::ScopeContext;
+use moatless_types::issue_tracker::{
+    CreatedIssue, IssueAssigneeCandidate, IssueCandidates, IssueCommentPage, IssueDetail,
+    IssueDraft, IssueEdit, IssueListQuery, IssuePage, IssueTrackerError, IssueTrackerWorkspace,
+};
 use moatless_types::pull_request_conversation::{
     Candidates, FileChangeType, FileContentsPair, PullRequestActivity, PullRequestFileStat,
     PullRequestLabelCandidate, PullRequestReviewerCandidate, PullRequestStatus, PullRequestWrite,
@@ -195,6 +199,16 @@ pub struct ThreadPullRequestRef {
     /// `owner/name`.
     pub repository: String,
     pub number: i64,
+}
+
+/// The Linear issue a link or an unlink command named. `url`, `title` and
+/// `source` are not carried: the link reads them from Linear.
+pub struct ThreadIssueRef {
+    pub task_id: String,
+    /// A Linear team key.
+    pub scope: String,
+    /// A Linear identifier, `SP-12`.
+    pub key: String,
 }
 
 /// A fork, as this surface understood it.
@@ -1127,6 +1141,118 @@ pub trait ThreadCommandSink: Send + Sync {
         viewer: &ScopeContext,
         reference: ThreadPullRequestRef,
     ) -> Result<(), CommandRefusal>;
+
+    /// Bind a Thread to a Linear issue so it appears in `issues` on the
+    /// Thread's row, hearing only replies to the Task's own comments there.
+    /// Idempotent.
+    async fn link_issue(
+        &self,
+        viewer: &ScopeContext,
+        reference: ThreadIssueRef,
+    ) -> Result<(), CommandRefusal>;
+
+    /// Release a Thread's Linear issue, deleting the Binding that joined
+    /// them. Idempotent.
+    async fn unlink_issue(
+        &self,
+        viewer: &ScopeContext,
+        reference: ThreadIssueRef,
+    ) -> Result<(), CommandRefusal>;
+}
+
+/// Linear issues, read and written for a person through this deployment's
+/// Linear app rather than a credential of theirs.
+///
+/// Every call names the team (`scope`) it is about; the caller has already
+/// checked the person may read a Workspace that declares that team.
+#[cfg_attr(test, mockall::automock)]
+#[async_trait]
+pub trait IssueTrackerSource: Send + Sync {
+    /// Every Linear workspace this deployment reaches, with its teams.
+    async fn workspaces(
+        &self,
+        viewer: &ScopeContext,
+    ) -> Result<Vec<IssueTrackerWorkspace>, IssueTrackerError>;
+
+    /// The Linear user `viewer` is, when Linear knows them.
+    async fn viewer(
+        &self,
+        viewer: &ScopeContext,
+        scope: &str,
+    ) -> Result<Option<IssueAssigneeCandidate>, IssueTrackerError>;
+
+    /// One page of a team's issues. `viewer_id` is [`Self::viewer`]'s `id`.
+    async fn list(
+        &self,
+        viewer: &ScopeContext,
+        query: &IssueListQuery,
+        viewer_id: Option<String>,
+    ) -> Result<IssuePage, IssueTrackerError>;
+
+    async fn detail(
+        &self,
+        viewer: &ScopeContext,
+        scope: &str,
+        key: &str,
+    ) -> Result<IssueDetail, IssueTrackerError>;
+
+    async fn comments(
+        &self,
+        viewer: &ScopeContext,
+        scope: &str,
+        key: &str,
+        cursor: &str,
+    ) -> Result<IssueCommentPage, IssueTrackerError>;
+
+    async fn candidates(
+        &self,
+        viewer: &ScopeContext,
+        scope: &str,
+    ) -> Result<IssueCandidates, IssueTrackerError>;
+
+    /// File an issue attributed to `login`.
+    async fn create(
+        &self,
+        viewer: &ScopeContext,
+        login: &str,
+        scope: &str,
+        draft: IssueDraft,
+    ) -> Result<CreatedIssue, IssueTrackerError>;
+
+    /// Comment as the app, under `login`'s name.
+    async fn comment(
+        &self,
+        viewer: &ScopeContext,
+        login: &str,
+        scope: &str,
+        key: &str,
+        body: &str,
+    ) -> Result<(), IssueTrackerError>;
+
+    async fn update(
+        &self,
+        viewer: &ScopeContext,
+        scope: &str,
+        key: &str,
+        edit: IssueEdit,
+    ) -> Result<(), IssueTrackerError>;
+
+    /// Move the issue to the team workflow state named `state`.
+    async fn set_state(
+        &self,
+        viewer: &ScopeContext,
+        scope: &str,
+        key: &str,
+        state: &str,
+    ) -> Result<(), IssueTrackerError>;
+
+    /// Every Task with an active Binding on the issue, unfiltered by access.
+    async fn linked_tasks(
+        &self,
+        viewer: &ScopeContext,
+        scope: &str,
+        key: &str,
+    ) -> Result<Vec<String>, IssueTrackerError>;
 }
 
 pub use moatless_tasks::task_turn::usage::{UsageBucket, UsageWindow};

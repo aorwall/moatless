@@ -5,9 +5,10 @@ use super::attachments::ResolvedAttachments;
 use super::pull_requests::github_owner_repo;
 use crate::state::AppState;
 use async_trait::async_trait;
+use axum::extract::FromRef;
 use moatless_t3code::ports::{
     CommandRefusal, ForkThread, NewThread, QuestionAnswer, QueueChange, ThreadCommandSink,
-    ThreadMeta, ThreadPullRequestRef, ThreadTurn,
+    ThreadIssueRef, ThreadMeta, ThreadPullRequestRef, ThreadTurn,
 };
 use moatless_tasks::message::error::MessageError;
 use moatless_tasks::message::service as message_service;
@@ -982,6 +983,22 @@ impl ThreadCommandSink for AppStateCommands {
                     message: "That pull request could not be unlinked.".to_string(),
                 }
             })
+    }
+
+    async fn link_issue(
+        &self,
+        viewer: &ScopeContext,
+        reference: ThreadIssueRef,
+    ) -> Result<(), CommandRefusal> {
+        super::issues::link_issue(FromRef::from_ref(&self.0), viewer, &reference).await
+    }
+
+    async fn unlink_issue(
+        &self,
+        _viewer: &ScopeContext,
+        reference: ThreadIssueRef,
+    ) -> Result<(), CommandRefusal> {
+        super::issues::unlink_issue(FromRef::from_ref(&self.0), &reference).await
     }
 
     async fn watch_pull_request(

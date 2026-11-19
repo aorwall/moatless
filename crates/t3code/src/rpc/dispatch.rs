@@ -3,6 +3,7 @@
 //! [`MethodTable`](crate::rpc::table::MethodTable); [`methods()`] merges them.
 
 mod artifacts;
+mod issues;
 mod methods;
 mod orchestration;
 mod orchestration_v2;

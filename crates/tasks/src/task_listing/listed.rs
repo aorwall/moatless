@@ -128,6 +128,10 @@ pub struct ListedTask {
     /// restates that order, and the two must agree on which is primary.
     pub pull_requests: Option<Json<Vec<ListedPullRequest>>>,
 
+    /// Every Linear issue this Task has an active Binding on, oldest link
+    /// first; empty, not `None`, when there is none.
+    pub issues: Option<Json<Vec<ListedIssue>>>,
+
     /// The Task's tag names, sorted; empty when it has none.
     #[sqlx(json)]
     pub tags: Vec<String>,
@@ -157,6 +161,19 @@ impl ListedTask {
             }
         }
     }
+}
+
+/// One Linear issue bound to a Task, as the listing query aggregates it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListedIssue {
+    /// `SP-12`.
+    pub identifier: String,
+    pub url: Option<String>,
+    /// Recorded only by a link made from T3.
+    pub title: Option<String>,
+    pub linked_at: DateTime<Utc>,
+    pub origin: String,
+    pub bind_reason: Option<String>,
 }
 
 /// One GitHub pull request bound to a Task, as the listing query aggregates it.

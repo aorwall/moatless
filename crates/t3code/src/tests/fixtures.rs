@@ -763,6 +763,20 @@ impl ports::ThreadCommandSink for UnreachableCommands {
     ) -> Result<(), ports::CommandRefusal> {
         unreachable!("no test in this file unlinks a pull request")
     }
+    async fn link_issue(
+        &self,
+        _viewer: &ScopeContext,
+        _reference: ports::ThreadIssueRef,
+    ) -> Result<(), ports::CommandRefusal> {
+        unreachable!("no test in this file links an issue")
+    }
+    async fn unlink_issue(
+        &self,
+        _viewer: &ScopeContext,
+        _reference: ports::ThreadIssueRef,
+    ) -> Result<(), ports::CommandRefusal> {
+        unreachable!("no test in this file unlinks an issue")
+    }
     async fn change_queue(
         &self,
         _viewer: &ScopeContext,
@@ -1004,6 +1018,7 @@ fn state_from(
         skills: Arc::new(StubSkills),
         pull_requests: Arc::new(NoBoundPullRequests),
         pull_request_reviews: Arc::new(UnreachablePullRequestReviews),
+        issues: Arc::new(ports::MockIssueTrackerSource::new()),
         review_guides: moatless_tasks::compose::task_graph(
             sqlx::PgPool::connect_lazy("postgres://unused").expect("a lazy pool"),
         )
