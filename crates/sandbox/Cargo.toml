@@ -100,7 +100,7 @@ base64 = { workspace = true }
 reqwest = { workspace = true, features = ["rustls", "stream"] }
 
 [target.'cfg(unix)'.dependencies]
-nix = { version = "0.31", features = ["signal"] }
+nix = { version = "0.32", features = ["signal"] }
 
 [dev-dependencies]
 # `S3Storage::at_endpoint`, for the MinIO round trip.

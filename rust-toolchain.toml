@@ -5,5 +5,5 @@
 # Dockerfiles (same depName groups them into one PR); the CI toolchain-drift job
 # enforces the channel↔sandbox-base coupling.
 # renovate: datasource=github-releases depName=rust-lang/rust
-channel = "1.99.1"
+channel = "1.100.0"
 components = ["clippy", "rustfmt"]
