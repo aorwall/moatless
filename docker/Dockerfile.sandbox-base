@@ -135,6 +135,17 @@ RUN ARCH=$(dpkg --print-architecture) && \
     /tmp/aws/install && \
     rm -rf /tmp/aws /tmp/awscliv2.zip
 
+# Session Manager plugin for `aws ssm start-session` port forwards.
+# renovate: datasource=github-tags depName=aws/session-manager-plugin
+ARG SESSION_MANAGER_PLUGIN_VERSION=1.2.896.0
+RUN ARCH=$(dpkg --print-architecture) && \
+    SSM_ARCH=$([ "$ARCH" = "amd64" ] && echo "ubuntu_64bit" || echo "ubuntu_arm64") && \
+    curl -fsSL "https://s3.amazonaws.com/session-manager-downloads/plugin/${SESSION_MANAGER_PLUGIN_VERSION}/${SSM_ARCH}/session-manager-plugin.deb" \
+      -o /tmp/session-manager-plugin.deb && \
+    dpkg -i /tmp/session-manager-plugin.deb && \
+    rm /tmp/session-manager-plugin.deb && \
+    session-manager-plugin --version
+
 # Per-shell setup: CodeArtifact credentials for npm, bun and pip, and the
 # sccache wrapper (copied in with sccache below). An ENV and bash.bashrc rather
 # than the ENTRYPOINT, deliberately: Kubernetes replaces the ENTRYPOINT with
