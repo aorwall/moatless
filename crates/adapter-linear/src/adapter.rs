@@ -480,6 +480,9 @@ impl AdapterDirectDestination for LinearAdapter {
             "issue_id": issue_uuid,
             "issue_identifier": identifier,
         });
+        if let Some(title) = issue.get("title").and_then(serde_json::Value::as_str) {
+            destination_config["issue_title"] = serde_json::json!(title);
+        }
         if let Some(u) = url {
             destination_config["url"] = serde_json::Value::String(u);
         }

@@ -205,6 +205,7 @@ pub(super) fn issue_destination_config(issue: &IssuePayload, team_id: &str) -> s
         "team_id": team_id,
         "project_id": issue.resolved_project_id(),
         "issue_url": issue.url,
+        "issue_title": issue.title,
     })
 }
 

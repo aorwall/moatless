@@ -153,8 +153,12 @@ async fn projects(
         .collect())
 }
 
-/// The project a request names, when the viewer may read it and it declares
-/// the request's team.
+/// The project a request names, when the viewer may read it and it declares a
+/// team, with `team` set to the request's scope.
+///
+/// A project lends its Linear connection to any team, as T3's
+/// `resolveIssueLinkTarget` expects, so an OP issue opens in an SP project;
+/// Linear itself answers `NotFound` for a key outside the scope.
 async fn project_for(
     ports: &IssuePorts<'_>,
     viewer: &ScopeContext,
@@ -163,15 +167,16 @@ async fn project_for(
     if request.tracker != LINEAR_TRACKER {
         return Err(IssueFailure::NotBound);
     }
-    projects(ports, viewer, Some(request.project_id.trim()))
+    let project = projects(ports, viewer, Some(request.project_id.trim()))
         .await?
         .into_iter()
-        .find(|project| project.team.eq_ignore_ascii_case(request.scope.trim()))
-        .ok_or(IssueFailure::NotBound)
+        .next()
+        .ok_or(IssueFailure::NotBound)?;
+    lent(project, &request.scope)
 }
 
-/// A readable project declaring team `scope`, for a read that names no
-/// project.
+/// A readable project lending its connection to team `scope`, for a read that
+/// names no project: its own team's first, else any.
 async fn any_project_for(
     ports: &IssuePorts<'_>,
     viewer: &ScopeContext,
@@ -181,11 +186,25 @@ async fn any_project_for(
     if tracker != LINEAR_TRACKER {
         return Err(IssueFailure::NotBound);
     }
-    projects(ports, viewer, None)
-        .await?
-        .into_iter()
-        .find(|project| project.team.eq_ignore_ascii_case(scope.trim()))
-        .ok_or(IssueFailure::NotBound)
+    let mut readable = projects(ports, viewer, None).await?;
+    if readable.is_empty() {
+        return Err(IssueFailure::NotBound);
+    }
+    let own = readable
+        .iter()
+        .position(|project| project.team.eq_ignore_ascii_case(scope.trim()))
+        .unwrap_or(0);
+    lent(readable.swap_remove(own), scope)
+}
+
+fn lent(project: Project, scope: &str) -> Result<Project, IssueFailure> {
+    let team = scope.trim().to_ascii_uppercase();
+    if team.is_empty() {
+        return Err(IssueFailure::Invalid(
+            "An issue reference needs a scope.".to_string(),
+        ));
+    }
+    Ok(Project { team, ..project })
 }
 
 fn key_of(request: &IssueRequest) -> Result<&str, IssueFailure> {

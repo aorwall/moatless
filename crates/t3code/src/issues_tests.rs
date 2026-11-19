@@ -153,9 +153,14 @@ async fn a_continuation_reads_only_the_teams_it_names() {
 }
 
 #[tokio::test]
-async fn an_issue_outside_the_named_projects_team_is_refused_before_linear_is_asked() {
+async fn a_project_lends_its_connection_to_another_teams_issue() {
     let listed = workspaces(vec![project("ws-1", "App", Some("SP"))]);
-    let tracker = MockIssueTrackerSource::new();
+    let mut tracker = MockIssueTrackerSource::new();
+    tracker
+        .expect_detail()
+        .withf(|_, scope, key| scope == "OP" && key == "OP-1")
+        .times(1)
+        .returning(|_, _, _| Err(IssueTrackerError::NotFound));
     let conversations = MockConversationDao::new();
     let ports = IssuePorts {
         workspaces: &listed,
@@ -169,8 +174,38 @@ async fn an_issue_outside_the_named_projects_team_is_refused_before_linear_is_as
         &request(json!({
             "projectId": "ws-1",
             "tracker": "linear",
-            "scope": "OPS",
-            "key": "OPS-1",
+            "scope": "op",
+            "key": "OP-1",
+        })),
+    )
+    .await
+    .unwrap_err();
+
+    assert!(matches!(
+        failure,
+        IssueFailure::Tracker(IssueTrackerError::NotFound)
+    ));
+}
+
+#[tokio::test]
+async fn a_project_declaring_no_team_is_refused_before_linear_is_asked() {
+    let listed = workspaces(vec![project("ws-4", "Unbound", None)]);
+    let tracker = MockIssueTrackerSource::new();
+    let conversations = MockConversationDao::new();
+    let ports = IssuePorts {
+        workspaces: &listed,
+        tracker: &tracker,
+        conversations: &conversations,
+    };
+
+    let failure = detail(
+        &ports,
+        &viewer(),
+        &request(json!({
+            "projectId": "ws-4",
+            "tracker": "linear",
+            "scope": "OP",
+            "key": "OP-1",
         })),
     )
     .await

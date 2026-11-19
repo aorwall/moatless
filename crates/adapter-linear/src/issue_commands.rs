@@ -921,6 +921,9 @@ async fn create_issue_binding(
     if let Some(ref ident) = identifier {
         destination_config["issue_identifier"] = json!(ident);
     }
+    if let Some(title) = issue.get("title").and_then(Value::as_str) {
+        destination_config["issue_title"] = json!(title);
+    }
     if let Some(ref u) = url {
         destination_config["url"] = json!(u);
     }

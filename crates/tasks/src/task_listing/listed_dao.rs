@@ -574,7 +574,10 @@ pub(super) fn statement(
                                NULLIF(b.destination_config ->> 'issue_url', ''),
                                NULLIF(b.destination_config ->> 'url', '')
                            ) AS url,
-                           NULLIF(b.destination_config ->> 'issue_title', '') AS title,
+                           COALESCE(
+                               NULLIF(b.destination_config ->> 'issue_title', ''),
+                               NULLIF(b.external_status_raw ->> 'title', '')
+                           ) AS title,
                            b.created_at AS linked_at,
                            b.origin AS origin,
                            b.metadata ->> 'bind_reason' AS bind_reason
