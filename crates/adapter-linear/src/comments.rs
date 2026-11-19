@@ -230,10 +230,9 @@ fn recipients_for_comment<'b>(
 
 /// Whether one binding is listening where this comment was written.
 ///
-/// A thread-scoped binding (any session binding, or an issue binding carrying
-/// an `origin_comment_id`) hears a reply to a comment its own task authored or
-/// to the comment it was scoped to. An unscoped `linear_issue` binding owns the
-/// ticket, so every comment on it is for that task.
+/// A session binding, or an issue binding that `hears_only_replies_on_issue`,
+/// hears a reply to its task's own comment or to its scoped comment. Any other
+/// `linear_issue` binding owns the ticket and hears every comment on it.
 fn hears_comment(
     binding: &TaskBinding,
     comment_parent_id: Option<&str>,
@@ -244,11 +243,11 @@ fn hears_comment(
         return false;
     }
 
-    let scoped_to = origin_comment_id(binding);
-    if is_issue_binding && scoped_to.is_none() {
+    if is_issue_binding && !super::subject::hears_only_replies_on_issue(binding) {
         return true;
     }
 
+    let scoped_to = origin_comment_id(binding);
     let replies_to_own_comment = parent_author_task_id == Some(binding.task_id.as_str());
     let replies_to_origin_comment = comment_parent_id.is_some() && comment_parent_id == scoped_to;
     replies_to_own_comment || replies_to_origin_comment
@@ -363,6 +362,16 @@ mod tests {
     /// what `linear issue comment` writes without `--bind`.
     fn comment_author(task_id: &str, origin_comment_id: &str) -> TaskBinding {
         scoped_to(issue_producer(task_id), origin_comment_id)
+    }
+
+    /// A task a person linked to the issue from T3, which works it without
+    /// owning it.
+    fn linked_contributor(task_id: &str) -> TaskBinding {
+        let mut binding = issue_producer(task_id);
+        binding.metadata = serde_json::json!({
+            moatless_adapter_model::binding::BIND_REASON_KEY: "contributor",
+        });
+        binding
     }
 
     fn scoped_to(mut binding: TaskBinding, origin_comment_id: &str) -> TaskBinding {
@@ -563,6 +572,27 @@ mod tests {
             ),
             vec!["t_resp"],
             "a creator replying inside a session's thread does not hear itself"
+        );
+    }
+
+    #[test]
+    fn a_linked_contributor_hears_only_replies_to_its_own_comments() {
+        let bindings = vec![linked_contributor("t_linked")];
+        assert_eq!(
+            delivered_to(&comment_with_parent(None), &bindings, None, None),
+            Vec::<String>::new(),
+            "a person linking an issue in T3 does not hand its every comment to \
+             the agent"
+        );
+        assert_eq!(
+            delivered_to(
+                &comment_with_parent(Some("comment-mine")),
+                &bindings,
+                None,
+                Some("t_linked"),
+            ),
+            vec!["t_linked"],
+            "but a reply to a comment the task posted comes back"
         );
     }
 }

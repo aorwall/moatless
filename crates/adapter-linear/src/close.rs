@@ -94,7 +94,7 @@ async fn sole_binding_for_task(
     let siblings_count = match binding_repo.for_task(&binding.task_id).await {
         Ok(rows) => rows
             .iter()
-            .filter(|row| !super::subject::is_comment_scoped_issue(row))
+            .filter(|row| !super::subject::hears_only_replies_on_issue(row))
             .count(),
         Err(e) => {
             warn!(

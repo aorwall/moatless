@@ -881,13 +881,13 @@ async fn notify_bindings_of_state_change(
             }
         };
 
-        // A Binding scoped to a comment its Task posted hears only replies to it
-        // (`comments::hears_comment`), so a state change is not for it.
+        // A Binding that hears only replies to its Task's comments
+        // (`comments::hears_comment`) is not told of a state change.
         // A closed Task's Binding is inactive, and the closed Task would answer
         // the message with a conflict.
         for binding in bindings
             .into_iter()
-            .filter(|b| b.active && !super::subject::is_comment_scoped_issue(b))
+            .filter(|b| b.active && !super::subject::hears_only_replies_on_issue(b))
         {
             if !notified.insert(binding.task_id.clone()) {
                 continue;

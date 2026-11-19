@@ -183,13 +183,16 @@ pub(super) fn origin_comment_id(binding: &TaskBinding) -> Option<&str> {
         .and_then(serde_json::Value::as_str)
 }
 
-/// Whether this Binding exists only to route replies to one comment its Task
-/// posted, rather than to connect the Task to the whole issue.
+/// Whether this issue Binding hears only replies to what its Task wrote,
+/// rather than connecting the Task to the whole issue: one scoped to a comment
+/// the Task posted, or one whose role `hears_only_replies`, as a T3 link's is.
 ///
 /// `close.rs` leaves it out of the sibling count for that reason: commenting on
 /// a ticket is not taking on a second connected subject.
-pub(super) fn is_comment_scoped_issue(binding: &TaskBinding) -> bool {
-    binding.subject_kind == SUBJECT_KIND_ISSUE && origin_comment_id(binding).is_some()
+pub(super) fn hears_only_replies_on_issue(binding: &TaskBinding) -> bool {
+    binding.subject_kind == SUBJECT_KIND_ISSUE
+        && (origin_comment_id(binding).is_some()
+            || moatless_adapter_model::binding::hears_only_replies(binding))
 }
 
 /// The `destination_config` of a Binding created from an issue entering a
@@ -301,27 +304,39 @@ mod tests {
         }
     }
 
-    /// Only a `linear_issue` Binding scoped to a comment is comment-scoped.
+    /// Only a `linear_issue` Binding scoped to a comment or narrowed by its
+    /// role hears only replies.
     ///
     /// `close.rs` drops these from its sibling count, so widening this to a
     /// session Binding — which carries `origin_comment_id` whenever a mention
     /// spawned it — would stop that task from holding the issue open.
     #[test]
-    fn only_a_comment_scoped_issue_binding_is_excluded_from_the_sibling_count() {
+    fn only_an_issue_binding_that_hears_replies_is_excluded_from_the_sibling_count() {
         let scoped = serde_json::json!({ "issue_id": "issue-1", ORIGIN_COMMENT_ID: "comment-1" });
-        assert!(is_comment_scoped_issue(&binding(
+        assert!(hears_only_replies_on_issue(&binding(
             SUBJECT_KIND_ISSUE,
             scoped.clone()
         )));
-        assert!(!is_comment_scoped_issue(&binding(
+        assert!(!hears_only_replies_on_issue(&binding(
             SUBJECT_KIND_SESSION,
             scoped
         )));
 
         let whole_issue = serde_json::json!({ "issue_id": "issue-1" });
-        assert!(!is_comment_scoped_issue(&binding(
+        assert!(!hears_only_replies_on_issue(&binding(
             SUBJECT_KIND_ISSUE,
             whole_issue
         )));
+        let mut linked = binding(
+            SUBJECT_KIND_ISSUE,
+            serde_json::json!({ "issue_id": "issue-1" }),
+        );
+        linked.metadata = serde_json::json!({
+            moatless_adapter_model::binding::BIND_REASON_KEY: "contributor",
+        });
+        assert!(
+            hears_only_replies_on_issue(&linked),
+            "a T3 link is narrowed by its role, with no comment to scope it"
+        );
     }
 }
