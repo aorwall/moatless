@@ -16,7 +16,9 @@ use moatless_workspace_types::repository::{
 };
 use tracing::warn;
 
+use crate::git_proxy::push_watch::{PushWatch, PushWatchConfig};
 use crate::github_policy::GitHubPolicy;
+use crate::github_policy::push::BranchMove;
 use crate::proxy::caller::{CallerError, SandboxCallers, SandboxScope};
 
 /// Where one proxied request goes, and what it presents on arrival.
@@ -152,6 +154,8 @@ pub struct GitProxy {
     pub(crate) policy: Arc<GitHubPolicy>,
     /// Where a pushed commit is claimed for its Task; `None` claims nothing.
     own_events: Option<Arc<OwnEvents>>,
+    /// Where a GitHub push is checked after it lands; `None` checks nothing.
+    push_watch: Option<PushWatchConfig>,
     pub(crate) http: reqwest::Client,
 }
 
@@ -191,6 +195,7 @@ impl GitProxy {
             git_host_tokens,
             policy,
             own_events: None,
+            push_watch: None,
             // `FORWARDED_REQUEST_HEADERS` copies git's own `User-Agent` over
             // this default, so it covers only a client that sends none. See
             // `moatless_core::USER_AGENT`.
@@ -202,6 +207,43 @@ impl GitProxy {
     pub(crate) fn with_own_events(mut self, own_events: Arc<OwnEvents>) -> Self {
         self.own_events = Some(own_events);
         self
+    }
+
+    /// Check each GitHub push through `api_base` once it lands; see
+    /// [`crate::git_proxy::push_watch`].
+    pub(crate) fn with_push_watch(mut self, api_base: &str) -> Self {
+        self.push_watch = Some(PushWatchConfig {
+            api_base: api_base.to_string(),
+            timing: crate::git_proxy::push_watch::Timing::default(),
+        });
+        self
+    }
+
+    /// The watch for a push to `upstream` moving `moves`, or `None` when the
+    /// push is not to github.com, moves no existing branch, or presents no
+    /// token to check it with.
+    pub(super) fn push_watch(
+        &self,
+        upstream: &Upstream,
+        moves: Vec<BranchMove>,
+    ) -> Option<PushWatch> {
+        let config = self.push_watch.clone()?;
+        let (owner, repo) = upstream.path.split_once('/')?;
+        let token = upstream.credential.token()?;
+        if upstream.host != "github.com" || moves.is_empty() {
+            return None;
+        }
+        Some(PushWatch {
+            http: self.http.clone(),
+            config,
+            git_url: upstream.base_url.clone(),
+            owner: owner.to_string(),
+            repo: repo.to_string(),
+            username: upstream.username,
+            token: token.to_string(),
+            moves,
+            claim: self.own_events.clone().zip(upstream.task_id.clone()),
+        })
     }
 
     /// Record each commit a push moves a GitHub branch to as the Task's own,

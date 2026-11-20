@@ -234,7 +234,8 @@ impl AppState {
                 github_policy.clone(),
                 config.http.git_proxy,
             )
-            .with_own_events(own_events.clone()),
+            .with_own_events(own_events.clone())
+            .with_push_watch(&config.github_api_base),
         );
         let github_proxy = Arc::new(
             crate::github_proxy::GitHubProxy::new(

@@ -47,6 +47,8 @@ pub(super) struct WatchedBody<S> {
     started: Instant,
     bytes: u64,
     ended: bool,
+    /// Run once, when the body ends [`Outcome::Complete`].
+    on_complete: Option<Box<dyn FnOnce() + Send>>,
 }
 
 impl<S> WatchedBody<S> {
@@ -67,7 +69,14 @@ impl<S> WatchedBody<S> {
             started: Instant::now(),
             bytes: 0,
             ended: false,
+            on_complete: None,
         }
+    }
+
+    /// Run `f` once the body has passed through whole.
+    pub(super) fn on_complete(mut self, f: impl FnOnce() + Send + 'static) -> Self {
+        self.on_complete = Some(Box::new(f));
+        self
     }
 
     fn end(&mut self, outcome: Outcome) {
@@ -83,6 +92,9 @@ impl<S> WatchedBody<S> {
                 duration_ms,
                 "Proxied git body ended"
             );
+            if let Some(on_complete) = self.on_complete.take() {
+                on_complete();
+            }
         } else {
             warn!(
                 repository_id = %self.repository_id,
@@ -160,6 +172,8 @@ impl<S> Drop for WatchedBody<S> {
 mod tests {
     use super::*;
     use futures::StreamExt;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     type Chunk = Result<Bytes, std::io::Error>;
 
@@ -177,6 +191,25 @@ mod tests {
         assert!(body.next().await.is_none());
         assert_eq!(body.bytes, 8);
         assert!(body.ended);
+    }
+
+    #[tokio::test]
+    async fn only_a_body_that_ends_whole_runs_its_completion() {
+        let ran = Arc::new(AtomicBool::new(false));
+        let flag = ran.clone();
+        let chunks: Vec<Chunk> = vec![Ok(Bytes::from_static(b"0000"))];
+        let body = watched(futures::stream::iter(chunks), None)
+            .on_complete(move || flag.store(true, Ordering::SeqCst));
+        let _: Vec<_> = body.collect().await;
+        assert!(ran.load(Ordering::SeqCst));
+
+        let ran = Arc::new(AtomicBool::new(false));
+        let flag = ran.clone();
+        let failed: Vec<Chunk> = vec![Err(std::io::Error::other("reset"))];
+        let body = watched(futures::stream::iter(failed), None)
+            .on_complete(move || flag.store(true, Ordering::SeqCst));
+        let _: Vec<_> = body.collect().await;
+        assert!(!ran.load(Ordering::SeqCst));
     }
 
     #[tokio::test(start_paused = true)]

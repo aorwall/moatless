@@ -12,8 +12,9 @@ use serde::Deserialize;
 use tracing::{info, warn};
 
 use crate::git_proxy::body::WatchedBody;
+use crate::git_proxy::push_watch::PushWatch;
 use crate::git_proxy::service::{GitProxy, GitProxyError, Upstream};
-use crate::github_policy::push::{self, Parsed};
+use crate::github_policy::push::{self, BranchMove, Parsed};
 use crate::github_policy::{self, Refusal, Request as PolicyRequest};
 
 /// The two git services this proxy forwards.
@@ -217,10 +218,15 @@ async fn refs(
         Err(error) => return error.into_response(),
     };
     let url = format!("{}/info/refs?service={}", upstream.base_url, service.name());
+    let request = Forwarded {
+        label: target.label(),
+        service,
+        watch: None,
+    };
     forward(
         proxy,
         upstream,
-        (target.label(), service),
+        request,
         reqwest::Method::GET,
         url,
         headers,
@@ -240,18 +246,26 @@ async fn service_rpc(
         Ok(upstream) => upstream,
         Err(error) => return error.into_response(),
     };
-    let body = match service {
-        GitService::UploadPack => body,
+    let (body, watch) = match service {
+        GitService::UploadPack => (body, None),
         GitService::ReceivePack => match check_push(proxy, &upstream, headers, body).await {
-            Ok(body) => body,
+            Ok((body, moves)) => {
+                let watch = proxy.push_watch(&upstream, moves);
+                (body, watch)
+            }
             Err(refused) => return *refused,
         },
     };
     let url = format!("{}/{}", upstream.base_url, service.name());
+    let request = Forwarded {
+        label: target.label(),
+        service,
+        watch,
+    };
     forward(
         proxy,
         upstream,
-        (target.label(), service),
+        request,
         reqwest::Method::POST,
         url,
         headers,
@@ -261,13 +275,14 @@ async fn service_rpc(
 }
 
 /// Read a push's command list and run each ref past the policy. The buffered
-/// pkt-lines are replayed ahead of the rest of the body when the push goes on.
+/// pkt-lines are replayed ahead of the rest of the body when the push goes on,
+/// beside the branches it moves.
 async fn check_push(
     proxy: &GitProxy,
     upstream: &Upstream,
     headers: &HeaderMap,
     body: Body,
-) -> Result<Body, Box<Response>> {
+) -> Result<(Body, Vec<BranchMove>), Box<Response>> {
     let mut stream = body.into_data_stream();
     let mut buf = Vec::new();
     let compressed = headers
@@ -319,7 +334,7 @@ async fn check_push(
                     (StatusCode::FORBIDDEN, refusal.message).into_response(),
                 ));
             }
-            return Ok(replay(buf, stream));
+            return Ok((replay(buf, stream), Vec::new()));
         }
     };
     let (owner, name) = upstream
@@ -344,7 +359,7 @@ async fn check_push(
         proxy
             .claim_pushed_commits(upstream, &commands.pushed_branch_shas)
             .await;
-        return Ok(replay(buf, stream));
+        return Ok((replay(buf, stream), commands.branch_moves));
     }
     // Read to the end so git sees the report rather than a reset connection.
     while stream.next().await.is_some() {}
@@ -389,15 +404,29 @@ async fn resolve(
     Ok(upstream)
 }
 
+/// What one proxied request is, beside where it goes.
+struct Forwarded {
+    /// [`Target::label`].
+    label: String,
+    service: GitService,
+    /// Started once a successful push's report has passed through whole.
+    watch: Option<PushWatch>,
+}
+
 async fn forward(
     proxy: &GitProxy,
     upstream: Upstream,
-    (label, service): (String, GitService),
+    request: Forwarded,
     method: reqwest::Method,
     url: String,
     headers: &HeaderMap,
     body: Body,
 ) -> Response {
+    let Forwarded {
+        label,
+        service,
+        watch,
+    } = request;
     let mut request = proxy.http.request(method, &url);
     if let Some(token) = upstream.credential.token() {
         request = request.basic_auth(upstream.username, Some(token));
@@ -438,12 +467,15 @@ async fn forward(
             }
         }
     }
-    let body = WatchedBody::new(
+    let mut body = WatchedBody::new(
         Box::pin(response.bytes_stream()),
         service.quiet_limit(),
         label,
         service.name(),
     );
+    if let Some(watch) = watch.filter(|_| status.is_success()) {
+        body = body.on_complete(move || watch.spawn());
+    }
     out.body(Body::from_stream(body)).unwrap_or_else(|error| {
         warn!(%error, "Failed to build a proxied git response");
         StatusCode::INTERNAL_SERVER_ERROR.into_response()

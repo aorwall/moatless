@@ -11,6 +11,7 @@ mod body;
 #[cfg(test)]
 mod e2e_tests;
 mod handlers;
+mod push_watch;
 mod routes;
 mod service;
 

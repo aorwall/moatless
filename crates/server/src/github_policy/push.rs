@@ -19,12 +19,24 @@ pub(crate) struct RefUpdate {
     pub delete: bool,
 }
 
+/// An existing branch moved from `old` to `new`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BranchMove {
+    /// The name without `refs/heads/`.
+    pub branch: String,
+    pub old: String,
+    pub new: String,
+}
+
 /// A request's command list and the capabilities its first line asks for.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct Commands {
     pub updates: Vec<RefUpdate>,
     /// The commit each branch update moves its branch to.
     pub pushed_branch_shas: Vec<String>,
+    /// Each update that moves an existing branch, neither creating nor
+    /// deleting it.
+    pub branch_moves: Vec<BranchMove>,
     capabilities: Vec<String>,
 }
 
@@ -82,11 +94,21 @@ pub(crate) fn parse(buf: &[u8]) -> Parsed {
             commands.capabilities = capabilities.split(' ').map(str::to_string).collect();
         }
         let mut parts = command.splitn(3, ' ');
-        let (Some(_old), Some(new), Some(name)) = (parts.next(), parts.next(), parts.next()) else {
+        let (Some(old), Some(new), Some(name)) = (parts.next(), parts.next(), parts.next()) else {
             return Parsed::Invalid(format!("`{command}` is not `<old> <new> <ref>`"));
         };
-        if name.starts_with("refs/heads/") && !is_zero_id(new) {
+        let branch = name
+            .strip_prefix("refs/heads/")
+            .filter(|_| !is_zero_id(new));
+        if let Some(branch) = branch {
             commands.pushed_branch_shas.push(new.to_string());
+            if !is_zero_id(old) {
+                commands.branch_moves.push(BranchMove {
+                    branch: branch.to_string(),
+                    old: old.to_string(),
+                    new: new.to_string(),
+                });
+            }
         }
         commands.updates.push(RefUpdate {
             name: name.to_string(),
@@ -259,6 +281,14 @@ mod tests {
         );
         // Only the update that moves a branch names a commit to claim.
         assert_eq!(commands.pushed_branch_shas, vec![NEW.to_string()]);
+        assert_eq!(
+            commands.branch_moves,
+            vec![BranchMove {
+                branch: "feature".to_string(),
+                old: OLD.to_string(),
+                new: NEW.to_string(),
+            }]
+        );
         assert_eq!(parse(&bytes[..10]), Parsed::NeedMore);
         assert!(matches!(parse(b"zzzz"), Parsed::Invalid(_)));
     }
