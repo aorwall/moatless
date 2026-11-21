@@ -60,34 +60,30 @@ impl HubModels {
         })
     }
 
-    /// Gateway chat models as `provider/model`; empty when the hub never gave a usable
+    /// The hub's `/v1/models` body; `None` when the hub never gave a usable
     /// answer. A failed refresh serves the last answer.
     ///
     /// The lock is held across the request, so while the hub hangs every caller
     /// waits out the client timeout.
-    async fn discovered_models(&self, static_models: &[AgentModel]) -> Vec<AgentModel> {
+    async fn listing(&self) -> Option<Value> {
         let mut cached = self.cached.lock().await;
         if let Some((at, body)) = cached.as_ref() {
             if at.elapsed() < CACHE_TTL {
-                return chat_models(body, static_models);
+                return Some(body.clone());
             }
         }
         match self.fetch().await {
             Ok(body) if !chat_models(&body, &[]).is_empty() => {
                 *cached = Some((Instant::now(), body.clone()));
-                return chat_models(&body, static_models);
+                return Some(body);
             }
             Ok(_) => warn!("the hub's model list held no usable chat models"),
             Err(error) => warn!(%error, "reading the hub's model list failed"),
         }
         // Retry after the TTL, not on every request, while the hub is down.
-        match cached.as_mut() {
-            Some((at, body)) => {
-                *at = Instant::now();
-                chat_models(body, static_models)
-            }
-            None => Vec::new(),
-        }
+        let (at, body) = cached.as_mut()?;
+        *at = Instant::now();
+        Some(body.clone())
     }
 
     /// Discovered models accepted by the selected harness's runtime validation.
@@ -96,7 +92,14 @@ impl HubModels {
         profile: AgentProfile,
         static_models: &[AgentModel],
     ) -> Vec<AgentModel> {
-        let mut models = self.discovered_models(static_models).await;
+        let Some(body) = self.listing().await else {
+            return Vec::new();
+        };
+        let mut models = if profile == AgentProfile::Antigravity {
+            antigravity_models(&body, static_models)
+        } else {
+            chat_models(&body, static_models)
+        };
         models.retain(|model| {
             moatless_core::agent_catalog::validate_agent_model(profile, Some(&model.id)).is_ok()
         });
@@ -153,6 +156,34 @@ fn chat_models(body: &Value, static_models: &[AgentModel]) -> Vec<AgentModel> {
             models.push(AgentModel {
                 label: label.to_string(),
                 id: slug,
+            });
+        }
+    }
+    models
+}
+
+/// `static_models` the hub serves, then the chat models of its `antigravity`
+/// rows under their bare ids, which is what `agy` sends the gateway.
+fn antigravity_models(body: &Value, static_models: &[AgentModel]) -> Vec<AgentModel> {
+    let rows: Vec<(&str, &str)> = body["data"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|row| Some((row["id"].as_str()?, row["owned_by"].as_str()?)))
+        .collect();
+    let mut models: Vec<AgentModel> = static_models
+        .iter()
+        .filter(|model| rows.iter().any(|(id, _)| *id == model.id))
+        .cloned()
+        .collect();
+    for (id, owner) in rows {
+        if owner.eq_ignore_ascii_case("antigravity")
+            && !is_non_chat(id)
+            && !models.iter().any(|model| model.id == id)
+        {
+            models.push(AgentModel {
+                id: id.to_string(),
+                label: id.to_string(),
             });
         }
     }
@@ -275,6 +306,39 @@ mod tests {
     }
 
     #[test]
+    fn antigravity_publishes_its_own_rows_under_bare_ids_after_the_catalog() {
+        let body = json!({"data": [
+            {"id": "gemini-4-argon-high", "owned_by": "antigravity"},
+            {"id": "gemini-3.1-flash-image", "owned_by": "antigravity"},
+            {"id": "gpt-6.1-sol", "owned_by": "openai"},
+            {"id": "claude-sonnet-5-5", "owned_by": "anthropic"},
+            {"id": "gemini-3-flash", "owned_by": "antigravity"}
+        ]});
+        let catalog = [
+            AgentModel {
+                id: "gemini-3-flash".into(),
+                label: "Gemini 3 Flash".into(),
+            },
+            AgentModel {
+                id: "claude-sonnet-5-5".into(),
+                label: "Claude Sonnet 5.5".into(),
+            },
+            AgentModel {
+                id: "claude-opus-5-5".into(),
+                label: "Claude Opus 5.5".into(),
+            },
+        ];
+
+        let models = antigravity_models(&body, &catalog);
+
+        assert_eq!(
+            ids(&models),
+            ["gemini-3-flash", "claude-sonnet-5-5", "gemini-4-argon-high"]
+        );
+        assert_eq!(models[0].label, "Gemini 3 Flash");
+    }
+
+    #[test]
     fn an_answer_without_rows_publishes_nothing() {
         assert!(chat_models(&json!({"error": "x"}), &static_models()).is_empty());
     }
@@ -331,8 +395,8 @@ mod tests {
         let hub = fake_hub(body()).await;
         let models = client(&hub.url);
 
-        let labelled = models.discovered_models(&static_models()).await;
-        let bare = models.discovered_models(&[]).await;
+        let labelled = models.models(AgentProfile::Pi, &static_models()).await;
+        let bare = models.models(AgentProfile::Pi, &[]).await;
 
         assert_eq!(labelled[0].label, "GPT 6.1 Sol");
         assert_eq!(bare[0].label, "gpt-6.1-sol");
@@ -387,7 +451,7 @@ mod tests {
     async fn a_failed_refresh_serves_the_last_answer_and_waits_a_ttl_to_retry() {
         let hub = fake_hub(body()).await;
         let models = client(&hub.url);
-        models.discovered_models(&[]).await;
+        models.models(AgentProfile::Pi, &[]).await;
         hub.down.store(true, Ordering::SeqCst);
 
         if let Some((at, _)) = models.cached.lock().await.as_mut() {
@@ -395,8 +459,8 @@ mod tests {
                 .checked_sub(CACHE_TTL + Duration::from_secs(1))
                 .unwrap_or(*at);
         }
-        let stale = models.discovered_models(&[]).await;
-        let again = models.discovered_models(&[]).await;
+        let stale = models.models(AgentProfile::Pi, &[]).await;
+        let again = models.models(AgentProfile::Pi, &[]).await;
 
         assert_eq!(ids(&stale), ["openai/gpt-6.1-sol"]);
         assert_eq!(ids(&again), ["openai/gpt-6.1-sol"]);
@@ -410,7 +474,7 @@ mod tests {
 
         assert!(
             client(&hub.url)
-                .discovered_models(&static_models())
+                .models(AgentProfile::Pi, &static_models())
                 .await
                 .is_empty()
         );

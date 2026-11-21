@@ -395,6 +395,9 @@ impl AcpProcess {
             if let Some(live) = &mut self.live {
                 live.model.clone_from(&input.model);
             }
+            if let Some(gateway) = &self.gateway {
+                gateway.select(input.model.as_deref());
+            }
         }
         let mode = self.agent.mode_id(input.mode.as_deref()).to_string();
         if self

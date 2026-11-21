@@ -4,11 +4,12 @@
 //! at spawn, while the backend rotates the token with each new driver, so a
 //! key passed at spawn would force a respawn and refuse mid-turn steering. It
 //! also gives agy, which accepts plain HTTP only on loopback, a loopback URL.
+//! Last, it restores a model suffix agy strips: see [`GatewayProxy::select`].
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use axum::Router;
-use axum::body::Body;
+use axum::body::{Body, Bytes};
 use axum::extract::{Request, State};
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
@@ -31,12 +32,20 @@ struct ProxyState {
     /// The path every forwarded URL must start with: the backend's `/llm/`.
     llm_prefix: String,
     http: reqwest::Client,
+    selected: Arc<Mutex<Option<String>>>,
 }
+
+/// Suffixes `agy` turns into a thinking level and drops from a Gemini id.
+const THINKING_SUFFIXES: &[&str] = &["-high", "-xhigh"];
+
+/// The largest request body buffered to restore a suffix.
+const MAX_REWRITTEN_BODY: usize = 64 * 1024 * 1024;
 
 /// Serves on a loopback port until dropped.
 pub(super) struct GatewayProxy {
     port: u16,
     serve: JoinHandle<()>,
+    selected: Arc<Mutex<Option<String>>>,
 }
 
 impl GatewayProxy {
@@ -50,11 +59,13 @@ impl GatewayProxy {
             .path()
             .trim_end_matches('/')
             .to_string();
+        let selected = Arc::default();
         let state = ProxyState {
             http: client(config.http.model_gateway)?,
             config,
             backend,
             llm_prefix: format!("{base_path}/llm/"),
+            selected: Arc::clone(&selected),
         };
         let app = Router::new().fallback(forward).with_state(state);
         let serve = tokio::spawn(async move {
@@ -62,7 +73,24 @@ impl GatewayProxy {
                 tracing::warn!(%error, "ACP gateway proxy stopped");
             }
         });
-        Ok(Self { port, serve })
+        Ok(Self {
+            port,
+            serve,
+            selected,
+        })
+    }
+
+    /// Records the model the session runs, so a request naming it without
+    /// its thinking suffix is sent as `model`.
+    ///
+    /// `agy` sends `gemini-4-argon-high` as `gemini-4-argon`, an id the hub
+    /// does not serve, while it keeps the suffix on other vendors' ids.
+    pub(super) fn select(&self, model: Option<&str>) {
+        let stripped = model.filter(|m| THINKING_SUFFIXES.iter().any(|s| m.ends_with(s)));
+        *self
+            .selected
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = stripped.map(str::to_string);
     }
 
     /// The base URL the agent appends `/v1/chat/completions` to.
@@ -105,15 +133,32 @@ async fn forward(State(state): State<ProxyState>, request: Request) -> Response 
             "This sandbox holds no task token yet",
         );
     };
-    let mut upstream = state
-        .http
-        .request(parts.method, url)
-        .body(reqwest::Body::wrap_stream(
-            body.into_data_stream().map_err(std::io::Error::other),
-        ));
+    let selected = state
+        .selected
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone();
+    let (body, rewritten) = match selected {
+        Some(model) => match axum::body::to_bytes(body, MAX_REWRITTEN_BODY).await {
+            Ok(bytes) => {
+                let restored = restore_suffix(&bytes, &model);
+                let rewritten = restored.is_some();
+                (reqwest::Body::from(restored.unwrap_or(bytes)), rewritten)
+            }
+            Err(_) => return error(StatusCode::PAYLOAD_TOO_LARGE, "The request is too large"),
+        },
+        None => (
+            reqwest::Body::wrap_stream(body.into_data_stream().map_err(std::io::Error::other)),
+            false,
+        ),
+    };
+    let mut upstream = state.http.request(parts.method, url).body(body);
     for (name, value) in &parts.headers {
         // The agent's own `Authorization` carries `PLACEHOLDER_KEY`.
-        if forwards(name) && name != header::AUTHORIZATION {
+        if forwards(name)
+            && name != header::AUTHORIZATION
+            && !(rewritten && name == header::CONTENT_LENGTH)
+        {
             upstream = upstream.header(name, value);
         }
     }
@@ -137,6 +182,21 @@ async fn forward(State(state): State<ProxyState>, request: Request) -> Response 
     }
     out.body(Body::from_stream(response.bytes_stream()))
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+
+/// `body` with its `model` set to `selected`, when it names `selected` minus
+/// its thinking suffix; `None` leaves the body as sent.
+fn restore_suffix(body: &[u8], selected: &str) -> Option<Bytes> {
+    let mut json: serde_json::Value = serde_json::from_slice(body).ok()?;
+    let sent = json.get("model")?.as_str()?;
+    let stem_matches = THINKING_SUFFIXES
+        .iter()
+        .any(|suffix| selected.strip_suffix(suffix) == Some(sent));
+    if !stem_matches {
+        return None;
+    }
+    json["model"] = selected.into();
+    serde_json::to_vec(&json).ok().map(Bytes::from)
 }
 
 fn error(status: StatusCode, message: &str) -> Response {
@@ -233,5 +293,36 @@ mod tests {
                 ),
             ]
         );
+    }
+
+    #[test]
+    fn a_model_sent_without_the_selected_thinking_suffix_gets_it_back() {
+        let model = |body: Option<Bytes>| {
+            body.map(|b| serde_json::from_slice::<serde_json::Value>(&b).unwrap()["model"].clone())
+        };
+        let body =
+            |m: &str| serde_json::to_vec(&serde_json::json!({"model": m, "stream": true})).unwrap();
+        for (selected, sent, expected) in [
+            (
+                "gemini-4-argon-high",
+                "gemini-4-argon",
+                Some("gemini-4-argon-high"),
+            ),
+            (
+                "gemini-4-neon-xhigh",
+                "gemini-4-neon",
+                Some("gemini-4-neon-xhigh"),
+            ),
+            ("gemini-4-argon-high", "gemini-4-argon-high", None),
+            // agy's own utility calls name another model.
+            ("gemini-4-argon-high", "gemini-3.1-flash-lite", None),
+        ] {
+            assert_eq!(
+                model(restore_suffix(&body(sent), selected)),
+                expected.map(serde_json::Value::from),
+                "{selected} / {sent}"
+            );
+        }
+        assert_eq!(restore_suffix(b"not json", "gemini-4-argon-high"), None);
     }
 }

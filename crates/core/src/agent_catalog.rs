@@ -183,11 +183,8 @@ pub const MINI_SWE: AgentProfileEntry = AgentProfileEntry {
     missing_credential_hint: "Add ANTHROPIC_API_KEY or OPENAI_API_KEY, or configure the model hub",
 };
 
-/// Antigravity (`agy`) models, as the deployment's hub names them.
-///
-/// `agy` strips a `-high` or `-xhigh` suffix into a thinking level before it
-/// calls the gateway, so a hub id carrying one never resolves: list only
-/// unsuffixed ids.
+/// Antigravity (`agy`) models, as the deployment's hub names them; the hub's
+/// own `antigravity` rows are appended at runtime.
 pub const ANTIGRAVITY: AgentProfileEntry = AgentProfileEntry {
     profile: AgentProfile::Antigravity,
     label: "Antigravity",
