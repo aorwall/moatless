@@ -183,8 +183,8 @@ pub const MINI_SWE: AgentProfileEntry = AgentProfileEntry {
     missing_credential_hint: "Add ANTHROPIC_API_KEY or OPENAI_API_KEY, or configure the model hub",
 };
 
-/// Antigravity (`agy`) models, as the deployment's hub names them; the hub's
-/// own `antigravity` rows are appended at runtime.
+/// Antigravity (`agy`) models, as the deployment's hub names them: the hub's
+/// `antigravity` rows, which are appended at runtime, follow this default.
 pub const ANTIGRAVITY: AgentProfileEntry = AgentProfileEntry {
     profile: AgentProfile::Antigravity,
     label: "Antigravity",
@@ -192,20 +192,10 @@ pub const ANTIGRAVITY: AgentProfileEntry = AgentProfileEntry {
     credential_keys: &[OPENAI_API_KEY],
     provider_token_providers: &[],
     default_model: "gemini-3-flash",
-    models: &[
-        ModelEntry {
-            id: "gemini-3-flash",
-            label: "Gemini 3 Flash",
-        },
-        ModelEntry {
-            id: "claude-sonnet-5-5",
-            label: "Claude Sonnet 5.5",
-        },
-        ModelEntry {
-            id: "claude-opus-5-5",
-            label: "Claude Opus 5.5",
-        },
-    ],
+    models: &[ModelEntry {
+        id: "gemini-3-flash",
+        label: "Gemini 3 Flash",
+    }],
     missing_credential_hint: "Configure the model hub, or add OPENAI_API_KEY in Settings \u{2192} Secrets",
 };
 

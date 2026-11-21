@@ -65,8 +65,11 @@ const DEFAULT_EFFORT: &str = "high";
 
 /// The effort levels a published model row offers, weakest first.
 fn effort_levels(instance: &str, catalog_model: &str) -> &'static [&'static str] {
-    if instance == MINI_SWE_INSTANCE || instance == ACP_INSTANCE {
+    if instance == MINI_SWE_INSTANCE {
         return &[];
+    }
+    if instance == ACP_INSTANCE {
+        return &["low", "medium", "high"];
     }
     if instance == PI_INSTANCE {
         return &["off", "minimal", "low", "medium", "high"];
@@ -101,7 +104,7 @@ fn effort_label(level: &str) -> &str {
 ///
 /// T3 sends the chosen value back on `modelSelection.options`.
 fn capabilities(instance: &str, catalog_model: &str) -> Value {
-    if instance == MINI_SWE_INSTANCE || instance == ACP_INSTANCE {
+    if instance == MINI_SWE_INSTANCE {
         return json!({"optionDescriptors": []});
     }
     let options: Vec<Value> = effort_levels(instance, catalog_model)
@@ -654,9 +657,7 @@ mod tests {
     fn exactly_one_level_per_row_is_the_default() {
         for provider in published() {
             for row in provider["models"].as_array().unwrap() {
-                if provider["instanceId"] == MINI_SWE_INSTANCE
-                    || provider["instanceId"] == ACP_INSTANCE
-                {
+                if provider["instanceId"] == MINI_SWE_INSTANCE {
                     assert_eq!(row["capabilities"]["optionDescriptors"], json!([]));
                     continue;
                 }

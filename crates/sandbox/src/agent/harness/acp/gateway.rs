@@ -4,7 +4,8 @@
 //! at spawn, while the backend rotates the token with each new driver, so a
 //! key passed at spawn would force a respawn and refuse mid-turn steering. It
 //! also gives agy, which accepts plain HTTP only on loopback, a loopback URL.
-//! Last, it restores a model suffix agy strips: see [`GatewayProxy::select`].
+//! Last, it pins each request to the session's model and effort, and lists
+//! only the account's models: see [`GatewayProxy::select`].
 
 use std::sync::{Arc, Mutex};
 
@@ -32,20 +33,30 @@ struct ProxyState {
     /// The path every forwarded URL must start with: the backend's `/llm/`.
     llm_prefix: String,
     http: reqwest::Client,
-    selected: Arc<Mutex<Option<String>>>,
+    selected: Arc<Mutex<Selection>>,
 }
 
-/// Suffixes `agy` turns into a thinking level and drops from a Gemini id.
-const THINKING_SUFFIXES: &[&str] = &["-high", "-xhigh"];
+/// The model and effort the session runs.
+#[derive(Clone, Default)]
+struct Selection {
+    model: Option<String>,
+    effort: Option<String>,
+}
 
-/// The largest request body buffered to restore a suffix.
+/// Suffixes `agy` may turn into a thinking level and drop from an id.
+const EFFORT_SUFFIXES: &[&str] = &["-low", "-medium", "-high", "-xhigh"];
+
+/// The hub's `owned_by` for the Antigravity account's own models.
+const ACCOUNT_OWNER: &str = "antigravity";
+
+/// The largest body buffered to rewrite it.
 const MAX_REWRITTEN_BODY: usize = 64 * 1024 * 1024;
 
 /// Serves on a loopback port until dropped.
 pub(super) struct GatewayProxy {
     port: u16,
     serve: JoinHandle<()>,
-    selected: Arc<Mutex<Option<String>>>,
+    selected: Arc<Mutex<Selection>>,
 }
 
 impl GatewayProxy {
@@ -80,17 +91,19 @@ impl GatewayProxy {
         })
     }
 
-    /// Records the model the session runs, so a request naming it without
-    /// its thinking suffix is sent as `model`.
+    /// Records the model and effort the session runs; a request naming `model`,
+    /// with or without its effort suffix, is sent as `model` at `effort`.
     ///
-    /// `agy` sends `gemini-4-argon-high` as `gemini-4-argon`, an id the hub
-    /// does not serve, while it keeps the suffix on other vendors' ids.
-    pub(super) fn select(&self, model: Option<&str>) {
-        let stripped = model.filter(|m| THINKING_SUFFIXES.iter().any(|s| m.ends_with(s)));
+    /// `agy` sends `gemini-4-argon-high` as `gemini-4-argon`, which the hub
+    /// does not serve, and takes the effort from the id alone.
+    pub(super) fn select(&self, model: Option<&str>, effort: Option<&str>) {
         *self
             .selected
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = stripped.map(str::to_string);
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Selection {
+            model: model.map(str::to_string),
+            effort: effort.map(str::to_string),
+        };
     }
 
     /// The base URL the agent appends `/v1/chat/completions` to.
@@ -138,19 +151,22 @@ async fn forward(State(state): State<ProxyState>, request: Request) -> Response 
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .clone();
-    let (body, rewritten) = match selected {
-        Some(model) => match axum::body::to_bytes(body, MAX_REWRITTEN_BODY).await {
+    let lists_models = parts.method == axum::http::Method::GET && url.path().ends_with("/models");
+    let (body, rewritten) = if parts.method == axum::http::Method::POST && selected.model.is_some()
+    {
+        match axum::body::to_bytes(body, MAX_REWRITTEN_BODY).await {
             Ok(bytes) => {
-                let restored = restore_suffix(&bytes, &model);
-                let rewritten = restored.is_some();
-                (reqwest::Body::from(restored.unwrap_or(bytes)), rewritten)
+                let pinned = pin_selection(&bytes, &selected);
+                let rewritten = pinned.is_some();
+                (reqwest::Body::from(pinned.unwrap_or(bytes)), rewritten)
             }
             Err(_) => return error(StatusCode::PAYLOAD_TOO_LARGE, "The request is too large"),
-        },
-        None => (
+        }
+    } else {
+        (
             reqwest::Body::wrap_stream(body.into_data_stream().map_err(std::io::Error::other)),
             false,
-        ),
+        )
     };
     let mut upstream = state.http.request(parts.method, url).body(body);
     for (name, value) in &parts.headers {
@@ -180,22 +196,52 @@ async fn forward(State(state): State<ProxyState>, request: Request) -> Response 
             }
         }
     }
-    out.body(Body::from_stream(response.bytes_stream()))
+    let body = if lists_models && status.is_success() {
+        match response.bytes().await {
+            Ok(bytes) => {
+                Body::from(account_models(&bytes, selected.model.as_deref()).unwrap_or(bytes))
+            }
+            Err(_) => return error(StatusCode::BAD_GATEWAY, "The model list was cut off"),
+        }
+    } else {
+        Body::from_stream(response.bytes_stream())
+    };
+    out.body(body)
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
 
-/// `body` with its `model` set to `selected`, when it names `selected` minus
-/// its thinking suffix; `None` leaves the body as sent.
-fn restore_suffix(body: &[u8], selected: &str) -> Option<Bytes> {
+/// The hub's model list cut to the account's models and `selected`.
+///
+/// `agy` offers at most 40 of the ids it is given, so on the full hub list a
+/// published model can be missing and fail as `Unknown model ID`.
+fn account_models(body: &[u8], selected: Option<&str>) -> Option<Bytes> {
+    let mut json: serde_json::Value = serde_json::from_slice(body).ok()?;
+    json.get_mut("data")?.as_array_mut()?.retain(|row| {
+        row["owned_by"]
+            .as_str()
+            .is_some_and(|owner| owner.eq_ignore_ascii_case(ACCOUNT_OWNER))
+            || row["id"].as_str().is_some_and(|id| Some(id) == selected)
+    });
+    serde_json::to_vec(&json).ok().map(Bytes::from)
+}
+
+/// `body` pinned to `selected`, when it names the selected model with or
+/// without its effort suffix; `None` leaves the body as sent.
+fn pin_selection(body: &[u8], selected: &Selection) -> Option<Bytes> {
+    let model = selected.model.as_deref()?;
     let mut json: serde_json::Value = serde_json::from_slice(body).ok()?;
     let sent = json.get("model")?.as_str()?;
-    let stem_matches = THINKING_SUFFIXES
-        .iter()
-        .any(|suffix| selected.strip_suffix(suffix) == Some(sent));
-    if !stem_matches {
+    let names_selected = sent == model
+        || EFFORT_SUFFIXES
+            .iter()
+            .any(|suffix| model.strip_suffix(suffix) == Some(sent));
+    if !names_selected {
         return None;
     }
-    json["model"] = selected.into();
+    json["model"] = model.into();
+    if let Some(effort) = &selected.effort {
+        json["reasoning_effort"] = effort.as_str().into();
+    }
     serde_json::to_vec(&json).ok().map(Bytes::from)
 }
 
@@ -296,33 +342,53 @@ mod tests {
     }
 
     #[test]
-    fn a_model_sent_without_the_selected_thinking_suffix_gets_it_back() {
-        let model = |body: Option<Bytes>| {
-            body.map(|b| serde_json::from_slice::<serde_json::Value>(&b).unwrap()["model"].clone())
+    fn a_request_for_the_selected_model_runs_it_at_the_selected_effort() {
+        let pinned = |selected: &Selection, sent: &str| {
+            let body = serde_json::json!({"model": sent, "reasoning_effort": "medium"});
+            pin_selection(&serde_json::to_vec(&body).unwrap(), selected).map(|b| {
+                let json: serde_json::Value = serde_json::from_slice(&b).unwrap();
+                (json["model"].clone(), json["reasoning_effort"].clone())
+            })
         };
-        let body =
-            |m: &str| serde_json::to_vec(&serde_json::json!({"model": m, "stream": true})).unwrap();
-        for (selected, sent, expected) in [
-            (
-                "gemini-4-argon-high",
-                "gemini-4-argon",
-                Some("gemini-4-argon-high"),
-            ),
-            (
-                "gemini-4-neon-xhigh",
-                "gemini-4-neon",
-                Some("gemini-4-neon-xhigh"),
-            ),
-            ("gemini-4-argon-high", "gemini-4-argon-high", None),
-            // agy's own utility calls name another model.
-            ("gemini-4-argon-high", "gemini-3.1-flash-lite", None),
-        ] {
-            assert_eq!(
-                model(restore_suffix(&body(sent), selected)),
-                expected.map(serde_json::Value::from),
-                "{selected} / {sent}"
-            );
-        }
-        assert_eq!(restore_suffix(b"not json", "gemini-4-argon-high"), None);
+        let argon = |effort: Option<&str>| Selection {
+            model: Some("gemini-4-argon-high".into()),
+            effort: effort.map(str::to_string),
+        };
+        assert_eq!(
+            pinned(&argon(Some("low")), "gemini-4-argon"),
+            Some(("gemini-4-argon-high".into(), "low".into()))
+        );
+        assert_eq!(
+            pinned(&argon(None), "gemini-4-argon-high"),
+            Some(("gemini-4-argon-high".into(), "medium".into()))
+        );
+        // agy's own utility calls name another model.
+        assert_eq!(pinned(&argon(Some("low")), "gemini-3.1-flash-lite"), None);
+        assert_eq!(pinned(&Selection::default(), "gemini-4-argon"), None);
+        assert_eq!(pin_selection(b"not json", &argon(None)), None);
+    }
+
+    #[test]
+    fn the_agent_is_shown_the_account_models_and_the_selected_one() {
+        let body = serde_json::json!({"object": "list", "data": [
+            {"id": "gemini-4-argon-high", "owned_by": "antigravity"},
+            {"id": "claude-sonnet-5-5", "owned_by": "anthropic"},
+            {"id": "gpt-6-sol", "owned_by": "openai"}
+        ]});
+        let ids = |selected| {
+            let listed = account_models(&serde_json::to_vec(&body).unwrap(), selected).unwrap();
+            let json: serde_json::Value = serde_json::from_slice(&listed).unwrap();
+            json["data"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| row["id"].as_str().unwrap().to_string())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(ids(None), ["gemini-4-argon-high"]);
+        assert_eq!(
+            ids(Some("claude-sonnet-5-5")),
+            ["gemini-4-argon-high", "claude-sonnet-5-5"]
+        );
     }
 }

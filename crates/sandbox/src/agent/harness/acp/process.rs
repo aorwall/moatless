@@ -282,6 +282,10 @@ impl AcpProcess {
             .await
             .map_err(|e| error(ErrorClass::InvalidConfiguration, e))?;
         let gateway = self.gateway().await?;
+        // Before the spawn: `agy` reads the model list once, at start.
+        if let Some(proxy) = &self.gateway {
+            proxy.select(input.model.as_deref(), input.effort.as_deref());
+        }
         let mut command = self.agent.command(&config, input.env.as_ref(), &gateway);
         command
             .stdin(Stdio::piped())
@@ -395,9 +399,9 @@ impl AcpProcess {
             if let Some(live) = &mut self.live {
                 live.model.clone_from(&input.model);
             }
-            if let Some(gateway) = &self.gateway {
-                gateway.select(input.model.as_deref());
-            }
+        }
+        if let (Some(gateway), Some(live)) = (&self.gateway, &self.live) {
+            gateway.select(live.model.as_deref(), input.effort.as_deref());
         }
         let mode = self.agent.mode_id(input.mode.as_deref()).to_string();
         if self

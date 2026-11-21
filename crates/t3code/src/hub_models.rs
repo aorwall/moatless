@@ -163,7 +163,8 @@ fn chat_models(body: &Value, static_models: &[AgentModel]) -> Vec<AgentModel> {
 }
 
 /// `static_models` the hub serves, then the chat models of its `antigravity`
-/// rows under their bare ids, which is what `agy` sends the gateway.
+/// rows under their bare ids, which is what `agy` sends the gateway, labelled
+/// without the effort suffix: the effort picker sets the effort.
 fn antigravity_models(body: &Value, static_models: &[AgentModel]) -> Vec<AgentModel> {
     let rows: Vec<(&str, &str)> = body["data"]
         .as_array()
@@ -183,11 +184,39 @@ fn antigravity_models(body: &Value, static_models: &[AgentModel]) -> Vec<AgentMo
         {
             models.push(AgentModel {
                 id: id.to_string(),
-                label: id.to_string(),
+                label: account_label(id),
             });
         }
     }
     models
+}
+
+/// `gemini-4-argon-high` as `Gemini 4 Argon`, `claude-sonnet-5-5-high` as
+/// `Claude Sonnet 5.5`.
+fn account_label(id: &str) -> String {
+    let base = ["-low", "-medium", "-high", "-xhigh"]
+        .iter()
+        .find_map(|suffix| id.strip_suffix(suffix))
+        .unwrap_or(id);
+    let mut words: Vec<String> = Vec::new();
+    for part in base.split('-') {
+        let numeric = part.bytes().all(|b| b.is_ascii_digit());
+        match words.last_mut() {
+            // `5-5` is the version `5.5`.
+            Some(last) if numeric && last.bytes().all(|b| b.is_ascii_digit() || b == b'.') => {
+                last.push('.');
+                last.push_str(part);
+            }
+            _ if ["gpt", "oss"].contains(&part) => words.push(part.to_ascii_uppercase()),
+            _ => {
+                let mut chars = part.chars();
+                words.push(chars.next().map_or_else(String::new, |first| {
+                    first.to_uppercase().chain(chars).collect()
+                }));
+            }
+        }
+    }
+    words.join(" ")
 }
 
 fn is_non_chat(id: &str) -> bool {
@@ -336,6 +365,19 @@ mod tests {
             ["gemini-3-flash", "claude-sonnet-5-5", "gemini-4-argon-high"]
         );
         assert_eq!(models[0].label, "Gemini 3 Flash");
+        assert_eq!(models[2].label, "Gemini 4 Argon");
+    }
+
+    #[test]
+    fn an_account_label_drops_the_effort_and_reads_versions() {
+        for (id, label) in [
+            ("claude-sonnet-5-5-high", "Claude Sonnet 5.5"),
+            ("gemini-3.8-flash-tiered", "Gemini 3.8 Flash Tiered"),
+            ("gpt-oss-120b-medium", "GPT OSS 120b"),
+            ("gemini-4-neon-xhigh", "Gemini 4 Neon"),
+        ] {
+            assert_eq!(account_label(id), label);
+        }
     }
 
     #[test]
