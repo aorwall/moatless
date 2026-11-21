@@ -441,7 +441,6 @@ pub async fn normalize(
         } else {
             None
         },
-        vibe: if is_template { Some(true) } else { None },
         append_system_prompt: None,
         ttl_minutes: config.sandbox.idle_timeout_minutes as i32,
         close_after_settled_days: config.sandbox.close_after_settled_days as i32,
@@ -913,13 +912,9 @@ mod tests {
             checkout_mode: None,
             status: TaskStatus::Open,
             total_cost_usd: 0.0,
-            site_url: None,
             template_id: None,
-            vibe: None,
             name: None,
             description: None,
-            site_id: None,
-            site_provider: None,
             branch: None,
             model: None,
             created_by: Some(owner.to_string()),

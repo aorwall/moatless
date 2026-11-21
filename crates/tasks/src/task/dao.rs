@@ -447,8 +447,8 @@ impl TaskDao for PgTaskDao {
         sqlx::query(
             r#"INSERT INTO tasks (
                 task_id, short_id, created_at, last_message_at, agent_profile,
-                repository_id, status, total_cost_usd, site_url, template_id,
-                vibe, name, description, site_id, site_provider, branch,
+                repository_id, status, total_cost_usd, template_id,
+                name, description, branch,
                 created_by, visibility, scope, owner_user_id, run_as_user_id,
                 append_system_prompt, updated_at, headless, ttl_minutes,
                 close_after_settled_days, loop_id, model,
@@ -456,9 +456,9 @@ impl TaskDao for PgTaskDao {
                 settle_after_hours, reporter_user_id, agent_properties
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-                $21, $22, NOW(), $23, $24, $25, $26,
-                $27, $28, $29, $30, $31, $32, $33, $34, $35
+                $11, $12, $13, $14, $15, $16, $17, $18,
+                NOW(), $19, $20, $21, $22, $23,
+                $24, $25, $26, $27, $28, $29, $30, $31
             )"#,
         )
         .bind(&row.task_id)
@@ -469,13 +469,9 @@ impl TaskDao for PgTaskDao {
         .bind(&row.repository_id)
         .bind(row.status.as_str())
         .bind(row.total_cost_usd)
-        .bind(&row.site_url)
         .bind(&row.template_id)
-        .bind(row.vibe)
         .bind(&row.name)
         .bind(&row.description)
-        .bind(&row.site_id)
-        .bind(&row.site_provider)
         .bind(&row.branch)
         .bind(&row.created_by)
         .bind(row.visibility.as_str())
@@ -653,13 +649,9 @@ impl TaskDao for PgTaskDao {
             checkout_mode: Option<String>,
             status: Option<String>,
             total_cost_usd: Option<f64>,
-            site_url: Option<String>,
             template_id: Option<String>,
-            vibe: Option<bool>,
             name: Option<String>,
             description: Option<String>,
-            site_id: Option<String>,
-            site_provider: Option<String>,
             branch: Option<String>,
             model: Option<String>,
             created_by: Option<String>,
@@ -711,13 +703,9 @@ impl TaskDao for PgTaskDao {
                         .and_then(|v| CheckoutMode::try_from(v).ok()),
                     status: TaskStatus::try_from(self.status?.as_str()).ok()?,
                     total_cost_usd: self.total_cost_usd?,
-                    site_url: self.site_url,
                     template_id: self.template_id,
-                    vibe: self.vibe,
                     name: self.name,
                     description: self.description,
-                    site_id: self.site_id,
-                    site_provider: self.site_provider,
                     branch: self.branch,
                     model: self.model,
                     created_by: self.created_by,
@@ -752,9 +740,9 @@ impl TaskDao for PgTaskDao {
             r#"WITH filtered AS (
                 SELECT
                     t.task_id, t.short_id, t.created_at, t.last_message_at, t.agent_profile,
-                    t.repository_id, t.workspace_id, t.status, t.total_cost_usd, t.site_url, t.template_id,
+                    t.repository_id, t.workspace_id, t.status, t.total_cost_usd, t.template_id,
                     t.sandbox_id, t.checkout_mode,
-                    t.vibe, t.name, t.description, t.site_id, t.site_provider, t.branch,
+                    t.name, t.description, t.branch,
                     t.model, t.created_by, t.reporter_user_id, t.visibility, t.scope, t.owner_user_id,
                     t.run_as_user_id,
                     t.created_at_db, t.updated_at, t.append_system_prompt,
@@ -904,9 +892,6 @@ impl TaskDao for PgTaskDao {
         }
         if let Some(total_cost_usd) = patch.total_cost_usd {
             run_field!("total_cost_usd = $2", total_cost_usd);
-        }
-        if let Some(ref site_url) = patch.site_url {
-            run_field!("site_url = $2", site_url);
         }
         if let Some(ref visibility) = patch.visibility {
             run_field!("visibility = $2", visibility.as_str());

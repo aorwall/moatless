@@ -65,7 +65,6 @@ fn sample_request() -> NewTaskRequest {
         sandbox_id: None,
         checkout_mode: None,
         template_id: None,
-        vibe: None,
         append_system_prompt: None,
         ttl_minutes: 15,
         close_after_settled_days: 7,

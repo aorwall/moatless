@@ -19555,12 +19555,6 @@
               "null"
             ]
           },
-          "siteUrl": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "status": {
             "$ref": "#/components/schemas/TaskStatus"
           },
@@ -19590,12 +19584,6 @@
             "type": "integer",
             "format": "int32",
             "description": "Idle TTL in minutes. The reaper stops the sandbox when no activity has\noccurred for this many minutes. `0` means \"never reap\"."
-          },
-          "vibe": {
-            "type": [
-              "boolean",
-              "null"
-            ]
           },
           "visibility": {
             "$ref": "#/components/schemas/Visibility"

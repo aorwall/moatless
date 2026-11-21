@@ -361,7 +361,6 @@ impl TaskOpener for crate::task::creation::TaskCreationService {
                     sandbox_id: None,
                     checkout_mode: None,
                     template_id: None,
-                    vibe: None,
                     append_system_prompt: req.append_system_prompt,
                     ttl_minutes: req.ttl_minutes,
                     close_after_settled_days: req.close_after_settled_days,

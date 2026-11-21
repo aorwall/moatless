@@ -434,13 +434,9 @@ pub struct Task {
     pub checkout_mode: Option<CheckoutMode>,
     pub status: TaskStatus,
     pub total_cost_usd: f64,
-    pub site_url: Option<String>,
     pub template_id: Option<String>,
-    pub vibe: Option<bool>,
     pub name: Option<String>,
     pub description: Option<String>,
-    pub site_id: Option<String>,
-    pub site_provider: Option<String>,
     pub branch: Option<String>,
     /// Current requested model for this task. Updated when a user message
     /// explicitly names a model and reused for later messages that omit one.

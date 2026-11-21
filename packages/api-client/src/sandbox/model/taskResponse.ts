@@ -105,8 +105,6 @@ export interface TaskResponse {
   settleAfterHours?: number | null;
   /** @nullable */
   shortId?: string | null;
-  /** @nullable */
-  siteUrl?: string | null;
   status: TaskStatus;
   tags: TagResponse[];
   taskId: string;
@@ -119,8 +117,6 @@ export interface TaskResponse {
      * occurred for this many minutes. `0` means "never reap".
      */
   ttlMinutes: number;
-  /** @nullable */
-  vibe?: boolean | null;
   visibility: Visibility;
   /**
      * Workspace the task runs in. Every task has one, so this is only `None`

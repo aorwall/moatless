@@ -322,9 +322,7 @@ pub struct TaskResponse {
     pub created_at: String,
     pub last_message_at: String,
     pub total_cost_usd: f64,
-    pub site_url: Option<String>,
     pub template_id: Option<String>,
-    pub vibe: Option<bool>,
     pub created_by: Option<String>,
     pub created_by_display_name: Option<String>,
     /// The verified person who requested the Loop's work, when known.
