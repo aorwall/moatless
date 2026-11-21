@@ -504,8 +504,7 @@ pub trait BoundPullRequestSource: Send + Sync {
     ) -> Option<ResolvedPullRequest>;
 }
 
-/// A pull request as read from its git host, for `pullRequests.detail` and a
-/// guided review's range.
+/// A pull request as read from its git host, for `pullRequests.detail`.
 #[derive(Clone, Debug, Default)]
 pub struct PullRequestOverview {
     pub number: u64,
@@ -609,8 +608,7 @@ pub struct PullRequestListPage {
     pub next_cursor: Option<String>,
 }
 
-/// Pull requests read from their git host, and the Task that writes a guided
-/// review.
+/// Pull requests read from their git host.
 ///
 /// Every read takes the Workspace the viewer reached the pull request through,
 /// whose credential stands in when the viewer has none of their own; the
@@ -755,31 +753,6 @@ pub trait PullRequestReviewSource: Send + Sync {
         number: u64,
         file: &ChangedFile<'_>,
     ) -> Result<FileContentsPair, PullRequestError>;
-
-    /// Create a Task in `workspace_id`, owned by `viewer`, whose first message
-    /// is `message`, without starting its sandbox. Returns its id.
-    async fn create_review_guide_task(
-        &self,
-        viewer: &ScopeContext,
-        workspace_id: &str,
-        name: &str,
-        message: String,
-    ) -> Result<String, PullRequestError>;
-
-    /// Fork `source_task_id` after its newest settled turn into a Task with
-    /// id `task_id`, owned by `viewer`, whose first message is `message`, and
-    /// start its sandbox. Returns whether the sandbox started.
-    ///
-    /// The fork lands in the source's Workspace with its tags, wherever the
-    /// viewer opened the pull request: its conversation and checkout are there.
-    async fn fork_review_guide_task(
-        &self,
-        viewer: &ScopeContext,
-        source_task_id: &str,
-        task_id: &str,
-        name: &str,
-        message: String,
-    ) -> Result<bool, PullRequestError>;
 }
 
 /// The viewer's connected GitHub identity, for the Source Control panel's auth

@@ -22,7 +22,6 @@ fn enabled_configuration_requires_an_origin() {
         attachment_uploads: true,
         usage_limit_sources: false,
         orchestration_protocol_version: 1,
-        review_guide_fork_author: false,
         scratch_workspace: None,
         linear_default_team: None,
     };

@@ -1005,7 +1005,6 @@ pub(crate) mod tests {
         use moatless_types::loops::RoutingMode;
 
         use super::super::*;
-        use crate::router::MockReviewGuideTasks;
 
         /// Never dispatched by `notify_and_maybe_close_for_pr`: the field only
         /// exists to satisfy `RoutingInputs`, which this test's unused
@@ -1115,20 +1114,6 @@ pub(crate) mod tests {
             message_send: MockMessageAcceptor,
             task_closer: MockTaskFinisher,
         ) -> GithubPrInboundRouter {
-            router_with(
-                message_send,
-                task_closer,
-                MockTaskReader::new(),
-                MockReviewGuideTasks::new(),
-            )
-        }
-
-        pub(crate) fn router_with(
-            message_send: MockMessageAcceptor,
-            task_closer: MockTaskFinisher,
-            tasks: MockTaskReader,
-            review_guides: MockReviewGuideTasks,
-        ) -> GithubPrInboundRouter {
             let pool = unconnected_pool();
             let connections = moatless_adapter_model::compose::adapter_connections(pool.clone());
             let loop_graph = moatless_loops::compose::loop_graph(pool);
@@ -1157,11 +1142,10 @@ pub(crate) mod tests {
                 Arc::new(users),
                 routing,
                 Arc::new(MockRelationRecorder::new()),
-                Arc::new(tasks),
+                Arc::new(MockTaskReader::new()),
                 Arc::new(MockTaskOpener::new()),
                 Arc::new(message_send),
                 Arc::new(task_closer),
-                Arc::new(review_guides),
                 Arc::new(crate::check_run_trigger::MockTriggerWorkspaces::new()),
                 None,
             )

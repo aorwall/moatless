@@ -22,7 +22,6 @@ pub mod memory;
 pub mod message;
 pub mod patch;
 pub mod provider_apps;
-pub mod review_guide;
 pub mod sandbox;
 pub mod setup;
 pub mod tag;

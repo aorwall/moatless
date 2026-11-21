@@ -68,7 +68,7 @@ pullRequests.checks	orchestration:read	detached	detached	same
 pullRequests.comment	orchestration:operate	detached	detached	same
 pullRequests.detail	orchestration:read	detached	detached	same
 pullRequests.diffFileContents	orchestration:read	detached	detached	same
-pullRequests.generateReviewGuide	orchestration:operate	detached	detached	same
+pullRequests.generateReviewGuide	orchestration:operate	declared	declared	-
 pullRequests.invalidate	orchestration:read	detached	detached	same
 pullRequests.labelCandidates	orchestration:read	detached	detached	same
 pullRequests.linkedThreads	orchestration:read	detached	detached	same
@@ -77,7 +77,7 @@ pullRequests.listStats	orchestration:read	detached	detached	same
 pullRequests.preview	orchestration:read	detached	detached	same
 pullRequests.replyToThread	orchestration:operate	detached	detached	same
 pullRequests.requestReviewers	orchestration:operate	detached	detached	same
-pullRequests.reviewGuide	orchestration:read	detached	detached	same
+pullRequests.reviewGuide	orchestration:read	declared	declared	-
 pullRequests.reviewerCandidates	orchestration:read	detached	detached	same
 pullRequests.runAction	orchestration:operate	detached	detached	same
 pullRequests.setLabels	orchestration:operate	detached	detached	same

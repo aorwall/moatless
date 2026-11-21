@@ -27,7 +27,6 @@ pub mod inbox;
 pub mod memory;
 pub mod message;
 pub mod ports;
-pub mod review_guide;
 pub mod scope_reach;
 pub mod search;
 pub mod secret_request;

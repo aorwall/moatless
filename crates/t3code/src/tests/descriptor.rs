@@ -151,7 +151,6 @@ fn a_deployment_that_cannot_sign_an_upload_url_omits_both_keys() {
         attachment_uploads: false,
         usage_limit_sources: false,
         orchestration_protocol_version: 1,
-        review_guide_fork_author: false,
         scratch_workspace: None,
         linear_default_team: None,
     };
@@ -173,7 +172,6 @@ fn a_deployment_with_a_hub_declares_the_usage_limit_source_capability() {
         attachment_uploads: false,
         usage_limit_sources: true,
         orchestration_protocol_version: 1,
-        review_guide_fork_author: false,
         scratch_workspace: None,
         linear_default_team: None,
     };
@@ -195,7 +193,6 @@ fn the_descriptor_reports_the_contract_version_the_code_implements() {
         attachment_uploads: true,
         usage_limit_sources: false,
         orchestration_protocol_version: 1,
-        review_guide_fork_author: false,
         scratch_workspace: None,
         linear_default_team: None,
     };
@@ -219,7 +216,6 @@ fn config_at(orchestration_protocol_version: u8) -> UiRpcConfig {
         attachment_uploads: false,
         usage_limit_sources: false,
         orchestration_protocol_version,
-        review_guide_fork_author: false,
         scratch_workspace: None,
         linear_default_team: None,
     }

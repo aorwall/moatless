@@ -11,18 +11,15 @@
 
 use std::fmt::Write;
 
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 use moatless_adapter_model::error::AdapterError;
 use moatless_loops::adapters::subject_events::{SubjectEvent, route_subject_event};
-use moatless_ports::task::{CloseReason, TaskStatus};
-use moatless_types::access_control::ScopeContext;
 use moatless_types::adapter::AdapterConnection;
 use moatless_types::adapter::AdapterKind;
 use moatless_types::adapter::TaskBinding;
 use moatless_types::adapter::{Audience, InboundMessage};
 use moatless_types::loops::SubscriptionMatch;
-use moatless_workspace_types::repository::GITHUB_HOST;
 
 use super::router::GithubPrInboundRouter;
 use super::routing::{ADAPTER, ADAPTER_LABEL, SUBJECT_KIND};
@@ -173,7 +170,6 @@ impl GithubPrInboundRouter {
         execution: &Execution,
     ) -> Result<(), AdapterError> {
         let merged = &execution.merged;
-        self.close_review_guide_tasks(execution).await;
         let subject_key =
             GithubPrSubject::new(&execution.owner, &execution.repo, merged.pr_number).key();
 
@@ -264,51 +260,6 @@ impl GithubPrInboundRouter {
             .await?;
         }
         Ok(())
-    }
-}
-
-impl GithubPrInboundRouter {
-    /// Close the Tasks that wrote the merged pull request's review guide. A
-    /// failure is logged rather than returned: returning it would retry the
-    /// whole delivery for a close that has no notice to resend.
-    pub(super) async fn close_review_guide_tasks(&self, execution: &Execution) {
-        let repository = format!("{}/{}", execution.owner, execution.repo);
-        let number = execution.merged.pr_number;
-        let tasks = match self
-            .review_guides
-            .guide_tasks(GITHUB_HOST, &repository, number)
-            .await
-        {
-            Ok(tasks) => tasks,
-            Err(error) => {
-                warn!(repository, number, %error, "Failed to read the review guide's tasks");
-                return;
-            }
-        };
-        #[allow(clippy::disallowed_methods)]
-        // reason: a webhook delivery carries no caller identity.
-        let sys = ScopeContext::system();
-        for task_id in tasks {
-            match self.tasks.describe(&task_id, &sys).await {
-                Ok(Some(task)) if task.status != TaskStatus::Closed => {}
-                Ok(_) => continue,
-                Err(error) => {
-                    warn!(task_id, %error, "Failed to read a review guide task");
-                    continue;
-                }
-            }
-            let reason = CloseReason {
-                actor: "github".to_string(),
-                payload: serde_json::json!({ "reason": "pr_merged", "pr_number": number }),
-            };
-            match self.task_closer.close(&task_id, reason).await {
-                Ok(()) => info!(
-                    task_id,
-                    repository, number, "Review guide task closed on merge"
-                ),
-                Err(error) => warn!(task_id, %error, "Failed to close a review guide task"),
-            }
-        }
     }
 }
 
@@ -536,80 +487,5 @@ mod tests {
         assert!(auto_close_owns(&rule("ir_1", true), &opted_in));
         opted_in.active = false;
         assert!(!auto_close_owns(&rule("ir_1", true), &opted_in));
-    }
-
-    mod review_guide_close {
-        use moatless_ports::task::{
-            MockMessageAcceptor, MockTaskFinisher, MockTaskReader, TaskDescriptor, TaskStatus,
-        };
-
-        use super::super::{Execution, MergedPr};
-        use crate::router::MockReviewGuideTasks;
-        use crate::routing::tests::notify_and_maybe_close_tests::router_with;
-
-        fn task(task_id: &str, status: TaskStatus) -> TaskDescriptor {
-            TaskDescriptor {
-                task_id: task_id.to_string(),
-                status,
-                name: None,
-                owner_user_id: None,
-                workspace_id: None,
-                created_by: None,
-                reporter_user_id: None,
-                run_as_user_id: None,
-                loop_id: None,
-                ttl_minutes: 0,
-            }
-        }
-
-        #[tokio::test]
-        async fn a_merge_closes_the_open_review_guide_task_only() {
-            let mut review_guides = MockReviewGuideTasks::new();
-            review_guides
-                .expect_guide_tasks()
-                .withf(|host, repository, number| {
-                    host == "github.com" && repository == "soaplabs/repo" && *number == 42
-                })
-                .returning(|_, _, _| Ok(vec!["t_open".into(), "t_closed".into()]));
-            let mut tasks = MockTaskReader::new();
-            tasks.expect_describe().returning(|task_id, _| {
-                Ok(Some(if task_id == "t_open" {
-                    task(task_id, TaskStatus::Open)
-                } else {
-                    task(task_id, TaskStatus::Closed)
-                }))
-            });
-            let mut task_closer = MockTaskFinisher::new();
-            task_closer
-                .expect_close()
-                .withf(|task_id, reason| {
-                    task_id == "t_open" && reason.payload["reason"] == "pr_merged"
-                })
-                .times(1)
-                .returning(|_, _| Ok(()));
-
-            let router = router_with(
-                MockMessageAcceptor::new(),
-                task_closer,
-                tasks,
-                review_guides,
-            );
-            router
-                .close_review_guide_tasks(&Execution {
-                    owner: "soaplabs".into(),
-                    repo: "repo".into(),
-                    merged: MergedPr {
-                        pr_number: 42,
-                        title: "feat: land it".into(),
-                        html_url: String::new(),
-                        merged_by: "octocat".into(),
-                        pr_author_login: None,
-                        base_ref: "main".into(),
-                        head_ref: "feature".into(),
-                        merge_commit_sha: String::new(),
-                    },
-                })
-                .await;
-        }
     }
 }

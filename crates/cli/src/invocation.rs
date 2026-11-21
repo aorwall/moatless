@@ -161,9 +161,6 @@ async fn run_shared(
         SharedCommands::Rooms { action } => {
             commands::rooms::run(moat, action, cfg, json).await?;
         }
-        SharedCommands::ReviewGuide { action } => {
-            commands::review_guide::run(moat, action, cfg, json).await?;
-        }
     }
 
     Ok(())

@@ -33,7 +33,6 @@ use moatless_tasks::compose::TaskGraph;
 use moatless_tasks::feedback::operations::FeedbackNotes;
 use moatless_tasks::memory::operations::Memories;
 use moatless_tasks::message::operations::Messages;
-use moatless_tasks::review_guide::operations::ReviewGuides;
 use moatless_tasks::tag::operations::Tags;
 use moatless_tasks::task::fork::TaskForks;
 use moatless_tasks::task::operations::TaskCommands;
@@ -80,7 +79,6 @@ pub struct Ports {
     pub task_turns: Arc<TaskTurns>,
     pub messages: Arc<Messages>,
     pub feedback: Arc<FeedbackNotes>,
-    pub review_guides: Arc<ReviewGuides>,
     /// Artifacts: the `task_artifacts` rows and their objects in S3.
     pub artifacts: Arc<Artifacts>,
     /// Memory: what agents keep for later Tasks.
@@ -287,7 +285,6 @@ pub fn compose(pool: DbPool, config: &Config, s3: Option<moatless_s3::S3Storage>
     let task_turns = task_graph.task_turns();
     let turn_counter = task_graph.turn_ledger();
     let feedback = task_graph.feedback();
-    let review_guides = task_graph.review_guides();
     let records = task_graph.records(repository_reader.clone(), workspace_resolver.clone());
     let artifacts = task_graph.artifacts(
         s3.clone(),
@@ -322,7 +319,6 @@ pub fn compose(pool: DbPool, config: &Config, s3: Option<moatless_s3::S3Storage>
         task_turns,
         turn_counter,
         feedback,
-        review_guides,
         artifacts,
         memories,
         records,

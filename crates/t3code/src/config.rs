@@ -37,8 +37,6 @@ pub(crate) struct UiRpcConfig {
     /// methods and reports `orchestrationProtocolVersion: 2` on the descriptor.
     /// See [`UiRpcConfig::serves_orchestration_v2`].
     pub(crate) orchestration_protocol_version: u8,
-    /// See [`moatless_types::ui_rpc::T3UiRpcConfig::review_guide_fork_author`].
-    pub(crate) review_guide_fork_author: bool,
     /// See [`moatless_types::ui_rpc::T3UiRpcConfig::scratch_workspace`] and
     /// [`crate::scratch`].
     pub(crate) scratch_workspace: Option<String>,

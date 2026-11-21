@@ -1,7 +1,6 @@
 //! [`PullRequestReviewSource`] for [`AppStateBoundPullRequests`]: a linked pull
-//! request read from GitHub, and the Task that writes its guided review.
+//! request read from GitHub.
 
-use super::commands::{AppStateCommands, create_refusal};
 use super::pull_requests::{AppStateBoundPullRequests, pull_request_error};
 use async_trait::async_trait;
 use moatless_adapter_github_pr::adapter::GithubPrAdapter;
@@ -13,14 +12,10 @@ use moatless_adapter_github_pr::{
     pull_request_writes,
 };
 use moatless_t3code::ports::{
-    ChangedFile, CommandRefusal, PullRequestError, PullRequestListItem, PullRequestListPage,
-    PullRequestListQuery, PullRequestOverview, PullRequestPatchPage, PullRequestReviewSource,
+    ChangedFile, PullRequestError, PullRequestListItem, PullRequestListPage, PullRequestListQuery,
+    PullRequestOverview, PullRequestPatchPage, PullRequestReviewSource,
 };
-use moatless_tasks::task::creation::ProvisionOutcome;
-use moatless_tasks::task::fork;
-use moatless_tasks::task::service as task_service;
 use moatless_types::access_control::ScopeContext;
-use moatless_types::agent::AgentProfile;
 use moatless_types::pull_request_conversation::{
     Candidates, FileContentsPair, PullRequestActivity, PullRequestFileStat,
     PullRequestLabelCandidate, PullRequestReviewerCandidate, PullRequestStatus, PullRequestWrite,
@@ -420,99 +415,6 @@ impl PullRequestReviewSource for AppStateBoundPullRequests {
         .await
         .map_err(pull_request_error)
     }
-
-    async fn create_review_guide_task(
-        &self,
-        viewer: &ScopeContext,
-        workspace_id: &str,
-        name: &str,
-        message: String,
-    ) -> Result<String, PullRequestError> {
-        let request = moatless_api_schemas::task::CreateTaskRequest {
-            repository_id: None,
-            workspace_id: Some(workspace_id.to_string()),
-            sandbox_id: None,
-            checkout_mode: None,
-            agent_profile: Some(AgentProfile::ClaudeCode.to_string()),
-            name: Some(name.to_string()),
-            description: None,
-            // The agent fetches the pull request's head itself, which also
-            // reaches a head on a fork.
-            branch: None,
-            message: Some(message),
-            model: None,
-            agent_mode: None,
-            effort: None,
-            contexts: vec![],
-            file_ids: vec![],
-            parent_task_id: None,
-            run_as_user_id: None,
-            headless: Some(false),
-            skills: vec![],
-            agent_properties: Default::default(),
-        };
-        let mut intent = task_service::CreateTaskIntent::new(request);
-        // The caller attaches the Task to its run and then starts the sandbox.
-        intent.provision = false;
-        let commands = AppStateCommands(self.0.clone());
-        let new_task =
-            task_service::normalize(commands.create_ports(), viewer, &viewer.user_id, intent)
-                .await
-                .map_err(|error| refusal_error(create_refusal(workspace_id, error)))?;
-        let outcome = task_service::create_task(
-            &self.0.task_creation,
-            self.0.message_send.clone(),
-            new_task,
-            |_| async { serde_json::Value::Null },
-        )
-        .await
-        .map_err(|error| refusal_error(create_refusal(workspace_id, error)))?;
-        Ok(outcome.task.task_id)
-    }
-
-    async fn fork_review_guide_task(
-        &self,
-        viewer: &ScopeContext,
-        source_task_id: &str,
-        task_id: &str,
-        name: &str,
-        message: String,
-    ) -> Result<bool, PullRequestError> {
-        let commands = AppStateCommands(self.0.clone());
-        let outcome = self
-            .0
-            .task_fork
-            .fork(
-                fork::ForkCreationPorts {
-                    normalize: commands.create_ports(),
-                    task_creation: &self.0.task_creation,
-                    message_send: self.0.message_send.clone(),
-                    switch: &self.0.task_switch,
-                },
-                viewer,
-                fork::ForkRequest {
-                    side_chat: false,
-                    source_task_id: source_task_id.to_string(),
-                    new_task_id: Some(task_id.to_string()),
-                    at_turn: None,
-                    message: Some(message),
-                    name: Some(name.to_string()),
-                    same_sandbox: false,
-                    profile: fork::ForkProfile::Source,
-                    model: None,
-                    agent_mode: None,
-                    effort: None,
-                    skills: Vec::new(),
-                },
-                |_| async { serde_json::Value::Null },
-            )
-            .await
-            .map_err(|error| match error {
-                fork::ForkError::Source(e) => refusal_error(create_refusal(source_task_id, e)),
-                fork::ForkError::Fork(e) => refusal_error(create_refusal(task_id, e)),
-            })?;
-        Ok(outcome.provision == ProvisionOutcome::Started)
-    }
 }
 
 impl AppStateBoundPullRequests {
@@ -558,14 +460,4 @@ fn owner_repo(repository: &str) -> Result<(&str, &str), PullRequestError> {
         .split_once('/')
         .filter(|(owner, repo)| !owner.is_empty() && !repo.is_empty() && !repo.contains('/'))
         .ok_or(PullRequestError::NotFound)
-}
-
-fn refusal_error(refusal: CommandRefusal) -> PullRequestError {
-    match refusal {
-        CommandRefusal::Rejected { message } => PullRequestError::Unavailable(message),
-        CommandRefusal::NotWritable { .. } => {
-            PullRequestError::Unavailable("You cannot start a task in this workspace.".to_string())
-        }
-        other => PullRequestError::Failed(format!("{other:?}")),
-    }
 }

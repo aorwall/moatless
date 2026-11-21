@@ -312,25 +312,6 @@ impl PullRequestReviewSource for ProjectRepositories {
     > {
         unreachable!("no test here reads a pull request")
     }
-    async fn create_review_guide_task(
-        &self,
-        _viewer: &ScopeContext,
-        _workspace_id: &str,
-        _name: &str,
-        _message: String,
-    ) -> Result<String, PullRequestError> {
-        unreachable!("no test here writes a guide")
-    }
-    async fn fork_review_guide_task(
-        &self,
-        _viewer: &ScopeContext,
-        _source_task_id: &str,
-        _task_id: &str,
-        _name: &str,
-        _message: String,
-    ) -> Result<bool, PullRequestError> {
-        unreachable!("no test here writes a guide")
-    }
 }
 
 /// `ws-1` and `ws-2` share `acme/app`, `ws-3` places `acme/api` and then

@@ -221,7 +221,7 @@ pub(crate) fn pull_request_summary_failure_exit(request_id: &RequestId, detail: 
     )
 }
 
-/// A linked pull request's detail or guided review could not be answered, as
+/// A linked pull request's detail could not be answered, as
 /// the `PullRequestOperationError` the HTTP diff route also sends.
 pub(crate) fn pull_request_review_error(
     operation: &str,

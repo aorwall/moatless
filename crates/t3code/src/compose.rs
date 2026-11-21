@@ -99,7 +99,6 @@ pub async fn mount(
     let config = UiRpcConfig {
         environment_id: environment_id(&environment),
         orchestration_protocol_version: settings.orchestration_protocol_version,
-        review_guide_fork_author: settings.review_guide_fork_author,
         scratch_workspace: settings.scratch_workspace,
         linear_default_team: settings.linear_default_team,
         allowed_origins: settings.allowed_origins,
@@ -184,7 +183,6 @@ pub async fn mount(
         pull_requests,
         pull_request_reviews,
         issues,
-        review_guides: graph.review_guides.clone(),
         source_control_auth,
         commands,
         attachments,
@@ -219,7 +217,6 @@ pub struct T3Graph {
     pool: UiRpcDbPool,
     reads: T3Reads,
     usage: Arc<dyn ports::UsageReporter>,
-    review_guides: Arc<moatless_tasks::review_guide::operations::ReviewGuides>,
     task_events: Arc<moatless_tasks::task_event::operations::TaskEvents>,
 }
 
@@ -236,7 +233,6 @@ pub fn t3_graph(db: UiRpcDbPool, tasks: &TaskGraph) -> T3Graph {
     ));
     let usage = tasks.turn_usage();
     T3Graph {
-        review_guides: tasks.review_guides(),
         task_events: tasks.task_events(),
         pool: db.clone(),
         reads: T3Reads::new(

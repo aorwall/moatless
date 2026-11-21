@@ -951,28 +951,6 @@ impl ApiClient {
         self.parse_response(resp).await
     }
 
-    /// GET `/api/v1/tasks/{task_id}/review-guide`
-    pub async fn review_guide_run(
-        &self,
-        task_id: &str,
-    ) -> Result<moatless_api_schemas::review_guide::ReviewGuideRunResponse, ApiError> {
-        self.get(&format!("/api/v1/tasks/{}/review-guide", urlenc(task_id)))
-            .await
-    }
-
-    /// POST `/api/v1/tasks/{task_id}/review-guide`
-    pub async fn submit_review_guide(
-        &self,
-        task_id: &str,
-        req: &moatless_api_schemas::review_guide::SubmitReviewGuideRequest,
-    ) -> Result<moatless_api_schemas::review_guide::SubmitReviewGuideResponse, ApiError> {
-        self.post(
-            &format!("/api/v1/tasks/{}/review-guide", urlenc(task_id)),
-            req,
-        )
-        .await
-    }
-
     // ========================================================================
     // Tags
     // ========================================================================

@@ -108,12 +108,10 @@ fn readable(stored: Map<String, Value>) -> Map<String, Value> {
 /// The viewer's whole settings object: the deployment's, then their own.
 ///
 /// Partial: the client fills every other server setting with its default.
-/// Guided reviews are written by a Task the viewer starts. `providerInstances`
-/// enables Pi explicitly: T3 resolves a provider's enabled state from settings,
-/// and treats an unconfigured Pi as off, which hides it from the picker.
+/// `providerInstances` enables Pi explicitly: T3 resolves a provider's
+/// enabled state from settings, and treats an unconfigured Pi as off, which hides it from the picker.
 pub(crate) fn settings_object(stored: Map<String, Value>) -> Value {
     let mut settings = json!({
-        "reviewGuidesEnabled": true,
         "providerInstances": {
             "pi": { "driver": "pi", "enabled": true },
             "mini-swe": { "driver": "mini-swe", "enabled": true },
@@ -205,6 +203,5 @@ mod tests {
         assert_eq!(settings["hiddenThreadTags"], json!(["private"]));
         assert!(settings.get("hideTaggedThreads").is_none());
         assert!(settings.get("somethingElse").is_none());
-        assert_eq!(settings["reviewGuidesEnabled"], json!(true));
     }
 }

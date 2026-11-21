@@ -286,7 +286,7 @@ impl ports::BoundPullRequestSource for NoBoundPullRequests {
 }
 
 /// No Task in these tests is bound to a pull request, so the host behind
-/// `pullRequests.detail` and the guided review is never reached.
+/// `pullRequests.detail` is never reached.
 struct UnreachablePullRequestReviews;
 
 #[async_trait]
@@ -439,25 +439,6 @@ impl ports::PullRequestReviewSource for UnreachablePullRequestReviews {
     ) -> Result<moatless_types::pull_request_conversation::FileContentsPair, ports::PullRequestError>
     {
         unreachable!("no test in this file reads a bound pull request")
-    }
-    async fn create_review_guide_task(
-        &self,
-        _viewer: &ScopeContext,
-        _workspace_id: &str,
-        _name: &str,
-        _message: String,
-    ) -> Result<String, ports::PullRequestError> {
-        unreachable!("no test in this file starts a guided review")
-    }
-    async fn fork_review_guide_task(
-        &self,
-        _viewer: &ScopeContext,
-        _source_task_id: &str,
-        _task_id: &str,
-        _name: &str,
-        _message: String,
-    ) -> Result<bool, ports::PullRequestError> {
-        unreachable!("no test in this file starts a guided review")
     }
 }
 
@@ -950,7 +931,6 @@ fn state_from(
             attachment_uploads: true,
             usage_limit_sources: false,
             orchestration_protocol_version: 1,
-            review_guide_fork_author: false,
             scratch_workspace: None,
             linear_default_team: None,
         }),
@@ -1007,10 +987,6 @@ fn state_from(
         pull_requests: Arc::new(NoBoundPullRequests),
         pull_request_reviews: Arc::new(UnreachablePullRequestReviews),
         issues: Arc::new(ports::MockIssueTrackerSource::new()),
-        review_guides: moatless_tasks::compose::task_graph(
-            sqlx::PgPool::connect_lazy("postgres://unused").expect("a lazy pool"),
-        )
-        .review_guides(),
         source_control_auth: Arc::new(NoGithubIdentity),
         commands: Arc::new(UnreachableCommands),
         attachments,

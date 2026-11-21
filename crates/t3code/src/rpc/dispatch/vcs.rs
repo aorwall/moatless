@@ -86,10 +86,9 @@ pub(super) fn vcs_methods() -> MethodTable {
             Scope::OrchestrationRead,
             pull_requests_diff_file_contents,
         )
-        .detached(
+        .declared(
             "pullRequests.generateReviewGuide",
             Scope::OrchestrationOperate,
-            pull_requests_generate_review_guide,
         )
         .detached(
             "pullRequests.linkedThreads",
@@ -131,11 +130,7 @@ pub(super) fn vcs_methods() -> MethodTable {
             Scope::OrchestrationOperate,
             pull_requests_request_reviewers,
         )
-        .detached(
-            "pullRequests.reviewGuide",
-            Scope::OrchestrationRead,
-            pull_requests_review_guide,
-        )
+        .declared("pullRequests.reviewGuide", Scope::OrchestrationRead)
         .detached(
             "pullRequests.reviewerCandidates",
             Scope::OrchestrationRead,
@@ -446,8 +441,6 @@ pub(super) async fn pull_requests_invalidate(request: Request<IgnoredAny>) -> Ve
 /// Which `pullRequests.*` read a request is.
 enum PullRequestRead {
     Detail,
-    ReviewGuide,
-    GenerateReviewGuide,
     Activity,
     Preview,
     LinkedThreads,
@@ -594,16 +587,6 @@ pub(super) async fn pull_requests_detail(request: Request<PullRequestRef>) -> Ve
     pull_request_read(request, plain(PullRequestRead::Detail)).await
 }
 
-pub(super) async fn pull_requests_review_guide(request: Request<PullRequestRef>) -> Vec<Value> {
-    pull_request_read(request, plain(PullRequestRead::ReviewGuide)).await
-}
-
-pub(super) async fn pull_requests_generate_review_guide(
-    request: Request<PullRequestRef>,
-) -> Vec<Value> {
-    pull_request_read(request, plain(PullRequestRead::GenerateReviewGuide)).await
-}
-
 /// A pull request's reads and writes, split by `read` into the pull request
 /// it names and what is read of or written to it.
 async fn pull_request_read<P>(
@@ -635,12 +618,6 @@ async fn pull_request_read<P>(
     let viewer = viewer_scope(&identity);
     let result = match read {
         PullRequestRead::Detail => pull_request_review::detail(&ports, &viewer, &target).await,
-        PullRequestRead::ReviewGuide => {
-            pull_request_review::review_guide(&ports, &viewer, &target).await
-        }
-        PullRequestRead::GenerateReviewGuide => {
-            pull_request_review::generate_review_guide(&ports, &viewer, &target).await
-        }
         PullRequestRead::Activity => {
             pull_request_conversation::activity(&ports, &viewer, &target).await
         }
