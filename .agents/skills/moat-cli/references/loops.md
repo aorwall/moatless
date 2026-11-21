@@ -150,9 +150,11 @@ Notes:
   first turn is the PR-opened text plus the check's conclusion and output and
   the marker's `message`. The marker's `agent` (an `agentProfile` id) replaces
   the loop's for the task it opens, and its `model` is used when that agent
-  offers it. Otherwise the loop's model runs under the loop's agent, and the
-  agent's default under another. An unknown value is logged and skipped. A later
-  trigger never changes an open task's agent or model. The marker's skills join the loop's `skills`; a
+  offers it, or when the agent takes its models from the hub (`pi`, `mini-swe`,
+  `antigravity`) and no other agent offers it. Otherwise the loop's model runs
+  under the loop's agent, and the agent's default under another. An unknown
+  value is logged and skipped. A later trigger never changes an open task's
+  agent or model. The marker's skills join the loop's `skills`; a
   later trigger with new skills sends the open task one turn naming them.
   Once the task has closed, the next trigger opens a new one. Two keys are
   allowed only with `create_on: check_run`: `sourceMatcher: <owner>/*` serves

@@ -11,7 +11,7 @@ use tracing::{debug, info, warn};
 use moatless_adapter_model::binding::BindScope;
 use moatless_adapter_model::capabilities::AdapterInboundPresentation;
 use moatless_adapter_model::error::AdapterError;
-use moatless_core::agent_catalog::offers_model;
+use moatless_core::agent_catalog::accepts_model;
 use moatless_ports::task::TaskOpenError;
 use moatless_types::adapter::TaskBinding;
 use moatless_types::adapter::{AdapterConnection, AdapterKind, Audience, InboundMessage};
@@ -66,7 +66,7 @@ struct Marker {
     /// The Task's agent profile, such as `codex` ([`trigger_agent`]).
     #[serde(default)]
     agent: Option<String>,
-    /// The Task's model, used when its agent offers it ([`trigger_agent`]).
+    /// The Task's model, used when its agent accepts it ([`trigger_agent`]).
     #[serde(default)]
     model: Option<String>,
 }
@@ -252,9 +252,10 @@ fn is_skill_name(skill: &str) -> bool {
 }
 
 /// The agent profile and model a triggered Task opens with: the marker's agent
-/// when known, and its model when that agent offers it, else the loop's model
-/// under the loop's agent or the agent's default. A bad value is logged and passed
-/// over rather than refused, so a mistyped policy still gets its review.
+/// when known, and its model when that agent accepts it ([`accepts_model`]),
+/// else the loop's model under the loop's agent or the agent's default. A bad
+/// value is logged and passed over rather than refused, so a mistyped policy
+/// still gets its review.
 pub(super) fn trigger_agent(
     rule: &SubscriptionMatch,
     request: &Execution,
@@ -272,13 +273,13 @@ pub(super) fn trigger_agent(
         None
     };
     let model = match request.model.as_deref() {
-        Some(model) if offers_model(agent_profile, model) => Some(model.to_string()),
+        Some(model) if accepts_model(agent_profile, model) => Some(model.to_string()),
         Some(model) => {
             warn!(
                 loop_id = %rule.id,
                 model,
                 agent_profile = %agent_profile,
-                "Check-run trigger's model is not one its agent offers; using the default"
+                "Check-run trigger's model is not one its agent accepts; using the default"
             );
             fallback
         }

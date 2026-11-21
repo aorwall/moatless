@@ -233,6 +233,22 @@ pub fn offers_model(agent_profile: AgentProfile, model: &str) -> bool {
     entry(agent_profile).models.iter().any(|m| m.id == model)
 }
 
+/// Whether the model hub supplies this agent's models, so its `models` list
+/// is only the part known without asking the hub.
+pub fn lists_hub_models(agent_profile: AgentProfile) -> bool {
+    matches!(
+        agent_profile,
+        AgentProfile::Pi | AgentProfile::MiniSwe | AgentProfile::Antigravity
+    )
+}
+
+/// Whether a requested `model` may run under `agent_profile`: one it lists, or,
+/// for an agent whose models come from the hub, one no other agent owns.
+pub fn accepts_model(agent_profile: AgentProfile, model: &str) -> bool {
+    offers_model(agent_profile, model)
+        || (lists_hub_models(agent_profile) && !model_conflicts(agent_profile, model))
+}
+
 /// Whether `model` is knowably wrong for `agent_profile`: another catalog
 /// agent offers it and this one does not.
 ///

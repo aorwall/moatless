@@ -383,6 +383,27 @@ fn another_agent_never_inherits_the_loops_model() {
 }
 
 #[test]
+fn a_hub_listed_agent_runs_a_hub_model_its_catalog_does_not_list() {
+    assert_eq!(
+        trigger_agent(
+            &opus_loop(),
+            &request_for(Some("antigravity"), Some("gemini-4-neon-xhigh"))
+        ),
+        (
+            AgentProfile::Antigravity,
+            Some("gemini-4-neon-xhigh".to_string())
+        )
+    );
+    assert_eq!(
+        trigger_agent(
+            &opus_loop(),
+            &request_for(Some("antigravity"), Some("opus"))
+        ),
+        (AgentProfile::Antigravity, None)
+    );
+}
+
+#[test]
 fn an_unknown_agent_keeps_the_loops_agent() {
     assert_eq!(
         trigger_agent(

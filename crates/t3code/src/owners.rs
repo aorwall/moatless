@@ -33,7 +33,6 @@ use crate::ports::{
     SecretRequestAnswerer, SkillCatalog, SourceControlAuthSource, TaskRelationSource,
     ViewerSettingsStore, WorkspaceScriptSource, WorkspaceSkill,
 };
-use crate::providers;
 
 /// The agent catalog over the credentials a viewer has stored.
 pub struct AgentCatalog {
@@ -55,15 +54,10 @@ impl AgentCatalogSource for AgentCatalog {
         )
         .await;
         if let Some(hub_models) = &self.hub_models {
-            for agent in agents.iter_mut().filter(|agent| {
-                matches!(
-                    providers::kind_of(agent),
-                    providers::PI_INSTANCE
-                        | providers::MINI_SWE_INSTANCE
-                        | providers::ANTIGRAVITY_INSTANCE
-                )
-            }) {
-                let Some(entry) = crate::agent::catalog::find(&agent.id) else {
+            for agent in &mut agents {
+                let Some(entry) = crate::agent::catalog::find(&agent.id)
+                    .filter(|entry| crate::agent::catalog::lists_hub_models(entry.profile))
+                else {
                     continue;
                 };
                 let discovered = hub_models.models(entry.profile, &agent.models).await;
