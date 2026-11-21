@@ -1,8 +1,8 @@
 //! Token → cost pricing for runs whose transport reports no cost.
 //!
-//! Claude prices its own run and reports `total_cost_usd`; Codex and the tmux
-//! backend report none, so the backend prices those from the run's `model` and
-//! its per-tier token counts. Prices are USD per 1M tokens.
+//! Claude prices its own run and reports `total_cost_usd`; Codex, Antigravity
+//! and the tmux backend report none, so the backend prices those from the
+//! run's `model` and its per-tier token counts. Prices are USD per 1M tokens.
 
 use super::models::UsageInfo;
 use moatless_types::model::{ModelPrice, price_for};

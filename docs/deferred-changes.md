@@ -750,3 +750,10 @@ of its own.
 | Deferred | Anchor | Entry condition |
 |---|---|---|
 | No E2E scenario reaches a Task with bindings or sends a reply through one | `tests/api/specs/task-reply-routing.spec.ts` keeps only the no-binding and unknown-binding cases; the single- and multi-binding cases and the loop-recent-tasks binding case drove the removed webhook adapter, the only Adapter the suite could run without an external account | When the suite gains an Adapter that needs no external account, or a reply-routing regression slips past the Rust tests. Restore INT-41 to INT-43 and INT-46 against it |
+
+## Run pricing
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| Two Antigravity prices are due to change | `crates/types/src/model.rs::ANTIGRAVITY_ONLY` holds one price per model, with no start date. Google moves Gemini 4 Argon from $2 / $10 to $4 / $20 on 2026-12-01, and doubles Gemini 3.8 Flash on 2027-01-01 | On each date, update its row, so a run is priced at the rate in force when it ran |
+| A Claude run through Antigravity prices its cache writes at the input rate | `crates/sandbox/src/agent/harness/acp/process.rs::on_response` reads agy's usage, which carries no cache-write count on the OpenAI wire, so the creation tokens arrive inside `inputTokens` | When Claude-through-Antigravity costs are compared against Claude Code's to the cent. Read the hub's Anthropic usage instead |

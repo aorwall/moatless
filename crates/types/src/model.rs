@@ -228,10 +228,31 @@ const EARLIER_CLAUDE: &[(&str, ModelPrice)] = &[
 /// cache-creation count is always 0), so it rides the input rate.
 const EARLIER_CODEX: ModelPrice = ModelPrice::new(1.25, 1.25, 0.125, 10.0);
 
+/// Models only the Antigravity hub serves, at Google's paid-tier list prices
+/// (Vertex AI's for `gpt-oss`). Their caching is implicit, so cache-write
+/// rides the input rate; `gpt-oss` has no cached rate.
+const ANTIGRAVITY_ONLY: &[(&str, ModelPrice)] = &[
+    ("gemini-4-neon", ModelPrice::new(3.0, 3.0, 0.15, 15.0)),
+    ("gemini-4-argon", ModelPrice::new(2.0, 2.0, 0.1, 10.0)),
+    ("gemini-4-hydrogen", ModelPrice::new(1.5, 1.5, 0.075, 7.5)),
+    ("gemini-3.8-flash", ModelPrice::new(0.75, 0.75, 0.075, 3.75)),
+    (
+        "gemini-3.5-flash-lite",
+        ModelPrice::new(0.3, 0.3, 0.03, 2.5),
+    ),
+    (
+        "gemini-3.1-flash-lite",
+        ModelPrice::new(0.25, 0.25, 0.025, 1.5),
+    ),
+    ("gemini-3-flash", ModelPrice::new(0.5, 0.5, 0.05, 3.0)),
+    ("gpt-oss-120b", ModelPrice::new(0.09, 0.09, 0.09, 0.36)),
+];
+
 /// Prices for a reported model id, or `None` for an unrecognised model.
 ///
-/// A catalog model matches on its id anywhere in the reported one, and an
-/// earlier id on its family in [`EARLIER_CLAUDE`] or as an earlier Codex id.
+/// A catalog model or one in [`ANTIGRAVITY_ONLY`] matches on its id anywhere
+/// in the reported one, and an earlier id on its family in [`EARLIER_CLAUDE`]
+/// or as an earlier Codex id.
 pub fn price_for(model: &str) -> Option<ModelPrice> {
     let m = model.to_ascii_lowercase();
     if let Some(codex) = CodexModel::ALL.into_iter().find(|c| m.contains(c.id())) {
@@ -242,6 +263,9 @@ pub fn price_for(model: &str) -> Option<ModelPrice> {
         .find(|c| m.contains(c.api_id()) || m == c.alias())
     {
         return Some(claude.price());
+    }
+    if let Some((_, price)) = ANTIGRAVITY_ONLY.iter().find(|(id, _)| m.contains(id)) {
+        return Some(*price);
     }
     if m.contains("codex") || m.contains("gpt-5") {
         return Some(EARLIER_CODEX);
@@ -289,6 +313,34 @@ mod tests {
         assert_eq!(price_for("claude-fable-5"), earlier("fable"));
         assert_eq!(price_for("gpt-5-codex"), Some(EARLIER_CODEX));
         assert_eq!(price_for("gpt-6-nova"), None);
+    }
+
+    /// The ids the Antigravity hub account serves, as the run reports them.
+    #[test]
+    fn every_antigravity_model_has_a_price() {
+        for id in [
+            "gemini-3-flash",
+            "gemini-3.1-flash-lite",
+            "gemini-3.5-flash-lite",
+            "gemini-3.8-flash-high",
+            "gemini-3.8-flash-tiered",
+            "gemini-4-argon-high",
+            "gemini-4-hydrogen-xhigh",
+            "gemini-4-neon-xhigh",
+            "gpt-oss-120b-medium",
+            "claude-sonnet-5-5-high",
+            "claude-opus-5-5-high",
+        ] {
+            assert!(price_for(id).is_some(), "{id} is unpriced");
+        }
+        assert_eq!(
+            price_for("gemini-4-neon-xhigh"),
+            Some(ModelPrice::new(3.0, 3.0, 0.15, 15.0))
+        );
+        assert_eq!(
+            price_for("claude-opus-5-5-high"),
+            Some(ClaudeModel::Opus.price())
+        );
     }
 
     #[test]
