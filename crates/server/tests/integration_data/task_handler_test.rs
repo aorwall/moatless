@@ -391,6 +391,7 @@ async fn reopen_closed_task_200(pool: PgPool) {
         .unwrap()
         .unwrap();
     assert_eq!(found.status, TaskStatus::Open);
+    assert_eq!(found.close_after_settled_days, 0);
 }
 
 #[sqlx::test]

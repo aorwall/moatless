@@ -438,8 +438,8 @@ impl MessageSendService {
         child_outcome: Option<ChildOutcome>,
         record_notice: Option<RecordNotice>,
     ) -> Result<Option<String>, MessageError> {
-        // A closed task is terminal (no reopen), so no send may persist a
-        // message or wake the agent. Inbound external sends are dropped
+        // No send may persist a message or wake the agent on a closed task; a
+        // person's send reopened it first (`service::send_user_message`). Inbound external sends are dropped
         // silently (backstop for the close-vs-comment race); internal/API
         // sends surface a 409 instead. `Error` tasks stay sendable to match
         // `start_task` recovery semantics.

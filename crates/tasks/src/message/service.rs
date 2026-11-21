@@ -1,16 +1,15 @@
 //! Sending a message to a task, as a call rather than as a route.
 //!
-//! This is the whole policy of a user-initiated send: prove the sender can
-//! reach the task, follow it on their behalf, persist the message, and wake the
-//! sandbox — extracted so the T3 WebSocket path gets the same behavior the HTTP
-//! handler had, with no request body or response to build.
-//!
-//! [`send_message_flow`](super::send::MessageSendService::send_message_flow) is
-//! persistence alone — no access check, no wake — so adapters and loops call it
-//! directly while callers acting for a person call this instead.
+//! The whole policy of a user-initiated send, shared by HTTP and T3: check
+//! access, reopen a closed task, follow it, persist the message, wake the
+//! sandbox. [`send_message_flow`](super::send::MessageSendService::send_message_flow)
+//! is persistence alone, so adapters and loops call it directly.
 
+use crate::task::error::TaskError;
+use crate::task::models::TaskStatus;
 use crate::task::operations::TaskCommands;
 use crate::task::schemas::MessageContextInput;
+use crate::task::service::reopen_task_for;
 use moatless_ports::sandbox::SandboxWaker;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::agent::AgentMode;
@@ -88,6 +87,12 @@ pub async fn send_user_message(
         return Err(MessageError::NotFound(task_id.to_string()));
     }
 
+    // A person writing to a closed task reopens it; an agent's send is still
+    // refused by `send_message_flow`. Loops and adapters never reach here.
+    if task.status == TaskStatus::Closed && !sender.is_agent_context {
+        reopen_for_send(tasks, sender.scope, task_id).await?;
+    }
+
     // Auto-follow: writing to a task adds it to the sender's personal task
     // list. Best-effort — a follow failure must never block sending.
     if !sender.is_agent_context {
@@ -155,6 +160,28 @@ pub async fn send_user_message(
     tracing::info!(task_id = %task_id, user_id = %sender.user_id, "Message sent to agent");
 
     Ok(message_uuid)
+}
+
+/// Reopen `task_id` through [`reopen_task_for`], so a reopen by sending is the
+/// same as an explicit one. No `TaskSubType::Open` event: it is SSE-only, and
+/// the sidebar reads the status change from the listing change feed.
+async fn reopen_for_send(
+    tasks: &TaskCommands,
+    scope: &ScopeContext,
+    task_id: &str,
+) -> Result<(), MessageError> {
+    match reopen_task_for(tasks, None, scope, task_id).await {
+        Ok(()) => Ok(()),
+        // "Not closed" when a concurrent send reopened it first; any other
+        // refusal leaves it closed and is surfaced.
+        Err(TaskError::BadRequest(reason)) => match tasks.find_by_id(task_id, scope).await? {
+            Some(task) if task.status != TaskStatus::Closed => Ok(()),
+            _ => Err(MessageError::BadRequest(reason)),
+        },
+        Err(TaskError::NotFound(_)) => Err(MessageError::NotFound(task_id.to_string())),
+        Err(TaskError::Db(e)) => Err(MessageError::Db(e)),
+        Err(e) => Err(MessageError::Internal(format!("reopen failed: {e}"))),
+    }
 }
 
 /// Steer a Message `sender` sent to queue into `task_id`'s active turn, and

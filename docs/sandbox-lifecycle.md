@@ -365,11 +365,13 @@ and new messages set `running`; user stop sets `stopped/user`; idle reaping
 sets `stopped/idle_reaper`; crash-loop auto-stop sets `stopped/error`; cleanup
 and close set `removed/cleanup`.
 
-**Closed rejects lifecycle starts and messages.** Sending a message to a
-Closed task returns **409 Conflict** (PR #295); external adapters (GitHub PR
-comments, Linear, Slack, scheduled triggers) drop it silently because a 409
-means nothing to a webhook. An explicit task reopen changes the task back to
-Open. Its next start can restore retained archives when
+**Closed rejects lifecycle starts and agent messages.** A message a person
+sends (the chat, or the API outside a sandbox) reopens a Closed task first, as
+an explicit reopen does. An agent's send returns **409 Conflict** (PR #295);
+external adapters (GitHub PR comments, Linear, Slack, scheduled triggers) drop
+it silently because a 409 means nothing to a webhook. A reopen changes the task
+back to Open and sets `close_after_settled_days` to `0`, so the reaper does not
+close it again. Its next start can restore retained archives when
 `SANDBOX_RETAIN_STORAGE_ON_CLOSE=true`; otherwise it provisions fresh state.
 Tasks in `Error` status remain sendable.
 

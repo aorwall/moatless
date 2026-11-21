@@ -10,7 +10,7 @@
 //!
 //! Asserted here through `AppStateCommands` — the same implementation `main`
 //! wires into the socket: message id survival into `task_inbox`, replay
-//! dedup via the unique index, a closed Task's refusal, and a Sandbox-less
+//! dedup via the unique index, a closed Task's reopen, and a Sandbox-less
 //! Thread staying that way.
 
 use crate::common;
@@ -652,10 +652,10 @@ async fn the_thread_snapshot_carries_the_message_id_that_was_sent(pool: PgPool) 
     );
 }
 
-/// The refusal path a person meets, and the one that must not half-apply: a
-/// closed Task takes no message, so nothing may be written before the check.
+/// A person sending to a closed Task reopens it, with auto-close off, rather
+/// than being refused.
 #[sqlx::test]
-async fn a_send_to_a_closed_task_is_refused_and_writes_nothing(pool: PgPool) {
+async fn a_send_to_a_closed_task_reopens_it(pool: PgPool) {
     seed_project(&pool, USER_1).await;
     let mut task = make_task_row("t-closed", USER_1);
     task.workspace_id = Some(WS.to_string());
@@ -664,19 +664,24 @@ async fn a_send_to_a_closed_task_is_refused_and_writes_nothing(pool: PgPool) {
         .await
         .unwrap();
 
-    let refusal = sink(&pool)
-        .send_turn(
-            &viewer(USER_1),
-            turn("t-closed", "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", "hello"),
-        )
+    let uuid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    sink(&pool)
+        .send_turn(&viewer(USER_1), turn("t-closed", uuid, "hello"))
         .await
-        .expect_err("a closed task refuses");
+        .expect("a closed task is reopened by the send");
 
-    assert!(
-        matches!(refusal, CommandRefusal::Rejected { .. }),
-        "a closed task is a rejection, not a failure: {refusal:?}"
+    let (status, close_after): (String, i32) = sqlx::query_as(
+        "SELECT status, close_after_settled_days FROM tasks WHERE task_id = 't-closed'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(status, "open");
+    assert_eq!(close_after, 0);
+    assert_eq!(
+        message_uuids(&pool, "t-closed").await,
+        vec![uuid.to_string()]
     );
-    assert!(message_uuids(&pool, "t-closed").await.is_empty());
 }
 
 /// Access is decided on this side of the wire. The listing already hides what a

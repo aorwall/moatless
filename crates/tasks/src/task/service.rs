@@ -620,7 +620,8 @@ fn agent_profile_error(reason: &str) -> TaskError {
     TaskError::BadRequest(format!("{reason}. Available options: {options}"))
 }
 
-/// Reopen a visible closed task after checking write access.
+/// Reopen a visible closed task after checking write access, and turn off its
+/// auto-close (`close_after_settled_days = 0`).
 pub async fn reopen_task_for(
     tasks: &TaskCommands,
     events: Option<&dyn EventPublisher>,
@@ -647,6 +648,10 @@ pub async fn reopen_task_for(
             task_id,
             &super::models::TaskPatch {
                 status: Some(TaskStatus::Open),
+                // A reopened task has usually been settled for longer than its
+                // `close_after_settled_days` already, so keeping the value lets
+                // the reaper close it again on its next pass.
+                close_after_settled_days: Some(0),
                 ..Default::default()
             },
             scope_ctx,
