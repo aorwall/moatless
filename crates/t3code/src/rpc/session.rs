@@ -4,12 +4,14 @@ use crate::rpc::config::now_rfc3339;
 use crate::rpc::envelope::ClientFrame;
 use crate::rpc::envelope::RequestId;
 use crate::rpc::envelope::connection_defect;
+use crate::rpc::envelope::failure_exit;
 use crate::rpc::envelope::interrupted_exit;
 use crate::rpc::envelope::typed_failure_exit;
 use crate::rpc::envelope::valid_request_id;
 use crate::rpc::errors::authorization_error;
 use crate::rpc::errors::unsupported_exit;
 use crate::rpc::metrics::answered;
+use crate::rpc::metrics::classify;
 use crate::rpc::metrics::request_root_span;
 use crate::rpc::outbound::OutboundSender;
 use crate::rpc::table::Handler;
@@ -23,10 +25,14 @@ use crate::subscription::StreamSet;
 use moatless_types::ui_rpc::UiRpcAuthIdentity;
 use serde_json::Value;
 use serde_json::json;
+use std::future::Future;
 use std::future::ready;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::PoisonError;
+use std::sync::atomic::{AtomicBool, Ordering};
+use tokio::sync::oneshot;
+use tracing::error;
 use tracing::warn;
 
 pub(crate) const MAX_MESSAGES_PER_FRAME: usize = 128;
@@ -155,6 +161,9 @@ pub(crate) struct ProtocolSession {
     /// [`Handler::Detached`] method's.
     pub(crate) detached: DetachedSet,
     pub(crate) shared: SharedSession,
+    /// Set when a [`Handler::Stream`] opens, until the socket has sent the frame
+    /// answering it; the socket clears it.
+    pub(crate) opened_stream: Arc<AtomicBool>,
     methods: &'static MethodTable,
 }
 
@@ -164,6 +173,7 @@ impl ProtocolSession {
             streams: StreamSet::new(frames.clone()),
             detached: DetachedSet::new(frames),
             shared: SharedSession::default(),
+            opened_stream: Arc::default(),
             methods,
         }
     }
@@ -222,9 +232,16 @@ impl ProtocolSession {
                 }
             }
             Handler::Session(respond) => {
-                Some(answered(span, label, identity, respond(request)).await)
+                let answer = respond(request);
+                let answering = {
+                    let span = span.clone();
+                    let identity = identity.clone();
+                    async move { answered(&span, label, &identity, answer).await }
+                };
+                Some(to_completion(&id, label, identity, answering).await)
             }
             Handler::Stream(open) => {
+                self.opened_stream.store(true, Ordering::SeqCst);
                 Some(answered(span, label, identity, open(self, request)).await)
             }
         }
@@ -269,6 +286,46 @@ impl ProtocolSession {
         }
         None
     }
+}
+
+/// Run a transition to its end on its own task, and answer with its frames.
+///
+/// A transition is a write the person already asked for, so dropping this
+/// future (its connection closed) deliberately leaves it running rather than
+/// cancelling it mid-transaction with nothing logged; its answer is logged as
+/// undelivered instead.
+async fn to_completion(
+    id: &RequestId,
+    method: Option<&'static str>,
+    identity: &UiRpcAuthIdentity,
+    answering: impl Future<Output = Vec<Value>> + Send + 'static,
+) -> Vec<Value> {
+    let (deliver, delivered) = oneshot::channel();
+    let user_id = identity.user_id;
+    let request_id = id.as_str().to_string();
+    tokio::spawn(async move {
+        let frames = answering.await;
+        if let Err(frames) = deliver.send(frames) {
+            warn!(
+                tag = method.unwrap_or("(unknown)"),
+                request_id,
+                %user_id,
+                outcome = classify(&frames).as_str(),
+                "T3 UI request finished after its connection closed; its answer was not delivered"
+            );
+        }
+    });
+    delivered.await.unwrap_or_else(|_| {
+        // The sender is dropped unsent only when the task panicked or the
+        // runtime is shutting down.
+        error!(
+            tag = method.unwrap_or("(unknown)"),
+            request_id = id.as_str(),
+            %user_id,
+            "T3 UI request ended before it answered: it panicked or the server is shutting down"
+        );
+        vec![failure_exit(id, "The request stopped before it answered.")]
+    })
 }
 
 #[derive(Debug, Default)]
@@ -406,4 +463,51 @@ pub(crate) async fn resolve_workspace_skills(
         .list_for_workspace(&viewer, identity.user_id, &workspace_id)
         .await;
     snapshots.remember(cwd, skills::snapshot(cwd, &now_rfc3339(), &listed));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tests::fixtures::viewer;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn a_transition_runs_to_its_end_after_its_connection_drops() {
+        let (release, released) = oneshot::channel::<()>();
+        let (finish, finished) = oneshot::channel::<()>();
+        let answering = async move {
+            released.await.unwrap();
+            finish.send(()).unwrap();
+            Vec::new()
+        };
+        let id: RequestId = serde_json::from_value(json!("1")).unwrap();
+        let identity = viewer();
+
+        let waiting = to_completion(
+            &id,
+            Some("orchestration.dispatchCommand"),
+            &identity,
+            answering,
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), waiting)
+                .await
+                .is_err(),
+            "the request answered before it was released"
+        );
+        release.send(()).unwrap();
+
+        tokio::time::timeout(Duration::from_secs(5), finished)
+            .await
+            .expect("the dropped request ran to its end")
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_transition_answers_with_its_frames() {
+        let id: RequestId = serde_json::from_value(json!("2")).unwrap();
+        let frames =
+            to_completion(&id, None, &viewer(), async { vec![json!({"done": true})] }).await;
+        assert_eq!(frames, vec![json!({"done": true})]);
+    }
 }

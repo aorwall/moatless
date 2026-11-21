@@ -114,6 +114,13 @@ async fn a_frame_being_answered_still_answers_the_heartbeat_and_holds_the_rest_i
         }
     };
     let mut held = VecDeque::new();
+    let (_frames, mut pushed) = outbound::channel(OUTBOUND_FRAMES);
+    let (mut deferred, opened_stream) = (VecDeque::new(), AtomicBool::new(false));
+    let pushing = Pushing {
+        pushed: &mut pushed,
+        deferred: &mut deferred,
+        opened_stream: &opened_stream,
+    };
     let driving = async {
         client
             .unbounded_send(Ok(Message::Text(r#"{"_tag":"Ping"}"#.into())))
@@ -134,7 +141,7 @@ async fn a_frame_being_answered_still_answers_the_heartbeat_and_holds_the_rest_i
     };
 
     let (output, ()) = tokio::join!(
-        keeping_alive(handling, &mut incoming, &mut sink, &mut held),
+        keeping_alive(handling, &mut incoming, &mut sink, &mut held, pushing),
         driving
     );
 
@@ -175,16 +182,89 @@ async fn a_full_hold_stops_reading_so_the_socket_backs_up() {
         ProtocolOutput::default()
     };
     let mut held = VecDeque::new();
+    let (_frames, mut pushed) = outbound::channel(OUTBOUND_FRAMES);
+    let (mut deferred, opened_stream) = (VecDeque::new(), AtomicBool::new(false));
+    let pushing = Pushing {
+        pushed: &mut pushed,
+        deferred: &mut deferred,
+        opened_stream: &opened_stream,
+    };
     let releasing = async {
         tokio::time::sleep(Duration::from_millis(50)).await;
         finish.send(()).unwrap();
     };
 
     tokio::join!(
-        keeping_alive(handling, &mut incoming, &mut sink, &mut held),
+        keeping_alive(handling, &mut incoming, &mut sink, &mut held, pushing),
         releasing
     );
 
     assert_eq!(held.len(), MAX_HELD);
     assert_eq!(incoming.size_hint().0, 10);
+}
+
+#[tokio::test]
+async fn a_frame_being_answered_still_writes_what_subscriptions_push() {
+    let (_client, mut incoming) = futures::channel::mpsc::unbounded();
+    let (mut sink, mut replies) = futures::channel::mpsc::unbounded::<Message>();
+    let (frames, mut pushed) = outbound::channel(OUTBOUND_FRAMES);
+    let (finish, finished) = oneshot::channel::<()>();
+    let handling = async move {
+        finished.await.unwrap();
+        ProtocolOutput::default()
+    };
+    let mut held = VecDeque::new();
+    let (mut deferred, opened_stream) = (VecDeque::new(), AtomicBool::new(false));
+    let pushing = Pushing {
+        pushed: &mut pushed,
+        deferred: &mut deferred,
+        opened_stream: &opened_stream,
+    };
+    let driving = async {
+        assert!(frames.send(json!({"pushed": 1})).await);
+        assert_eq!(
+            replies.next().await,
+            Some(Message::Text(r#"{"pushed":1}"#.into()))
+        );
+        finish.send(()).unwrap();
+    };
+
+    tokio::join!(
+        keeping_alive(handling, &mut incoming, &mut sink, &mut held, pushing),
+        driving
+    );
+
+    assert!(deferred.is_empty());
+}
+
+#[tokio::test]
+async fn a_frame_pushed_after_a_stream_opens_waits_for_the_answer_that_opened_it() {
+    let (_client, mut incoming) = futures::channel::mpsc::unbounded();
+    let (mut sink, mut replies) = futures::channel::mpsc::unbounded::<Message>();
+    let (frames, mut pushed) = outbound::channel(OUTBOUND_FRAMES);
+    let (finish, finished) = oneshot::channel::<()>();
+    let handling = async move {
+        finished.await.unwrap();
+        ProtocolOutput::default()
+    };
+    let mut held = VecDeque::new();
+    let (mut deferred, opened_stream) = (VecDeque::new(), AtomicBool::new(true));
+    let pushing = Pushing {
+        pushed: &mut pushed,
+        deferred: &mut deferred,
+        opened_stream: &opened_stream,
+    };
+    let driving = async {
+        assert!(frames.send(json!({"pushed": 1})).await);
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        finish.send(()).unwrap();
+    };
+
+    tokio::join!(
+        keeping_alive(handling, &mut incoming, &mut sink, &mut held, pushing),
+        driving
+    );
+
+    assert!(replies.try_recv().is_err(), "nothing was written yet");
+    assert_eq!(deferred.len(), 1);
 }

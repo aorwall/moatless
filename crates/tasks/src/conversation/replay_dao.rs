@@ -41,11 +41,15 @@ pub(crate) struct ReplayEvent {
 
 /// Every line on `tip`'s lineage, skipping switch prefixes, and every line of
 /// the subagent sessions hung under one, in `ord` order.
+///
+/// Two statements deliberately: one query matching `id IN lineage OR
+/// session_id IN subagents` seq-scans every `trajectory_events` row, which took
+/// 20-27 s on staging, rather than the two index lookups here.
 pub(crate) async fn lineage_lines(
     tx: &mut PgConnection,
     tip: Uuid,
 ) -> Result<Vec<ReplayLine>, sqlx::Error> {
-    sqlx::query_as(
+    let (ids, subagents): (Vec<Uuid>, Vec<Uuid>) = sqlx::query_as(
         r#"WITH RECURSIVE lineage(id, parent_event_id, jump) AS (
                SELECT e.id, e.parent_event_id,
                       CASE WHEN e.seq <= s.own_from_seq THEN s.transcoded_from_event_id END
@@ -65,16 +69,25 @@ pub(crate) async fn lineage_lines(
                  JOIN trajectory_events e ON e.id = s.parent_event_id
                  JOIN subagents p ON p.id = e.session_id
            )
-           SELECT e.id, e.session_id, s.task_id, e.seq, e.harness_item_id, e.content,
-                  e.turn_number, e.created_at,
-                  e.session_id IN (SELECT id FROM subagents) AS subagent
-             FROM trajectory_events e
-             JOIN trajectory_sessions s ON s.id = e.session_id
-            WHERE (e.id IN (SELECT id FROM lineage) OR e.session_id IN (SELECT id FROM subagents))
-              AND (s.own_from_seq IS NULL OR e.seq >= s.own_from_seq)
-            ORDER BY e.ord"#,
+           SELECT COALESCE((SELECT array_agg(id) FROM lineage), '{}'),
+                  COALESCE((SELECT array_agg(id) FROM subagents), '{}')"#,
     )
     .bind(tip)
+    .fetch_one(&mut *tx)
+    .await?;
+    sqlx::query_as(
+        r#"SELECT e.id, e.session_id, s.task_id, e.seq, e.harness_item_id, e.content,
+                  e.turn_number, e.created_at, e.session_id = ANY($2) AS subagent
+             FROM (SELECT id FROM trajectory_events WHERE id = ANY($1)
+                   UNION
+                   SELECT id FROM trajectory_events WHERE session_id = ANY($2)) picked
+             JOIN trajectory_events e USING (id)
+             JOIN trajectory_sessions s ON s.id = e.session_id
+            WHERE s.own_from_seq IS NULL OR e.seq >= s.own_from_seq
+            ORDER BY e.ord"#,
+    )
+    .bind(&ids)
+    .bind(&subagents)
     .fetch_all(tx)
     .await
 }

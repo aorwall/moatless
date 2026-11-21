@@ -11,6 +11,8 @@ use moatless_types::ui_rpc::UiRpcAuthIdentity;
 use serde_json::Value;
 use std::collections::VecDeque;
 use std::future::Future;
+use std::sync::atomic::{AtomicBool, Ordering};
+use tokio::sync::mpsc;
 use tracing::debug;
 use tracing::warn;
 
@@ -33,12 +35,16 @@ pub(crate) async fn serve_websocket(
     debug!(user_id = %identity.user_id, ?protocol, "T3 UI WebSocket connected");
     let (mut sink, mut incoming) = socket.split();
     let (frames, mut pushed) = outbound::channel(OUTBOUND_FRAMES);
+    let frames = frames.owned_by(&identity.user_id.to_string());
     let disconnect = frames.disconnected();
     let mut session = ProtocolSession::new(frames, methods());
     session.shared.protocol = protocol;
+    let opened_stream = session.opened_stream.clone();
 
     // Messages that arrived while a frame was being answered, in arrival order.
     let mut held = VecDeque::new();
+    // Pushed frames that must follow the answer being built; see `Pushing`.
+    let mut deferred = VecDeque::new();
     let serving = async {
         'connection: loop {
             let next = if let Some(message) = held.pop_front() {
@@ -59,16 +65,40 @@ pub(crate) async fn serve_websocket(
                         Ok(Message::Text(text)) => {
                             let started = std::time::Instant::now();
                             let handling = session.handle_json(text.as_bytes(), &state, &identity);
+                            let pushing = Pushing {
+                                pushed: &mut pushed,
+                                deferred: &mut deferred,
+                                opened_stream: &opened_stream,
+                            };
                             (
-                                keeping_alive(handling, &mut incoming, &mut sink, &mut held).await,
+                                keeping_alive(
+                                    handling,
+                                    &mut incoming,
+                                    &mut sink,
+                                    &mut held,
+                                    pushing,
+                                )
+                                .await,
                                 started,
                             )
                         }
                         Ok(Message::Binary(bytes)) => {
                             let started = std::time::Instant::now();
                             let handling = session.handle_json(&bytes, &state, &identity);
+                            let pushing = Pushing {
+                                pushed: &mut pushed,
+                                deferred: &mut deferred,
+                                opened_stream: &opened_stream,
+                            };
                             (
-                                keeping_alive(handling, &mut incoming, &mut sink, &mut held).await,
+                                keeping_alive(
+                                    handling,
+                                    &mut incoming,
+                                    &mut sink,
+                                    &mut held,
+                                    pushing,
+                                )
+                                .await,
                                 started,
                             )
                         }
@@ -108,8 +138,12 @@ pub(crate) async fn serve_websocket(
                 }
             };
 
-            let sent = send_frames(&mut sink, frames).await;
+            let mut sent = send_frames(&mut sink, frames).await;
             metrics::histogram!(CONNECTION_BLOCKED).record(started.elapsed().as_secs_f64());
+            opened_stream.store(false, Ordering::SeqCst);
+            while let Some(frame) = deferred.pop_front().filter(|_| sent) {
+                sent = send_queued_frame(&mut sink, frame).await;
+            }
             if !sent {
                 break 'connection;
             }
@@ -129,26 +163,55 @@ enum Next {
     Pushed(Option<QueuedFrame>),
 }
 
-/// Await `handling` while answering pings, holding every other message in `held`
-/// in order. A [`crate::rpc::table::Handler::Session`] method holds the frame
-/// loop, and a T3 client that hears nothing for 15 s drops the socket and the
-/// request with it.
+/// The pushed frames [`keeping_alive`] writes while a frame is answered.
+///
+/// Draining them is what keeps a slow request from filling the connection's
+/// byte budget, which disconnects it and drops the request mid-write. A frame
+/// pushed once `opened_stream` is set may be the new stream's next chunk, so it
+/// waits in `deferred` until the answer carrying the stream's first is sent.
+struct Pushing<'a> {
+    pushed: &'a mut mpsc::Receiver<QueuedFrame>,
+    deferred: &'a mut VecDeque<QueuedFrame>,
+    opened_stream: &'a AtomicBool,
+}
+
+/// Await `handling` while answering pings and writing pushed frames, holding
+/// every other client message in `held` in order. A
+/// [`crate::rpc::table::Handler::Session`] method holds the frame loop, and a
+/// T3 client that hears nothing for 15 s drops the socket and the request with it.
 async fn keeping_alive<S, K>(
     handling: impl Future<Output = ProtocolOutput>,
     incoming: &mut S,
     sink: &mut K,
     held: &mut VecDeque<Option<Result<Message, axum::Error>>>,
+    pushing: Pushing<'_>,
 ) -> ProtocolOutput
 where
     S: Stream<Item = Result<Message, axum::Error>> + Unpin,
     K: Sink<Message> + Unpin,
 {
+    let Pushing {
+        pushed,
+        deferred,
+        opened_stream,
+    } = pushing;
     let mut handling = std::pin::pin!(handling);
     // Nothing after the end of the stream, a close or an error is read.
     let mut reading = true;
+    // The session holds the sender, so `None` means only that it is gone.
+    let mut draining = true;
     loop {
         tokio::select! {
             output = &mut handling => return output,
+            frame = pushed.recv(), if draining => match frame {
+                Some(frame) if opened_stream.load(Ordering::SeqCst) || !deferred.is_empty() => {
+                    deferred.push_back(frame);
+                }
+                // A failed write is the dead socket the loop's own next send
+                // reports, once `handling` is answered.
+                Some(frame) => drop(send_queued_frame(sink, frame).await),
+                None => draining = false,
+            },
             message = incoming.next(), if reading => {
                 let reply = match &message {
                     Some(Ok(Message::Ping(payload))) => Some(Message::Pong(payload.clone())),
@@ -216,10 +279,10 @@ pub(crate) async fn send_frames(
     true
 }
 
-async fn send_queued_frame(
-    sink: &mut futures::stream::SplitSink<WebSocket, Message>,
-    frame: QueuedFrame,
-) -> bool {
+async fn send_queued_frame<K>(sink: &mut K, frame: QueuedFrame) -> bool
+where
+    K: Sink<Message> + Unpin,
+{
     let QueuedFrame { encoded, permit } = frame;
     let sent = sink
         .send(Message::Text(String::from(encoded).into()))

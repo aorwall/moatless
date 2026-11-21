@@ -62,9 +62,8 @@ impl Projector {
             .and_then(|line| line.turn_number);
         let sessions = load_sessions(&mut *tx, &lines).await?;
         let steps = ancestor_steps(&mut *tx, fork_task_id, lines).await?;
-        for step in &steps {
-            self.replay(&mut *tx, fork_task_id, step, &sessions).await?;
-        }
+        self.replay_all(&mut *tx, fork_task_id, &steps, &sessions)
+            .await?;
         if let Some(turn) = turn {
             replay_dao::close_cut_turn(&mut *tx, fork_task_id, source_task_id, turn).await?;
         }
@@ -112,9 +111,7 @@ impl Projector {
 
         for page in steps.chunks(REBUILD_PAGE) {
             let mut tx = pool.begin().await?;
-            for step in page {
-                self.replay(&mut tx, task_id, step, &sessions).await?;
-            }
+            self.replay_all(&mut tx, task_id, page, &sessions).await?;
             tx.commit().await?;
         }
         let mut tx = pool.begin().await?;
@@ -122,47 +119,61 @@ impl Projector {
         tx.commit().await
     }
 
-    async fn replay(
+    /// Replays `steps` in order, each run of consecutive lines of one session
+    /// in a single [`Projector::project_lines`] call, as the live path appends
+    /// them, rather than paying its per-call lookups once per line.
+    async fn replay_all(
         &self,
         tx: &mut PgConnection,
         task_id: &str,
-        step: &Step,
+        steps: &[Step],
         sessions: &HashMap<Uuid, TrajectorySession>,
     ) -> Result<(), sqlx::Error> {
-        match step {
-            Step::Item(item) => self.project_item(tx, task_id, item, false).await,
-            Step::Line(line) => {
-                let Some(session) = sessions.get(&line.session_id) else {
-                    return Ok(());
-                };
-                let projected = Line {
-                    id: line.id,
-                    seq: line.seq,
-                    harness_item_id: line.harness_item_id.as_deref(),
-                    content: &line.content,
-                    turn_number: line.turn_number,
-                };
-                self.project_lines(tx, task_id, session, &[projected], false)
-                    .await
-                    .map(|_| ())
+        let mut rest = steps;
+        while let Some(first) = rest.first() {
+            let mut taken = 1;
+            match first {
+                Step::Item(item) => self.project_item(tx, task_id, item, false).await?,
+                Step::Line(head) => {
+                    let lines: Vec<Line<'_>> = rest
+                        .iter()
+                        .map_while(|step| match step {
+                            Step::Line(line) if line.session_id == head.session_id => Some(Line {
+                                id: line.id,
+                                seq: line.seq,
+                                harness_item_id: line.harness_item_id.as_deref(),
+                                content: &line.content,
+                                turn_number: line.turn_number,
+                            }),
+                            _ => None,
+                        })
+                        .collect();
+                    taken = lines.len();
+                    if let Some(session) = sessions.get(&head.session_id) {
+                        self.project_lines(tx, task_id, session, &lines, false)
+                            .await?;
+                    }
+                }
+                Step::Event(event) => {
+                    let source = EventSource {
+                        event_id: &event.event_id,
+                        event_type: &event.event_type,
+                        sub_type: &event.sub_type,
+                        is_error: event.is_error,
+                        turn_number: event.turn_number,
+                        payload: &event.payload,
+                    };
+                    self.project_event(tx, task_id, &source).await?;
+                }
+                Step::Frozen {
+                    ancestor,
+                    turn,
+                    cut_at,
+                } => copy_frozen(tx, task_id, ancestor, *turn, *cut_at).await?,
             }
-            Step::Event(event) => {
-                let source = EventSource {
-                    event_id: &event.event_id,
-                    event_type: &event.event_type,
-                    sub_type: &event.sub_type,
-                    is_error: event.is_error,
-                    turn_number: event.turn_number,
-                    payload: &event.payload,
-                };
-                self.project_event(tx, task_id, &source).await
-            }
-            Step::Frozen {
-                ancestor,
-                turn,
-                cut_at,
-            } => copy_frozen(tx, task_id, ancestor, *turn, *cut_at).await,
+            rest = &rest[taken..];
         }
+        Ok(())
     }
 }
 

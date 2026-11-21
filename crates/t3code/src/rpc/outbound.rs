@@ -24,6 +24,8 @@ pub(crate) struct OutboundSender {
     frames: mpsc::Sender<QueuedFrame>,
     bytes: Arc<Semaphore>,
     disconnect: CancellationToken,
+    /// The connection's user, for the overload warning.
+    user_id: Option<Arc<str>>,
 }
 
 /// One connection's outbound queue; a receiver must observe `disconnected()`.
@@ -34,12 +36,19 @@ pub(crate) fn channel(capacity: usize) -> (OutboundSender, mpsc::Receiver<Queued
             frames,
             bytes: Arc::new(Semaphore::new(OUTBOUND_BYTES)),
             disconnect: CancellationToken::new(),
+            user_id: None,
         },
         receiver,
     )
 }
 
 impl OutboundSender {
+    /// Name the connection's user in the overload warning.
+    pub(crate) fn owned_by(mut self, user_id: &str) -> Self {
+        self.user_id = Some(Arc::from(user_id));
+        self
+    }
+
     pub(crate) fn disconnected(&self) -> CancellationToken {
         self.disconnect.clone()
     }
@@ -49,6 +58,11 @@ impl OutboundSender {
         if self.disconnect.is_cancelled() {
             return false;
         }
+        let request_id = frame
+            .get("requestId")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        let frame_tag = frame.get("_tag").and_then(Value::as_str).map(str::to_owned);
         let encoded = match encode(frame) {
             Ok(encoded) => encoded,
             Err(error) => {
@@ -65,9 +79,15 @@ impl OutboundSender {
             .try_acquire_many_owned(encoded.len() as u32)
         else {
             warn!(
+                user_id = self.user_id.as_deref().unwrap_or("(unknown)"),
+                request_id = request_id.as_deref().unwrap_or("(none)"),
+                frame_tag = frame_tag.as_deref().unwrap_or("(none)"),
                 frame_bytes = encoded.len(),
+                queued_bytes = OUTBOUND_BYTES.saturating_sub(self.bytes.available_permits()),
+                queued_frames = self.frames.max_capacity() - self.frames.capacity(),
                 budget_bytes = OUTBOUND_BYTES,
-                "T3 UI connection exceeded its outbound byte budget"
+                "T3 UI connection exceeded its outbound byte budget; disconnecting it \
+                 and every request it was answering"
             );
             self.disconnect.cancel();
             return false;

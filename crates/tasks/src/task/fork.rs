@@ -364,7 +364,35 @@ impl TaskForkService {
     /// up to the cut and discarding the copy when the create fails.
     ///
     /// The fork keeps the source's repository, Workspace, branch and tags.
+    /// Every failure is logged here, and so is a fork its caller dropped
+    /// before it finished, so no entry point has to.
     pub async fn fork<EvFut>(
+        &self,
+        ports: ForkCreationPorts<'_>,
+        scope_ctx: &ScopeContext,
+        request: ForkRequest,
+        build_event_payload: impl FnOnce(super::models::Task) -> EvFut + Send,
+    ) -> Result<TaskCreationOutcome, ForkError>
+    where
+        EvFut: std::future::Future<Output = serde_json::Value> + Send,
+    {
+        let mut in_flight = ForkInFlight {
+            source_task_id: request.source_task_id.clone(),
+            fork_task_id: request.new_task_id.clone(),
+            started: std::time::Instant::now(),
+            finished: false,
+        };
+        let result = self
+            .fork_unlogged(ports, scope_ctx, request, build_event_payload)
+            .await;
+        in_flight.finished = true;
+        if let Err(error) = &result {
+            in_flight.failed(error);
+        }
+        result
+    }
+
+    async fn fork_unlogged<EvFut>(
         &self,
         ports: ForkCreationPorts<'_>,
         scope_ctx: &ScopeContext,
@@ -500,6 +528,68 @@ impl TaskForkService {
         );
 
         Ok(outcome)
+    }
+}
+
+/// One [`TaskForkService::fork`] call, logged when it fails or is dropped
+/// unfinished.
+struct ForkInFlight {
+    source_task_id: String,
+    /// `None` when the fork mints its own id.
+    fork_task_id: Option<String>,
+    started: std::time::Instant,
+    finished: bool,
+}
+
+impl ForkInFlight {
+    fn failed(&self, error: &ForkError) {
+        let (stage, error) = match error {
+            ForkError::Source(error) => ("source", error),
+            ForkError::Fork(error) => ("fork", error),
+        };
+        let elapsed_ms = self.started.elapsed().as_millis();
+        // A refusal the person can act on is not a server fault.
+        let refused = matches!(
+            error,
+            TaskError::NotFound(_)
+                | TaskError::Forbidden(_)
+                | TaskError::BadRequest(_)
+                | TaskError::Conflict(_)
+                | TaskError::Preflight(_)
+                | TaskError::PreflightThrottled(_)
+        );
+        if refused {
+            tracing::warn!(
+                source_task_id = %self.source_task_id,
+                fork_task_id = ?self.fork_task_id,
+                stage,
+                elapsed_ms,
+                %error,
+                "Task fork refused"
+            );
+        } else {
+            tracing::error!(
+                source_task_id = %self.source_task_id,
+                fork_task_id = ?self.fork_task_id,
+                stage,
+                elapsed_ms,
+                %error,
+                "Task fork failed"
+            );
+        }
+    }
+}
+
+impl Drop for ForkInFlight {
+    fn drop(&mut self) {
+        if !self.finished {
+            tracing::error!(
+                source_task_id = %self.source_task_id,
+                fork_task_id = ?self.fork_task_id,
+                elapsed_ms = self.started.elapsed().as_millis(),
+                "Task fork abandoned before it finished; its caller stopped waiting"
+            );
+        }
     }
 }
 

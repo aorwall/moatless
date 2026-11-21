@@ -1007,6 +1007,61 @@ async fn a_stopped_recording_is_a_failed_sandbox_error(pool: PgPool) {
     assert_eq!(rows[0].2["detail"], "line 7 is too large");
 }
 
+/// A rebuild replays a response split over appends, and the subagent lines
+/// hung under its call, to the rows the live appends wrote.
+#[sqlx::test]
+async fn a_rebuild_reproduces_split_responses_and_subagent_lines(pool: PgPool) {
+    let dao = seed(&pool).await;
+    let call_line = said(
+        "msg_1",
+        "assistant",
+        json!([call(
+            "toolu_1",
+            "Agent",
+            json!({ "description": "explore" })
+        )]),
+    );
+    append(&dao, Harness::ClaudeCode, "parent", 0, &[call_line]).await;
+    let reply = said("msg_1", "assistant", json!([text("Looking.")]));
+    append(&dao, Harness::ClaudeCode, "parent", 1, &[reply]).await;
+    dao.append(AppendRequest {
+        task_id: TASK,
+        harness: Harness::ClaudeCode,
+        harness_session_id: "parent:agent-a",
+        first_seq: 0,
+        lines: &[event(
+            Some("msg_sub"),
+            json!({ "role": "assistant", "blocks": [call("toolu_2", "Read", json!({}))] }),
+        )],
+        turn_number: Some(1),
+        subagent_parent: Some(SubagentParent {
+            harness_session_id: "parent",
+            tool_use_id: "toolu_1",
+        }),
+        own_from_seq: None,
+    })
+    .await
+    .unwrap();
+    // Sorted: a rebuild can order a subagent's activity before its spawning
+    // call, which `docs/deferred-changes.md` records.
+    let sorted = |mut rows: Vec<ActivityShape>| {
+        rows.sort();
+        rows
+    };
+    let shown = (messages(&pool).await, sorted(activities(&pool).await));
+    assert_eq!(shown.1.len(), 2, "the call and the subagent's read");
+
+    PgMessageDao(pool.clone())
+        .rebuild_conversation(TASK)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        (messages(&pool).await, sorted(activities(&pool).await)),
+        shown
+    );
+}
+
 /// A subagent's recorder stopping leaves the main conversation recorded.
 #[sqlx::test]
 async fn a_stopped_subagent_recording_names_the_subagent(pool: PgPool) {

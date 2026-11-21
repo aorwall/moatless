@@ -14,6 +14,7 @@ use std::cell::Cell;
 use std::future::Future;
 use std::time::Duration;
 use tracing::Instrument;
+use tracing::info;
 use tracing::warn;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
@@ -394,6 +395,16 @@ fn record(
     // server is broken" for, so it is the only one worth a line on its own. The
     // rest are counted, and the refusals that are worth reading have their own
     // `warn!` at the site that decided them.
+    // An interrupted request leaves no other trace: its task was dropped, and
+    // whatever it was doing stopped without an error of its own.
+    if outcome == Outcome::Interrupted {
+        info!(
+            tag = label,
+            user_id = %identity.user_id,
+            elapsed_ms = elapsed.as_millis(),
+            "A T3 UI request stopped before it answered"
+        );
+    }
     if outcome == Outcome::Die {
         warn!(
             tag = label,
