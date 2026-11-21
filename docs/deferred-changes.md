@@ -96,6 +96,12 @@ live table with no owner, and on an owner for a table that no longer exists.
 check and only shrinks. Deferred decisions sit outside that
 file. No deferred decision is open here.
 
+## Migration contract
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| Some migrations break the previous release's replica and are not flagged | `tooling/arch-rules/src/migration_contract.rs::destructive` matches `DROP TABLE`, `DROP COLUMN` and `ALTER TABLE … RENAME` only. `ALTER COLUMN … TYPE`, `SET NOT NULL`, `DROP SCHEMA` and `TRUNCATE` also break a replica still on the old code, and the rule cannot tell whether the PR a `contract-after` marker names is deployed | When one of those statements breaks a rolling deploy, add it to `destructive`. When a marker names an undeployed PR, check the PR against the deployed image |
+
 ## Preview tabs do not survive a restart
 
 | Deferred | Anchor | Entry condition |

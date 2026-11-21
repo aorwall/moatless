@@ -170,7 +170,8 @@ enforce!(
     file_size,
     conversation_writer,
     session_line_parsing,
-    sqlx_test_migrations
+    sqlx_test_migrations,
+    migration_contract
 );
 
 #[test]

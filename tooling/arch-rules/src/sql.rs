@@ -44,7 +44,7 @@ fn pattern(cell: &'static OnceLock<Regex>, expression: &str) -> &'static Regex {
         Regex::new(expression).unwrap_or_else(|e| panic!("invalid SQL matcher: {e}"))
     })
 }
-fn uncomment(sql: &str) -> String {
+pub(crate) fn uncomment(sql: &str) -> String {
     static COMMENTS: OnceLock<Regex> = OnceLock::new();
     pattern(&COMMENTS, r"(?s)/\*.*?\*/|--[^\n]*")
         .replace_all(sql, " ")

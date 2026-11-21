@@ -25,6 +25,7 @@ pub mod env_read_owner;
 pub mod file_size;
 pub mod floor_type_admission;
 pub mod manifest_inheritance;
+pub mod migration_contract;
 pub mod module_names;
 pub mod persistence_export;
 pub mod persistence_sql_location;
