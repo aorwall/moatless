@@ -30,9 +30,7 @@ import type {
   PatchSecretRequest,
   PutSecretRequest,
   SecretMetadataResponse,
-  SecretMutationResponse,
-  ValidateSecretsRequest,
-  ValidateSecretsResponse
+  SecretMutationResponse
 } from '../model';
 
 import { customInstance } from '../../../custom-instance';
@@ -275,129 +273,6 @@ export const prefetchPutSecretQuery = async <TData = Awaited<ReturnType<typeof p
   ): Promise<QueryClient> => {
 
   const queryOptions = getPutSecretQueryOptions(putSecretRequest,options)
-
-  await queryClient.prefetchQuery(queryOptions);
-
-  return queryClient;
-}
-
-
-
-
-
-export type validateSecretsResponse200 = {
-  data: ValidateSecretsResponse
-  status: 200
-}
-
-export type validateSecretsResponseSuccess = (validateSecretsResponse200) & {
-  headers: Headers;
-};
-;
-
-export type validateSecretsResponse = (validateSecretsResponseSuccess)
-
-export const getValidateSecretsUrl = () => {
-
-
-
-
-  return `/api/v1/secrets/validate`
-}
-
-export const validateSecrets = async (validateSecretsRequest: ValidateSecretsRequest, options?: Parameters<typeof customInstance>[1]): Promise<validateSecretsResponse> => {
-
-    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
-    if (!h) return {};
-    if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
-  };
-return customInstance<validateSecretsResponse>(getValidateSecretsUrl(),
-  {
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(validateSecretsRequest)
-  }
-);}
-
-
-
-
-
-export const getValidateSecretsQueryKey = (validateSecretsRequest?: ValidateSecretsRequest,) => {
-    return [
-    'POST', `/api/v1/secrets/validate`, validateSecretsRequest
-    ] as const;
-    }
-
-
-export const getValidateSecretsQueryOptions = <TData = Awaited<ReturnType<typeof validateSecrets>>, TError = ErrorType<unknown>>(validateSecretsRequest: ValidateSecretsRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof validateSecrets>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
-) => {
-
-const {query: queryOptions, request: requestOptions} = options ?? {};
-
-  const queryKey =  queryOptions?.queryKey ?? getValidateSecretsQueryKey(validateSecretsRequest);
-
-
-
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof validateSecrets>>> = ({ signal }) => validateSecrets(validateSecretsRequest, { signal, ...requestOptions });
-
-
-
-
-
-   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof validateSecrets>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
-}
-
-export type ValidateSecretsQueryResult = NonNullable<Awaited<ReturnType<typeof validateSecrets>>>
-export type ValidateSecretsQueryError = ErrorType<unknown>
-
-
-export function useValidateSecrets<TData = Awaited<ReturnType<typeof validateSecrets>>, TError = ErrorType<unknown>>(
- validateSecretsRequest: ValidateSecretsRequest, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof validateSecrets>>, TError, TData>> & Pick<
-        DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof validateSecrets>>,
-          TError,
-          Awaited<ReturnType<typeof validateSecrets>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
-  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useValidateSecrets<TData = Awaited<ReturnType<typeof validateSecrets>>, TError = ErrorType<unknown>>(
- validateSecretsRequest: ValidateSecretsRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof validateSecrets>>, TError, TData>> & Pick<
-        UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof validateSecrets>>,
-          TError,
-          Awaited<ReturnType<typeof validateSecrets>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useValidateSecrets<TData = Awaited<ReturnType<typeof validateSecrets>>, TError = ErrorType<unknown>>(
- validateSecretsRequest: ValidateSecretsRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof validateSecrets>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-
-export function useValidateSecrets<TData = Awaited<ReturnType<typeof validateSecrets>>, TError = ErrorType<unknown>>(
- validateSecretsRequest: ValidateSecretsRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof validateSecrets>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
- ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
-
-  const queryOptions = getValidateSecretsQueryOptions(validateSecretsRequest,options)
-
-  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-
-  return withQueryKey(query, queryOptions.queryKey);
-}
-
-export const prefetchValidateSecretsQuery = async <TData = Awaited<ReturnType<typeof validateSecrets>>, TError = ErrorType<unknown>>(
- queryClient: QueryClient, validateSecretsRequest: ValidateSecretsRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof validateSecrets>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
-
-  ): Promise<QueryClient> => {
-
-  const queryOptions = getValidateSecretsQueryOptions(validateSecretsRequest,options)
 
   await queryClient.prefetchQuery(queryOptions);
 

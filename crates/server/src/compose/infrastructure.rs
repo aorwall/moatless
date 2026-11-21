@@ -160,7 +160,6 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     use moatless_tasks::task_event::routes::TaskEventApiDoc;
     use moatless_workspaces::plugin::routes::PluginApiDoc;
     use moatless_workspaces::repository::routes::RepositoryApiDoc;
-    use moatless_workspaces::skill::routes::SkillApiDoc;
     use moatless_workspaces::workspace::routes::WorkspaceApiDoc;
     use utoipa::OpenApi;
 
@@ -226,7 +225,6 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     merged.merge(TaskEventApiDoc::openapi());
     merged.merge(FeatureFlagsApiDoc::openapi());
     merged.merge(PluginApiDoc::openapi());
-    merged.merge(SkillApiDoc::openapi());
     merged.merge(WorkspaceApiDoc::openapi());
 
     merged.info = utoipa::openapi::InfoBuilder::new()

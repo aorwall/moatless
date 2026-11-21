@@ -1,6 +1,6 @@
 //! Secret validation, access checks, encryption, and resolution.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use aes_gcm::aead::{Aead, Payload};
@@ -11,10 +11,7 @@ use super::audit::SecretAudit;
 use super::dao::{SecretDao, SecretInsert, SecretReplace};
 use super::error::SecretError;
 use super::models::{EncryptedSecretValue, ResolvedSecret, SecretRecord};
-use super::schemas::{
-    PatchSecretRequest, PutSecretRequest, SecretMetadataResponse, ValidateSecretsRequest,
-    ValidateSecretsResponse,
-};
+use super::schemas::{PatchSecretRequest, PutSecretRequest, SecretMetadataResponse};
 use moatless_core::secret_keys::{is_reserved_key, is_valid_secret_key};
 use moatless_types::access_control::AccessControlError;
 use moatless_types::access_control::resolve_scope_for_create;
@@ -415,34 +412,6 @@ impl SecretService {
         }
         self.audit(Some(id), actor_id, "delete", &record, "success")
             .await
-    }
-
-    pub async fn validate_required(
-        &self,
-        ctx: &ScopeContext,
-        req: ValidateSecretsRequest,
-    ) -> Result<ValidateSecretsResponse, SecretError> {
-        let resolved =
-            resolve_scope_for_create(ctx, req.scope).map_err(map_access_control_error)?;
-        // list() with access_filter already limits to rows the caller may read.
-        let records = self
-            .secrets
-            .list(ctx, Some(resolved.scope.as_str()))
-            .await?;
-        let required: HashSet<String> = req.required.into_iter().collect();
-        let present: HashSet<String> = records
-            .into_iter()
-            .map(|record| record.key)
-            .filter(|key| required.contains(key))
-            .collect();
-        let missing = required
-            .difference(&present)
-            .cloned()
-            .collect::<Vec<String>>();
-        Ok(ValidateSecretsResponse {
-            present: present.into_iter().collect(),
-            missing,
-        })
     }
 
     /// Resolve a single user-scoped secret for an already-authorized

@@ -43,9 +43,6 @@ use moatless_workspaces::workspace::git_sync::GitSyncService;
         handlers::get_task_statistics,
         handlers::update_task_metadata,
         handlers::delete_task,
-        handlers::mark_task_read,
-        handlers::follow_task,
-        handlers::unfollow_task,
         handlers::close_task,
         handlers::reopen_task,
         handlers::start_task,
@@ -103,8 +100,6 @@ where
         .routes(routes!(handlers::get_task_statistics))
         .routes(routes!(handlers::close_task))
         .routes(routes!(handlers::reopen_task))
-        .routes(routes!(handlers::mark_task_read))
-        .routes(routes!(handlers::follow_task, handlers::unfollow_task))
         .routes(routes!(handlers::start_task))
         .routes(routes!(handlers::stop_task))
         .routes(routes!(handlers::cancel_task))

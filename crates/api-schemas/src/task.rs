@@ -460,15 +460,6 @@ fn default_true() -> bool {
     true
 }
 
-/// Response for follow/unfollow endpoints, reporting the resulting state.
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct FollowTaskResponse {
-    /// Whether the requesting user follows the task after the operation.
-    pub following: bool,
-}
-
 /// Tag as embedded in a task response (minimal: id + name only).
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]

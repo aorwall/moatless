@@ -137,41 +137,6 @@ async fn get_messages_missing_auth_401(pool: PgPool) {
 }
 
 // =========================================================================
-// GET /api/v1/tasks/{task_id}/messages/pending
-// =========================================================================
-
-#[sqlx::test]
-async fn get_pending_messages_empty(pool: PgPool) {
-    seed_task(&pool, "task-1", USER_1).await;
-
-    let app = build_router(pool);
-    let req = authed_request("GET", "/api/v1/tasks/task-1/messages/pending", USER_1);
-    let resp = app.oneshot(req).await.unwrap();
-
-    assert_eq!(resp.status(), StatusCode::OK);
-    let body = body_json(resp).await;
-    assert_eq!(body["totalCount"], 0);
-}
-
-#[sqlx::test]
-async fn get_pending_messages_with_data(pool: PgPool) {
-    seed_task(&pool, "task-1", USER_1).await;
-
-    message_fixtures::queue_named(&pool, "task-1", "pending-1", "one").await;
-    message_fixtures::queue_named(&pool, "task-1", "pending-2", "two").await;
-
-    let app = build_router(pool);
-    let req = authed_request("GET", "/api/v1/tasks/task-1/messages/pending", USER_1);
-    let resp = app.oneshot(req).await.unwrap();
-
-    assert_eq!(resp.status(), StatusCode::OK);
-    let body = body_json(resp).await;
-    let messages = body["messages"].as_array().unwrap();
-    assert_eq!(messages.len(), 2);
-    assert_eq!(body["totalCount"], 2);
-}
-
-// =========================================================================
 // POST /api/v1/tasks/{task_id}/messages
 // =========================================================================
 

@@ -1,10 +1,5 @@
 //! Skill error types.
 
-use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
-
-use moatless_core::error::{error_response, internal_error};
-
 #[derive(Debug, thiserror::Error)]
 pub enum SkillError {
     #[error("Repository not found: {0}")]
@@ -36,41 +31,6 @@ pub enum SkillError {
     Internal(String),
 }
 
-impl IntoResponse for SkillError {
-    fn into_response(self) -> Response {
-        let (status, message) = match &self {
-            SkillError::RepositoryNotFound(_) | SkillError::WorkspaceNotFound(_) => {
-                (StatusCode::NOT_FOUND, self.to_string())
-            }
-            SkillError::AuthRequired { git_url } => {
-                tracing::warn!(git_url = %git_url, "Skill fetch blocked by authentication");
-                (StatusCode::BAD_GATEWAY, self.to_string())
-            }
-            SkillError::UnsupportedProvider { git_url } => {
-                tracing::warn!(git_url = %git_url, "Skill fetch rejected: unsupported provider");
-                (StatusCode::BAD_GATEWAY, self.to_string())
-            }
-            SkillError::Fetch { git_url, message } => {
-                tracing::warn!(git_url = %git_url, error = %message, "Skill fetch failed");
-                (StatusCode::BAD_GATEWAY, self.to_string())
-            }
-            SkillError::Db(_) | SkillError::RepositoryToken(_) => {
-                tracing::error!(
-                    error = %moatless_core::error::causal_chain(&self),
-                    "Internal error in skill handler"
-                );
-                internal_error()
-            }
-            SkillError::Internal(msg) => {
-                tracing::error!(error = %msg, "Internal error in skill handler");
-                internal_error()
-            }
-        };
-
-        error_response(status, message)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -88,24 +48,5 @@ mod tests {
     fn synthesized_internal_messages_have_no_source() {
         let err = SkillError::Internal("skill cache not wired".to_string());
         assert!(std::error::Error::source(&err).is_none());
-    }
-
-    #[tokio::test]
-    async fn token_resolution_responds_500_without_credential_detail() {
-        let err =
-            SkillError::RepositoryToken(crate::repository::error::RepositoryError::ProviderError(
-                "installation token ghs_secretvalue rejected".to_string(),
-            ));
-        let resp = err.into_response();
-        assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
-        let bytes = http_body_util::BodyExt::collect(resp.into_body())
-            .await
-            .unwrap()
-            .to_bytes();
-        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(
-            json,
-            serde_json::json!({ "error": "Internal server error" })
-        );
     }
 }

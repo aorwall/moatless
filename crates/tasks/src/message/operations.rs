@@ -211,15 +211,6 @@ impl Messages {
             .await
     }
 
-    /// See [`MessageDao::get_subagent_messages`].
-    pub async fn get_subagent_messages(
-        &self,
-        task_id: &str,
-        tool_use_id: &str,
-    ) -> Result<MessagePage, sqlx::Error> {
-        self.store.get_subagent_messages(task_id, tool_use_id).await
-    }
-
     /// See [`MessageDao::find_tool_call`].
     pub async fn find_tool_call(
         &self,

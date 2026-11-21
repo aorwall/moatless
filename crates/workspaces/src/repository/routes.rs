@@ -24,8 +24,6 @@ use moatless_core::http_auth::UserTokenVerifier;
         handlers::get_repository,
         handlers::update_repository,
         handlers::delete_repository,
-        handlers::convert_to_template,
-        handlers::get_branches,
     )
 )]
 pub struct RepositoryApiDoc;
@@ -42,7 +40,6 @@ where
     Arc<Repositories>: FromRef<S>,
     Arc<Workspaces>: FromRef<S>,
     Arc<GitSyncService>: FromRef<S>,
-    Arc<super::branches::RepositoryBranchService>: FromRef<S>,
     Arc<dyn UserTokenVerifier>: FromRef<S>,
     DbPool: FromRef<S>,
 {
@@ -56,8 +53,6 @@ where
             handlers::update_repository,
             handlers::delete_repository
         ))
-        .routes(routes!(handlers::convert_to_template))
-        .routes(routes!(handlers::get_branches))
         .with_state(state)
         .split_for_parts();
 

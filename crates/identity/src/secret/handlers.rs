@@ -12,7 +12,7 @@ use moatless_core::http_auth::AuthUser;
 use super::error::SecretError;
 use super::schemas::{
     ListSecretsQuery, PatchSecretRequest, PutSecretRequest, SecretMetadataResponse,
-    SecretMutationResponse, ValidateSecretsRequest, ValidateSecretsResponse,
+    SecretMutationResponse,
 };
 
 #[utoipa::path(
@@ -118,24 +118,4 @@ pub async fn delete_secret(
         .delete_secret(&auth.scope_context(), &auth.user_id.to_string(), &id)
         .await?;
     Ok(StatusCode::NO_CONTENT)
-}
-
-#[utoipa::path(
-    post,
-    path = "/api/v1/secrets/validate",
-    tag = "secrets",
-    request_body = ValidateSecretsRequest,
-    responses(
-        (status = 200, description = "Secret coverage validation", body = ValidateSecretsResponse)
-    )
-)]
-pub async fn validate_secrets(
-    State(secrets): State<Arc<SecretService>>,
-    auth: AuthUser,
-    Json(req): Json<ValidateSecretsRequest>,
-) -> Result<Json<ValidateSecretsResponse>, SecretError> {
-    let resp = secrets
-        .validate_required(&auth.scope_context(), req)
-        .await?;
-    Ok(Json(resp))
 }

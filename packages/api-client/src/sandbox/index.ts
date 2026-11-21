@@ -20,7 +20,6 @@ export * from './repositories/repositories';
 export * from './review-guides/review-guides';
 export * from './sandbox/sandbox';
 export * from './secrets/secrets';
-export * from './skills/skills';
 export * from './tags/tags';
 export * from './task-bindings/task-bindings';
 export * from './task-events/task-events';

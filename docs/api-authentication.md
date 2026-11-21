@@ -96,7 +96,6 @@ Response:
 | GET | `/api/v1/repositories/{id}` | Get repository details |
 | PUT | `/api/v1/repositories/{id}` | Update a repository |
 | DELETE | `/api/v1/repositories/{id}` | Delete a repository |
-| GET | `/api/v1/repositories/{id}/branches` | List branches |
 
 ### Tasks
 

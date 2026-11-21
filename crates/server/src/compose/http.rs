@@ -11,7 +11,7 @@ use moatless_tasks::{
     agent, artifact, collection, feedback, memory, message, review_guide, secret_request, tag,
     task, task_event,
 };
-use moatless_workspaces::{plugin, repository, skill, workspace};
+use moatless_workspaces::{plugin, repository, workspace};
 use std::sync::Arc;
 use tracing::info;
 
@@ -41,7 +41,6 @@ pub(crate) fn domain_routes(app_state: &AppState) -> (Router, utoipa::openapi::O
         ),
         task_event::routes::task_event_router(app_state.clone()),
         plugin::routes::plugin_router(app_state.clone()),
-        skill::routes::skill_router(app_state.clone()),
         workspace::routes::workspace_router(app_state.clone()),
     ];
     let mut router = Router::new();

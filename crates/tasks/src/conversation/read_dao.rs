@@ -117,21 +117,6 @@ pub(crate) async fn latest(
     .await
 }
 
-/// One subagent transcript's Messages, behind the call `parent` names.
-pub(crate) async fn subagent(
-    pool: &DbPool,
-    task_id: &str,
-    parent: &str,
-) -> Result<Vec<MessageRecord>, sqlx::Error> {
-    sqlx::query_as(read_messages!(
-        "m.task_id = $1 AND m.parent_tool_use_id = $2 ORDER BY m.position"
-    ))
-    .bind(task_id)
-    .bind(parent)
-    .fetch_all(pool)
-    .await
-}
-
 /// The inbox items `ids` names, by id.
 pub(crate) async fn inbox_items(
     pool: &DbPool,

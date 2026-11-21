@@ -192,14 +192,6 @@ pub(crate) trait MessageDao: Send + Sync {
         task_id: &str,
     ) -> Result<Vec<read_dao::ResponseUsage>, sqlx::Error>;
 
-    /// Load a single subagent's Messages and activities, for on-demand
-    /// transcript assembly. Returns empty pages when the subagent has none.
-    async fn get_subagent_messages(
-        &self,
-        task_id: &str,
-        tool_use_id: &str,
-    ) -> Result<MessagePage, sqlx::Error>;
-
     /// Look up a single tool call by its `tool_use_id` within a task. Returns
     /// the assistant's `tool_use` input plus the matching `tool_result` content
     /// (if a result has been recorded yet).
@@ -554,22 +546,6 @@ impl MessageDao for PgMessageDao {
                 tokens: usage.input_tokens + usage.output_tokens,
             })
             .collect())
-    }
-
-    async fn get_subagent_messages(
-        &self,
-        task_id: &str,
-        tool_use_id: &str,
-    ) -> Result<MessagePage, sqlx::Error> {
-        let (records, activities) = tokio::try_join!(
-            read_dao::subagent(&self.0, task_id, tool_use_id),
-            activities::dao::for_subagent(&self.0, task_id, tool_use_id),
-        )?;
-        if records.is_empty() && activities.is_empty() {
-            return Ok((Vec::new(), Vec::new(), Vec::new()));
-        }
-        let (messages, contexts) = assemble::load(&self.0, &records, None).await?;
-        Ok((messages, contexts, activities))
     }
 
     async fn find_tool_call(

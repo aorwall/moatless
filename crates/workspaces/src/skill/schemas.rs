@@ -32,13 +32,6 @@ pub struct SkillResponse {
     pub plugin_name: Option<String>,
 }
 
-/// Response body for `GET /api/v1/repositories/{repository_id}/skills`.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ListSkillsResponse {
-    pub skills: Vec<SkillResponse>,
-}
-
 impl From<Skill> for SkillResponse {
     fn from(skill: Skill) -> Self {
         Self {

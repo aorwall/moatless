@@ -22,9 +22,6 @@ use moatless_ports::sandbox::SandboxWaker;
     paths(
         handlers::send_message,
         handlers::get_messages,
-        handlers::get_pending_messages,
-        handlers::get_tool_call_detail,
-        handlers::get_subagent_transcript,
     )
 )]
 pub struct MessageApiDoc;
@@ -47,9 +44,6 @@ where
 {
     let (router, api) = OpenApiRouter::with_openapi(MessageApiDoc::openapi())
         .routes(routes!(handlers::send_message, handlers::get_messages))
-        .routes(routes!(handlers::get_pending_messages))
-        .routes(routes!(handlers::get_tool_call_detail))
-        .routes(routes!(handlers::get_subagent_transcript))
         .with_state(state)
         .split_for_parts();
 

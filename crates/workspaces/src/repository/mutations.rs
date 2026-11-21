@@ -9,7 +9,6 @@ use crate::repository::remote::{
 use crate::workspace::git_sync::{GitSyncService, log_workspace_sync_for};
 use moatless_core::db::DbPool;
 use moatless_types::access_control::{Scope, ScopeContext, resolve_scope_for_create};
-use moatless_workspace_types::repository::RepositoryKind;
 use tracing::warn;
 
 async fn ensure_unique_remote_url(
@@ -191,39 +190,6 @@ pub async fn update_repository(
         // NotFound so a denied write confirms no more than the read already did.
         return Err(RepositoryError::NotFound(repository_id));
     }
-
-    let updated = repositories
-        .find_by_id(&repository_id, ctx)
-        .await?
-        .ok_or_else(|| RepositoryError::NotFound(repository_id))?;
-
-    Ok(updated)
-}
-
-/// Apply the repository mutation with caller scope and existing write policy.
-pub async fn convert_to_template(
-    repositories: &dyn RepositoryDao,
-    ctx: &ScopeContext,
-    repository_id: String,
-) -> Result<Repository, RepositoryError> {
-    let existing = repositories
-        .find_by_id(&repository_id, ctx)
-        .await?
-        .ok_or_else(|| RepositoryError::NotFound(repository_id.clone()))?;
-
-    if existing.kind != RepositoryKind::Remote {
-        return Err(RepositoryError::BadRequest(format!(
-            "Only remote repositories can be converted to templates (current kind: {})",
-            existing.kind
-        )));
-    }
-
-    let patch = RepositoryPatch {
-        kind: Some(RepositoryKind::Template),
-        ..Default::default()
-    };
-
-    repositories.update(&repository_id, &patch, ctx).await?;
 
     let updated = repositories
         .find_by_id(&repository_id, ctx)

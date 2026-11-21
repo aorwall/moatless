@@ -5576,194 +5576,6 @@
         }
       }
     },
-    "/api/v1/repositories/{repository_id}/branches": {
-      "get": {
-        "tags": [
-          "repositories"
-        ],
-        "summary": "Get branches for a repository.",
-        "operationId": "get_branches",
-        "parameters": [
-          {
-            "name": "repository_id",
-            "in": "path",
-            "description": "Repository identifier",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "workspaceId",
-            "in": "query",
-            "description": "List on behalf of this workspace, so a repository only the workspace's\npinned credential can reach still answers. Omitted, the listing is made\nas the caller's own identity.",
-            "required": false,
-            "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Branch list",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/BranchListResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Access denied - token lacks permissions",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Repository not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/repositories/{repository_id}/convert-to-template": {
-      "post": {
-        "tags": [
-          "repositories"
-        ],
-        "summary": "Convert a remote repository to a template.",
-        "operationId": "convert_to_template",
-        "parameters": [
-          {
-            "name": "repository_id",
-            "in": "path",
-            "description": "Repository identifier",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Repository converted to template",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RepositoryResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Cannot convert",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Repository not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/repositories/{repository_id}/skills": {
-      "get": {
-        "tags": [
-          "skills"
-        ],
-        "summary": "List all skills discovered for a repository.",
-        "description": "Combines the repo's `.claude/skills/` with the caller's plugin\nactivations (workspace shadows plugin, first wins a clash) — also\ndelivered into their sandbox. `workspaceId` narrows the plugin half to\nthat Workspace's records, outranking the global default and caller's own.",
-        "operationId": "list_repository_skills",
-        "parameters": [
-          {
-            "name": "repository_id",
-            "in": "path",
-            "description": "Repository identifier",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "workspaceId",
-            "in": "query",
-            "description": "Narrow to what loads in this Workspace",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "List of skills",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ListSkillsResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Repository or workspace not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "502": {
-            "description": "Failed to fetch a git repository",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/repositories/{repository_id}/sync-config": {
       "post": {
         "tags": [
@@ -5889,36 +5701,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/secrets/validate": {
-      "post": {
-        "tags": [
-          "secrets"
-        ],
-        "operationId": "validate_secrets",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ValidateSecretsRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Secret coverage validation",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ValidateSecretsResponse"
                 }
               }
             }
@@ -7589,88 +7371,6 @@
         }
       }
     },
-    "/api/v1/tasks/{task_id}/follow": {
-      "post": {
-        "tags": [
-          "tasks"
-        ],
-        "summary": "Follow a task so it appears in the requesting user's personal task list. Any\ntask the user can see may be followed. Idempotent.",
-        "operationId": "follow_task",
-        "parameters": [
-          {
-            "name": "task_id",
-            "in": "path",
-            "description": "Task identifier",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Task followed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FollowTaskResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Task not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "tasks"
-        ],
-        "summary": "Stop following a task, removing it from the requesting user's personal task\nlist. Idempotent.",
-        "operationId": "unfollow_task",
-        "parameters": [
-          {
-            "name": "task_id",
-            "in": "path",
-            "description": "Task identifier",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Task unfollowed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FollowTaskResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Task not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/tasks/{task_id}/fork": {
       "post": {
         "tags": [
@@ -8524,83 +8224,6 @@
         }
       }
     },
-    "/api/v1/tasks/{task_id}/messages/pending": {
-      "get": {
-        "tags": [
-          "messages"
-        ],
-        "summary": "Get pending messages for a task.",
-        "operationId": "get_pending_messages",
-        "parameters": [
-          {
-            "name": "task_id",
-            "in": "path",
-            "description": "Task identifier",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Pending messages",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GetPendingMessagesResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Task not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/tasks/{task_id}/read": {
-      "post": {
-        "tags": [
-          "tasks"
-        ],
-        "summary": "Mark a task's conversation as read for the requesting user, up to now.\nClears the unread indicator; safe to call repeatedly (the stored marker only\never advances).",
-        "operationId": "mark_task_read",
-        "parameters": [
-          {
-            "name": "task_id",
-            "in": "path",
-            "description": "Task identifier",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Task marked as read"
-          },
-          "404": {
-            "description": "Task not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/tasks/{task_id}/reopen": {
       "post": {
         "tags": [
@@ -9063,109 +8686,6 @@
                   "items": {
                     "$ref": "#/components/schemas/TagResponse"
                   }
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Task not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/tasks/{task_id}/tool-calls/{tool_use_id}": {
-      "get": {
-        "tags": [
-          "messages"
-        ],
-        "summary": "Get the full input + result for a single tool call within a task.",
-        "operationId": "get_tool_call_detail",
-        "parameters": [
-          {
-            "name": "task_id",
-            "in": "path",
-            "description": "Task identifier",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "tool_use_id",
-            "in": "path",
-            "description": "Tool-use block identifier (unique within a task)",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Tool call detail",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ToolCallDetailResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Tool call not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/tasks/{task_id}/tool-calls/{tool_use_id}/messages": {
-      "get": {
-        "tags": [
-          "messages"
-        ],
-        "summary": "Get the assembled subagent transcript for a single `Agent` tool call.",
-        "description": "Runs the fold-resolving row-transform over rows whose `parent_uuid` equals\n`tool_use_id`; returned whole, since it's bounded per call and fetched on\ndemand when the `Agent` card expands.",
-        "operationId": "get_subagent_transcript",
-        "parameters": [
-          {
-            "name": "task_id",
-            "in": "path",
-            "description": "Task identifier",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "tool_use_id",
-            "in": "path",
-            "description": "Spawning Agent tool-use id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Subagent transcript",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SubagentTranscriptResponse"
                 }
               }
             }
@@ -11414,41 +10934,6 @@
           }
         }
       },
-      "BranchEntry": {
-        "type": "object",
-        "required": [
-          "name",
-          "isDefault"
-        ],
-        "properties": {
-          "isDefault": {
-            "type": "boolean"
-          },
-          "name": {
-            "type": "string"
-          }
-        }
-      },
-      "BranchListResponse": {
-        "type": "object",
-        "required": [
-          "branches"
-        ],
-        "properties": {
-          "branches": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/BranchEntry"
-            }
-          },
-          "defaultBranch": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
       "CancelTaskResponse": {
         "type": "object",
         "description": "What cancelling a task did.",
@@ -13380,19 +12865,6 @@
           }
         }
       },
-      "FollowTaskResponse": {
-        "type": "object",
-        "description": "Response for follow/unfollow endpoints, reporting the resulting state.",
-        "required": [
-          "following"
-        ],
-        "properties": {
-          "following": {
-            "type": "boolean",
-            "description": "Whether the requesting user follows the task after the operation."
-          }
-        }
-      },
       "ForgejoConnectionsResponse": {
         "type": "object",
         "description": "Every registered instance, each carrying the caller's own connection to it.\n\nNot an admin-only view that names a `client_id`: `GET /api/v1/admin/settings/apps`\nowns that (`moatless_api_schemas::provider_apps::ProviderAppsResponse`).",
@@ -13570,26 +13042,6 @@
           "totalCount": {
             "type": "integer",
             "description": "Number of messages in this response. Required by the upstream\nmoatless-swarm-ui CLI which deserializes against a `totalCount: usize`\nfield; omitting it breaks `moat messages list <task_id>`.",
-            "minimum": 0
-          }
-        }
-      },
-      "GetPendingMessagesResponse": {
-        "type": "object",
-        "description": "Response for GET /messages/pending.",
-        "required": [
-          "messages",
-          "totalCount"
-        ],
-        "properties": {
-          "messages": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/PendingMessageItem"
-            }
-          },
-          "totalCount": {
-            "type": "integer",
             "minimum": 0
           }
         }
@@ -14706,21 +14158,6 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/MemorySummaryResponse"
-            }
-          }
-        }
-      },
-      "ListSkillsResponse": {
-        "type": "object",
-        "description": "Response body for `GET /api/v1/repositories/{repository_id}/skills`.",
-        "required": [
-          "skills"
-        ],
-        "properties": {
-          "skills": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/SkillResponse"
             }
           }
         }
@@ -15854,59 +15291,6 @@
           "value": {
             "type": [
               "string",
-              "null"
-            ]
-          }
-        }
-      },
-      "PendingMessageItem": {
-        "type": "object",
-        "description": "A pending message item (user message or result message).",
-        "required": [
-          "uuid",
-          "messageType",
-          "timestamp",
-          "resume"
-        ],
-        "properties": {
-          "agentMode": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/AgentMode"
-              }
-            ]
-          },
-          "messageText": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "What the person wrote, as text."
-          },
-          "messageType": {
-            "$ref": "#/components/schemas/MessageType"
-          },
-          "model": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "resume": {
-            "type": "boolean"
-          },
-          "timestamp": {
-            "type": "string"
-          },
-          "uuid": {
-            "type": "string"
-          },
-          "willNotResume": {
-            "type": [
-              "boolean",
               "null"
             ]
           }
@@ -18345,51 +17729,6 @@
           }
         }
       },
-      "SkillResponse": {
-        "type": "object",
-        "description": "Single skill discovered from a `.claude/skills/{name}/SKILL.md` file.",
-        "required": [
-          "name",
-          "description",
-          "path",
-          "source"
-        ],
-        "properties": {
-          "description": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "path": {
-            "type": "string",
-            "description": "Where to edit this skill: the `SKILL.md` path inside the repository or\nplugin it was read from. A sandbox's own `<home>/skills` copy is\nregenerated on every init, so an edit there reaches nothing."
-          },
-          "pluginId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "pluginName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "source": {
-            "$ref": "#/components/schemas/SkillSource"
-          }
-        }
-      },
-      "SkillSource": {
-        "type": "string",
-        "description": "Origin of a discovered skill.",
-        "enum": [
-          "workspace",
-          "plugin"
-        ]
-      },
       "SlackBlock": {
         "oneOf": [
           {
@@ -18889,21 +18228,6 @@
             "format": "int32",
             "description": "`SUM(input_tokens + output_tokens)` across the subagent's assistant\nrows.",
             "minimum": 0
-          }
-        }
-      },
-      "SubagentTranscriptResponse": {
-        "type": "object",
-        "description": "Response for GET /tasks/{task_id}/tool-calls/{tool_use_id}/messages — the\non-demand subagent transcript. The assembled, fold-resolved Messages of the\nsubagent spawned by the given `Agent` tool call.",
-        "required": [
-          "messages"
-        ],
-        "properties": {
-          "messages": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/UiMessage"
-            }
           }
         }
       },
@@ -19794,44 +19118,6 @@
           },
           "user": {
             "$ref": "#/components/schemas/UserInfo"
-          }
-        }
-      },
-      "ToolCallDetailResponse": {
-        "type": "object",
-        "description": "Full tool-call detail returned on demand (when a tool call is expanded).",
-        "required": [
-          "toolUseId",
-          "toolName",
-          "toolInput"
-        ],
-        "properties": {
-          "isError": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "resultContent": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "toolInput": {
-            "type": "object"
-          },
-          "toolName": {
-            "type": "string"
-          },
-          "toolUseId": {
-            "type": "string"
-          },
-          "typedResult": {
-            "type": [
-              "object",
-              "null"
-            ]
           }
         }
       },
@@ -20830,51 +20116,6 @@
           "disabled"
         ]
       },
-      "ValidateSecretsRequest": {
-        "type": "object",
-        "required": [
-          "required"
-        ],
-        "properties": {
-          "required": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "scope": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/Scope"
-              }
-            ]
-          }
-        }
-      },
-      "ValidateSecretsResponse": {
-        "type": "object",
-        "required": [
-          "present",
-          "missing"
-        ],
-        "properties": {
-          "missing": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "present": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        }
-      },
       "Visibility": {
         "type": "string",
         "description": "Task visibility level.",
@@ -21545,10 +20786,6 @@
     {
       "name": "plugins",
       "description": "Plugin registry management"
-    },
-    {
-      "name": "skills",
-      "description": "Repository skill discovery"
     },
     {
       "name": "workspaces",

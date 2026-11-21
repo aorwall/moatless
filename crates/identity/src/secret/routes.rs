@@ -21,7 +21,6 @@ use moatless_core::http_auth::UserTokenVerifier;
         handlers::put_secret,
         handlers::patch_secret,
         handlers::delete_secret,
-        handlers::validate_secrets,
     ),
     components(schemas(
         moatless_api_schemas::enums::Scope,
@@ -30,8 +29,6 @@ use moatless_core::http_auth::UserTokenVerifier;
         super::schemas::SecretMetadataResponse,
         super::schemas::PutSecretRequest,
         super::schemas::PatchSecretRequest,
-        super::schemas::ValidateSecretsRequest,
-        super::schemas::ValidateSecretsResponse,
         super::schemas::SecretMutationResponse,
     ))
 )]
@@ -56,7 +53,6 @@ where
             handlers::delete_secret
         ))
         .routes(routes!(handlers::put_secret))
-        .routes(routes!(handlers::validate_secrets))
         .with_state(state)
         .split_for_parts();
 

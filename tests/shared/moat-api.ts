@@ -34,7 +34,6 @@ import type {
   SendTaskReplyRequest,
   SendTaskReplyResponse,
   SessionResponse,
-  SubagentTranscriptResponse,
   TaskBindingResponse,
   TaskResponse,
   UpdateRepositoryRequest,
@@ -583,22 +582,6 @@ export class MoatApi {
         resume: true,
         ...answer,
       }),
-    )
-  }
-
-  /**
-   * The transcript of the subagent an `Agent` tool call spawned.
-   *
-   * Subagent messages are folded out of the main transcript and assembled on
-   * demand, which is why they are their own call rather than a filter over
-   * `getTaskMessages`.
-   */
-  async getSubagentTranscript(
-    taskId: string,
-    toolUseId: string,
-  ): Promise<SubagentTranscriptResponse> {
-    return this.expect(
-      await this.moat.raw('GET', `/api/v1/tasks/${taskId}/tool-calls/${toolUseId}/messages`),
     )
   }
 

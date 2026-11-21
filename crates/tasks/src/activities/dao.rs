@@ -143,22 +143,6 @@ pub(crate) async fn outputs(
     .await
 }
 
-/// One subagent's activities, behind the `Agent` call that spawned it.
-pub(crate) async fn for_subagent(
-    pool: &DbPool,
-    task_id: &str,
-    parent_uuid: &str,
-) -> Result<Vec<Activity>, sqlx::Error> {
-    sqlx::query_as::<_, StoredActivity>(read_activities!(
-        "task_id = $1 AND parent_tool_use_id = $2 ORDER BY position, ordinal, activity_id"
-    ))
-    .bind(task_id)
-    .bind(parent_uuid)
-    .fetch_all(pool)
-    .await
-    .map(|rows| rows.into_iter().map(|row| row.0).collect())
-}
-
 /// The activities that happened on a named set of Messages.
 pub(crate) async fn for_messages(
     pool: &DbPool,

@@ -549,9 +549,9 @@ is already on the wire:
   `WORKSPACE_SKILL_PREFIXES`). Delivered to work in that Repository and nowhere
   else.
 
-`GET /api/v1/repositories/{id}/skills` returns both merged
-(`backend/src/skill/service.rs::list_for_repository`): the Repository's own skills
-shadow a Plugin skill of the same name, and among plugins the first in DAO order
+The UI-RPC skills surface (`crates/t3code/src/skills.rs`) lists both merged
+(`crates/workspaces/src/skill/service.rs::list_for_repository`): the
+Repository's own skills shadow a Plugin skill of the same name, and among plugins the first in DAO order
 wins. The plugin half is per-caller, not per-repository — two people looking at
 the same Repository can see different Skills, because that is what will reach
 their respective sandboxes — and `?workspaceId=` narrows it further to what that
@@ -660,7 +660,7 @@ A **source** is what the Projector writes the conversation from: a Trajectory
 line, an inbox item, or a lifecycle event in `task_events`. A **derived event**
 (`message.upsert` / `message.subagentProgress`) is computed from the projected
 rows and is never itself persisted. Message content reaches clients only via the
-derived upsert (top-level) or the on-demand subagent transcript endpoint.
+derived upsert, top-level only; no endpoint serves a subagent transcript.
 
 **Sandbox event send buffer**:
 The Sandbox's in-memory queue between an event producer and the single drainer
@@ -681,15 +681,15 @@ undroppable; treating a graceful flush as a delivery guarantee (it is bounded
 and best-effort).
 
 **Subagent transcript**:
-Lazy. The top-level Messages read carries only a small per-`Agent`-call
-**summary** (`{ messageCount, tokens, status }` on the `Agent` content block),
-and a `message.subagentProgress` event keeps it live on the wire — the collapsed
-`Agent` card renders from that alone. The full transcript is assembled
-server-side but **fetched on demand** from
-`GET …/tool-calls/{tool_use_id}/messages` when the card is expanded; it is never
-nested into the parent Message nor streamed on the wire. Its source is the
-subagent's own Trajectory session, projected under the spawning call's
-`parent_tool_use_id`.
+Stored, not served. The top-level Messages read carries only a small
+per-`Agent`-call **summary** (`{ messageCount, tokens, status }` on the `Agent`
+content block), and a `message.subagentProgress` event keeps it live on the
+wire. The subagent's own rows are projected under the spawning call's
+`parent_tool_use_id` (its own Trajectory session) and never nested into the
+parent Message nor streamed. T3 reads only their usage, through
+`SubagentUsage` (`crates/t3code/src/transcript.rs`), and shows the spawning call
+as a task. The `GET …/tool-calls/{tool_use_id}/messages` endpoint that assembled
+the transcript on demand is removed: nothing called it.
 
 ### Access & commands
 

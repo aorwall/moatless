@@ -99,20 +99,6 @@ impl std::fmt::Debug for PatchSecretRequest {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ValidateSecretsRequest {
-    pub scope: Option<Scope>,
-    pub required: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ValidateSecretsResponse {
-    pub present: Vec<String>,
-    pub missing: Vec<String>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SecretMutationResponse {

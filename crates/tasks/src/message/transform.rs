@@ -26,26 +26,6 @@ use super::schemas::*;
 /// `message::dao` and `moatless_t3code::dao`.
 const INTERACTIVE_TOOLS: &[&str] = &["AskUserQuestion", "ExitPlanMode"];
 
-/// Which slice of rows a transform pass renders.
-///
-/// `TopLevel` drops subagent rows (those carrying a `parent_uuid`, the spawning
-/// `Agent` tool-use id); `Subagent` renders exactly the rows whose
-/// `parent_uuid` equals the given tool-use id.
-#[derive(Clone, Copy)]
-enum RenderScope<'a> {
-    TopLevel,
-    Subagent(&'a str),
-}
-
-impl RenderScope<'_> {
-    fn includes(&self, parent_uuid: Option<&str>) -> bool {
-        match self {
-            RenderScope::TopLevel => parent_uuid.is_none(),
-            RenderScope::Subagent(tool_use_id) => parent_uuid == Some(*tool_use_id),
-        }
-    }
-}
-
 /// One turn: what was said, and what happened on the way to saying it.
 ///
 /// Both halves are optional: a tool-only turn has no Message row, a person's
@@ -71,48 +51,24 @@ pub fn transform_to_ui(
 ///
 /// Synthesises File contexts for legacy messages (recorded without contexts)
 /// from their `attachments.file_ids`. Top-level only — subagent rows are
-/// assembled on demand via [`transform_subagent_transcript`].
+/// dropped here.
 pub fn transform_to_ui_with_files(
     messages: &[TaskMessage],
     contexts: &[TaskMessageContext],
     activities: &[Activity],
     file_metadata: &HashMap<String, FileInfo>,
 ) -> Vec<UiMessage> {
-    transform_scoped(
-        messages,
-        contexts,
-        activities,
-        file_metadata,
-        RenderScope::TopLevel,
-    )
+    transform_rows(messages, contexts, activities, file_metadata)
 }
 
-/// Assemble a single subagent's transcript: run the same row-transform over the
-/// rows whose `parent_uuid` equals `tool_use_id`.
-pub fn transform_subagent_transcript(
-    messages: &[TaskMessage],
-    contexts: &[TaskMessageContext],
-    activities: &[Activity],
-    tool_use_id: &str,
-) -> Vec<UiMessage> {
-    transform_scoped(
-        messages,
-        contexts,
-        activities,
-        &HashMap::new(),
-        RenderScope::Subagent(tool_use_id),
-    )
-}
-
-/// Gather the Messages and activities of one scope into turns, in order.
-fn turns<'a>(
-    messages: &'a [TaskMessage],
-    activities: &'a [Activity],
-    scope: RenderScope<'_>,
-) -> Vec<Turn<'a>> {
+/// Gather the top-level Messages and activities into turns, in order.
+///
+/// Subagent rows (those carrying a `parent_uuid`, the spawning `Agent`
+/// tool-use id) are dropped.
+fn turns<'a>(messages: &'a [TaskMessage], activities: &'a [Activity]) -> Vec<Turn<'a>> {
     let mut by_uuid: HashMap<&str, Vec<&Activity>> = HashMap::new();
     for activity in activities {
-        if !scope.includes(activity.parent_uuid.as_deref()) {
+        if activity.parent_uuid.is_some() {
             continue;
         }
         // A Sandbox activity happened on no Message and belongs to no turn. The
@@ -130,7 +86,7 @@ fn turns<'a>(
     let mut turns: Vec<Turn<'a>> = Vec::new();
     let mut claimed: HashSet<&str> = HashSet::new();
     for message in messages {
-        if !scope.includes(message.parent_uuid.as_deref()) {
+        if message.parent_uuid.is_some() {
             continue;
         }
         claimed.insert(message.uuid.as_str());
@@ -169,12 +125,11 @@ fn turns<'a>(
     turns
 }
 
-fn transform_scoped(
+fn transform_rows(
     messages: &[TaskMessage],
     contexts: &[TaskMessageContext],
     activities: &[Activity],
     file_metadata: &HashMap<String, FileInfo>,
-    scope: RenderScope<'_>,
 ) -> Vec<UiMessage> {
     let contexts_by_msg: HashMap<i32, Vec<&TaskMessageContext>> = {
         let mut map: HashMap<i32, Vec<&TaskMessageContext>> = HashMap::new();
@@ -184,7 +139,7 @@ fn transform_scoped(
         map
     };
 
-    let turns = turns(messages, activities, scope);
+    let turns = turns(messages, activities);
     let total = turns.len();
     let mut ui_messages = Vec::new();
 
@@ -1403,36 +1358,6 @@ mod tests {
         let answered = call("a1", 1, "toolu_1", "AskUserQuestion");
         let ui = transform_to_ui(&[assistant], &[], &[answered]);
         assert_eq!(ui[0].has_pending_user_input, None);
-    }
-
-    #[test]
-    fn subagent_transcript_assembles_folded_messages() {
-        let mut sub_asst = make_msg(
-            1,
-            "s1",
-            MessageType::Assistant,
-            MessageRole::Assistant,
-            Some(1),
-            "working",
-        );
-        sub_asst.parent_uuid = Some("toolu_1".to_string());
-        let mut inner = call("s1", 1, "toolu_inner", "Read");
-        inner.parent_uuid = Some("toolu_1".to_string());
-        // A top-level row that the transcript must ignore.
-        let top = make_msg(
-            3,
-            "a1",
-            MessageType::Assistant,
-            MessageRole::Assistant,
-            Some(1),
-            "top",
-        );
-
-        let ui = transform_subagent_transcript(&[sub_asst, top], &[], &[inner], "toolu_1");
-        assert_eq!(ui.len(), 1);
-        assert_eq!(ui[0].uuid, "s1");
-        assert_eq!(ui[0].tool_results.len(), 1);
-        assert_eq!(ui[0].tool_results[0].tool_use_id, "toolu_inner");
     }
 
     #[test]

@@ -223,65 +223,6 @@ pub struct GetMessagesResponse {
     pub total_count: usize,
 }
 
-/// A pending message item (user message or result message).
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct PendingMessageItem {
-    pub uuid: String,
-    pub message_type: MessageType,
-    pub timestamp: String,
-    /// What the person wrote, as text.
-    // Not a block list: the enrichment the agent sees is rebuilt at delivery
-    // time and was never part of this.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub message_text: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub agent_mode: Option<AgentMode>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-    pub resume: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub will_not_resume: Option<bool>,
-}
-
-/// Response for GET /messages/pending.
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct GetPendingMessagesResponse {
-    pub messages: Vec<PendingMessageItem>,
-    pub total_count: usize,
-}
-
-/// Full tool-call detail returned on demand (when a tool call is expanded).
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct ToolCallDetailResponse {
-    pub tool_use_id: String,
-    pub tool_name: String,
-    #[cfg_attr(feature = "openapi", schema(value_type = Object))]
-    pub tool_input: serde_json::Value,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub result_content: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub is_error: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
-    pub typed_result: Option<serde_json::Value>,
-}
-
-/// Response for GET /tasks/{task_id}/tool-calls/{tool_use_id}/messages — the
-/// on-demand subagent transcript. The assembled, fold-resolved Messages of the
-/// subagent spawned by the given `Agent` tool call.
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct SubagentTranscriptResponse {
-    pub messages: Vec<UiMessage>,
-}
-
 // =========================================================================
 // User input types (AskUserQuestion, ExitPlanMode)
 // =========================================================================

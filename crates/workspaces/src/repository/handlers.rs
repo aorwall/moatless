@@ -5,7 +5,7 @@ use super::operations::Repositories;
 use super::schemas::*;
 use crate::workspace::git_sync::GitSyncService;
 use axum::Json;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use moatless_core::db::DbPool;
 use moatless_core::http_auth::AuthUser;
@@ -141,65 +141,4 @@ pub async fn delete_repository(
     )
     .await?;
     Ok(StatusCode::NO_CONTENT)
-}
-
-/// Convert a remote repository to a template.
-#[utoipa::path(
-    post,
-    path = "/api/v1/repositories/{repository_id}/convert-to-template",
-    tag = "repositories",
-    params(
-        ("repository_id" = String, Path, description = "Repository identifier")
-    ),
-    responses(
-        (status = 200, description = "Repository converted to template", body = RepositoryResponse),
-        (status = 400, description = "Cannot convert", body = moatless_types::http::ErrorBody),
-        (status = 404, description = "Repository not found", body = moatless_types::http::ErrorBody)
-    )
-)]
-pub async fn convert_to_template(
-    State(repositories): State<Arc<Repositories>>,
-    auth: AuthUser,
-    Path(repository_id): Path<String>,
-) -> Result<Json<RepositoryResponse>, RepositoryError> {
-    let row = super::mutations::convert_to_template(
-        repositories.store(),
-        &auth.scope_context(),
-        repository_id,
-    )
-    .await?;
-    Ok(Json(repository_response(row)))
-}
-
-/// Get branches for a repository.
-#[utoipa::path(
-    get,
-    path = "/api/v1/repositories/{repository_id}/branches",
-    tag = "repositories",
-    params(
-        ("repository_id" = String, Path, description = "Repository identifier"),
-        ListBranchesQuery
-    ),
-    responses(
-        (status = 200, description = "Branch list", body = BranchListResponse),
-        (status = 400, description = "Bad request", body = moatless_types::http::ErrorBody),
-        (status = 403, description = "Access denied - token lacks permissions", body = moatless_types::http::ErrorBody),
-        (status = 404, description = "Repository not found", body = moatless_types::http::ErrorBody)
-    )
-)]
-pub async fn get_branches(
-    State(branches): State<Arc<super::branches::RepositoryBranchService>>,
-    auth: AuthUser,
-    Path(repository_id): Path<String>,
-    Query(query): Query<ListBranchesQuery>,
-) -> Result<Json<BranchListResponse>, RepositoryError> {
-    Ok(Json(
-        branches
-            .list_branches(
-                &auth.scope_context(),
-                &repository_id,
-                query.workspace_id.as_deref(),
-            )
-            .await?,
-    ))
 }
