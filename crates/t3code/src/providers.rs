@@ -18,7 +18,13 @@ pub const CLAUDE_INSTANCE: &str = "claudeAgent";
 pub const CODEX_INSTANCE: &str = "codex";
 pub const PI_INSTANCE: &str = "pi";
 pub const MINI_SWE_INSTANCE: &str = "mini-swe";
-pub const ACP_INSTANCE: &str = "acp";
+/// Antigravity, which runs on the ACP harness: the instance names the agent a
+/// person picks, not the protocol, so it is also T3's own `antigravity` driver.
+pub const ANTIGRAVITY_INSTANCE: &str = "antigravity";
+/// The id Antigravity was published under before; a stale client still sends it.
+const LEGACY_ACP_INSTANCE: &str = "acp";
+/// T3's `ANTIGRAVITY_DEFAULT_MODEL`: "whichever model the session runs".
+pub const ANTIGRAVITY_DEFAULT_ALIAS: &str = "antigravity-default";
 
 /// Which instance a catalog agent belongs to.
 pub fn instance_for(harness: Harness) -> &'static str {
@@ -27,7 +33,7 @@ pub fn instance_for(harness: Harness) -> &'static str {
         Harness::Codex => CODEX_INSTANCE,
         Harness::Pi => PI_INSTANCE,
         Harness::MiniSwe => MINI_SWE_INSTANCE,
-        Harness::Acp => ACP_INSTANCE,
+        Harness::Acp => ANTIGRAVITY_INSTANCE,
     }
 }
 
@@ -38,7 +44,7 @@ pub fn harness_for(instance: &str) -> Option<Harness> {
         CODEX_INSTANCE => Some(Harness::Codex),
         PI_INSTANCE => Some(Harness::Pi),
         MINI_SWE_INSTANCE => Some(Harness::MiniSwe),
-        ACP_INSTANCE => Some(Harness::Acp),
+        ANTIGRAVITY_INSTANCE | LEGACY_ACP_INSTANCE => Some(Harness::Acp),
         _ => None,
     }
 }
@@ -68,7 +74,7 @@ fn effort_levels(instance: &str, catalog_model: &str) -> &'static [&'static str]
     if instance == MINI_SWE_INSTANCE {
         return &[];
     }
-    if instance == ACP_INSTANCE {
+    if instance == ANTIGRAVITY_INSTANCE {
         return &["low", "medium", "high"];
     }
     if instance == PI_INSTANCE {
@@ -255,7 +261,7 @@ pub fn providers(
         (CODEX_INSTANCE, "Codex", Harness::Codex),
         (PI_INSTANCE, "Pi", Harness::Pi),
         (MINI_SWE_INSTANCE, "mini-swe-agent", Harness::MiniSwe),
-        (ACP_INSTANCE, "Antigravity", Harness::Acp),
+        (ANTIGRAVITY_INSTANCE, "Antigravity", Harness::Acp),
     ]
     .into_iter()
     .map(|(instance, display_name, harness)| {
@@ -264,14 +270,20 @@ pub fn providers(
         let models: Vec<Value> = models_for(agents, instance)
             .into_iter()
             .map(|(id, label)| {
-                json!({
+                let is_default = Some(&id) == default_model.as_ref();
+                let mut row = json!({
                     "slug": published_slug(instance, &id),
                     // T3 renders this verbatim and matches a stored selection against it.
                     "name": label,
                     "isCustom": false,
-                    "isDefault": Some(&id) == default_model.as_ref(),
+                    "isDefault": is_default,
                     "capabilities": capabilities(instance, &id),
-                })
+                });
+                // T3's `antigravity` driver starts a draft on the alias.
+                if is_default && instance == ANTIGRAVITY_INSTANCE {
+                    row["aliases"] = json!([ANTIGRAVITY_DEFAULT_ALIAS]);
+                }
+                row
             })
             .collect();
 
@@ -649,6 +661,39 @@ mod tests {
             level_ids(effort_descriptor(&list[1], "gpt-5.5")),
             vec!["low", "medium", "high", "xhigh"]
         );
+    }
+
+    #[test]
+    fn antigravity_is_published_as_t3s_driver_with_its_default_alias() {
+        let agents = vec![AgentDescriptor {
+            id: "antigravity".into(),
+            label: "Antigravity".into(),
+            installed: true,
+            default_model: "gemini-3-flash".into(),
+            models: vec![
+                moatless_api_schemas::agent::AgentModel {
+                    id: "gemini-3-flash".into(),
+                    label: "Gemini 3 Flash".into(),
+                },
+                moatless_api_schemas::agent::AgentModel {
+                    id: "gemini-4-argon-high".into(),
+                    label: "Gemini 4 Argon".into(),
+                },
+            ],
+            missing_credential_hint: None,
+        }];
+        let list = providers(&agents, &AgentModelDefaults::default(), "now", &[]);
+        let provider = list
+            .iter()
+            .find(|p| p["instanceId"] == "antigravity")
+            .unwrap();
+        assert_eq!(provider["driver"], "antigravity");
+        assert_eq!(
+            provider["models"][0]["aliases"],
+            json!([ANTIGRAVITY_DEFAULT_ALIAS])
+        );
+        assert!(provider["models"][1].get("aliases").is_none());
+        assert_eq!(harness_for("acp"), Some(Harness::Acp));
     }
 
     /// Every row's default has to be a level that row also offers, or leaving

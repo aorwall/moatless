@@ -21,6 +21,9 @@ fn each_instance_maps_to_the_first_catalog_agent_of_its_kind() {
         catalog::CLAUDE_CODE.profile
     );
     assert_eq!(default_agent_for("codex"), catalog::CODEX.profile);
+    for antigravity in ["antigravity", "acp"] {
+        assert_eq!(default_agent_for(antigravity), catalog::ANTIGRAVITY.profile);
+    }
 }
 
 /// An instance this server never published cannot arrive from a client that

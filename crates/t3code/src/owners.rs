@@ -58,7 +58,9 @@ impl AgentCatalogSource for AgentCatalog {
             for agent in agents.iter_mut().filter(|agent| {
                 matches!(
                     providers::kind_of(agent),
-                    providers::PI_INSTANCE | providers::MINI_SWE_INSTANCE | providers::ACP_INSTANCE
+                    providers::PI_INSTANCE
+                        | providers::MINI_SWE_INSTANCE
+                        | providers::ANTIGRAVITY_INSTANCE
                 )
             }) {
                 let Some(entry) = crate::agent::catalog::find(&agent.id) else {

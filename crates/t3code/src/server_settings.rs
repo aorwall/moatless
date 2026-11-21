@@ -117,7 +117,7 @@ pub(crate) fn settings_object(stored: Map<String, Value>) -> Value {
         "providerInstances": {
             "pi": { "driver": "pi", "enabled": true },
             "mini-swe": { "driver": "mini-swe", "enabled": true },
-            "acp": { "driver": "acp", "enabled": true }
+            "antigravity": { "driver": "antigravity", "enabled": true }
         }
     });
     if let Value::Object(fields) = &mut settings {

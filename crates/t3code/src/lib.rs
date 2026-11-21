@@ -82,6 +82,7 @@ pub use moatless_ports::sandbox::{
     WorkspaceSnapshotSource,
 };
 pub use moatless_types::ui_rpc::{UiRpcAuthIdentity, UiRpcAuthMethod, UserRole};
+pub use providers::harness_for;
 pub use reads::T3Reads;
 pub(crate) use rpc::envelope::RequestId;
 pub(crate) use rpc::envelope::failure_exit;

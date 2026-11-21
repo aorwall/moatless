@@ -46,9 +46,6 @@ struct Selection {
 /// Suffixes `agy` may turn into a thinking level and drop from an id.
 const EFFORT_SUFFIXES: &[&str] = &["-low", "-medium", "-high", "-xhigh"];
 
-/// The hub's `owned_by` for the Antigravity account's own models.
-const ACCOUNT_OWNER: &str = "antigravity";
-
 /// The largest body buffered to rewrite it.
 const MAX_REWRITTEN_BODY: usize = 64 * 1024 * 1024;
 
@@ -219,7 +216,8 @@ fn account_models(body: &[u8], selected: Option<&str>) -> Option<Bytes> {
     json.get_mut("data")?.as_array_mut()?.retain(|row| {
         row["owned_by"]
             .as_str()
-            .is_some_and(|owner| owner.eq_ignore_ascii_case(ACCOUNT_OWNER))
+            // The hub's owner for the Antigravity account's own models.
+            .is_some_and(|owner| owner.eq_ignore_ascii_case("antigravity"))
             || row["id"].as_str().is_some_and(|id| Some(id) == selected)
     });
     serde_json::to_vec(&json).ok().map(Bytes::from)

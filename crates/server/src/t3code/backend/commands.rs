@@ -1047,21 +1047,12 @@ fn pull_request_subject(reference: &ThreadPullRequestRef) -> String {
 
 /// The agent a thread created from T3 runs.
 pub(super) fn default_agent_for(instance: &str) -> moatless_types::agent::AgentProfile {
+    let harness = moatless_t3code::harness_for(instance);
     moatless_tasks::agent::catalog::catalog()
-        .find(|entry| agent_instance_for(entry.harness()) == instance)
+        .find(|entry| Some(entry.harness()) == harness)
         .map_or(moatless_types::agent::AgentProfile::ClaudeCode, |entry| {
             entry.profile
         })
-}
-
-fn agent_instance_for(kind: moatless_types::agent::Harness) -> &'static str {
-    match kind {
-        moatless_types::agent::Harness::ClaudeCode => "claudeAgent",
-        moatless_types::agent::Harness::Codex => "codex",
-        moatless_types::agent::Harness::Pi => "pi",
-        moatless_types::agent::Harness::MiniSwe => "mini-swe",
-        moatless_types::agent::Harness::Acp => "acp",
-    }
 }
 
 fn send_refusal(task_id: &str, error: MessageError) -> CommandRefusal {

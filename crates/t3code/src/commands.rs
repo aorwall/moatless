@@ -1154,6 +1154,9 @@ fn translate_model(
     else {
         return Ok(None);
     };
+    if instance == providers::ANTIGRAVITY_INSTANCE && slug == providers::ANTIGRAVITY_DEFAULT_ALIAS {
+        return Ok(None);
+    }
     providers::catalog_model_for(agents, instance, slug)
         .map(Some)
         .ok_or_else(|| CommandRefusal::Rejected {
