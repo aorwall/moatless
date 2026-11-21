@@ -195,7 +195,6 @@ mod tests {
             created_by: None,
             reporter_user_id: None,
             visibility: Visibility::Private,
-            scope: moatless_types::access_control::Scope::User,
             owner_user_id: Some("user-1".to_string()),
             run_as_user_id: None,
             updated_at: None,

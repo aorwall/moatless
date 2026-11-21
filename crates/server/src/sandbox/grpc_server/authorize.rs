@@ -345,7 +345,6 @@ impl SandboxAuthorizer {
             warn!(
                 task_id,
                 user_id = %claims.user_id,
-                scope = %task.scope,
                 "Rejected sandbox gRPC call: caller not authorized for task"
             );
             Err(Status::permission_denied("Not authorized for this task"))
@@ -441,14 +440,12 @@ mod tests {
     // The scoped read's SQL filter is covered by `scope.rs` tests; these
     // exercise the control-gate composition and the token binding check.
 
-    use moatless_types::access_control::Scope;
-
     use moatless_types::task::Visibility;
 
     #[tokio::test]
     async fn assert_task_access_allows_user_task_for_owner() {
         let svc = service_with(
-            tasks_returning(Some(task_fixture(Scope::User, Some("owner")))),
+            tasks_returning(Some(task_fixture(Some("owner")))),
             users_regular(),
         );
         assert!(
@@ -464,7 +461,7 @@ mod tests {
         // A user-scoped task belongs only to its owner; a different caller with a
         // valid JWT must be rejected even though the token itself is genuine.
         let svc = service_with(
-            tasks_returning(Some(task_fixture(Scope::User, Some("owner")))),
+            tasks_returning(Some(task_fixture(Some("owner")))),
             users_regular(),
         );
         let err = svc
@@ -479,7 +476,7 @@ mod tests {
     /// [`SandboxAuthorizer::require_driver`]'s question, tested below.
     #[tokio::test]
     async fn assert_task_access_public_visibility_grants_write() {
-        let mut task = task_fixture(Scope::User, Some("owner"));
+        let mut task = task_fixture(Some("owner"));
         task.visibility = Visibility::Public;
         let svc = service_with(tasks_returning(Some(task)), users_regular());
         assert!(
@@ -491,24 +488,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn assert_task_access_global_task_requires_admin() {
-        // Global-scoped tasks are admin-created (`can_create_scope`) and
-        // admin-controlled; being globally *visible* doesn't hand out control.
-        let denied = service_with(
-            tasks_returning(Some(task_fixture(Scope::Global, None))),
-            users_regular(),
-        );
+    async fn assert_task_access_ownerless_task_requires_admin() {
+        // A task with no owner is controlled by admins alone.
+        let denied = service_with(tasks_returning(Some(task_fixture(None))), users_regular());
         let err = denied
             .authorizer
             .resolve_write(&claims_for("stranger"), "task-1")
             .await
-            .expect_err("non-admin must not control a global task");
+            .expect_err("non-admin must not control an ownerless task");
         assert_eq!(err.code(), tonic::Code::PermissionDenied);
 
-        let allowed = service_with(
-            tasks_returning(Some(task_fixture(Scope::Global, None))),
-            users_admin(),
-        );
+        let allowed = service_with(tasks_returning(Some(task_fixture(None))), users_admin());
         assert!(
             allowed
                 .authorizer
@@ -519,10 +509,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn assert_task_access_admin_bypasses_scope() {
-        // A platform admin controls any user-scoped task, even one they don't own.
+    async fn assert_task_access_admin_bypasses_ownership() {
+        // A platform admin controls any task, even one they don't own.
         let svc = service_with(
-            tasks_returning(Some(task_fixture(Scope::User, Some("other-user")))),
+            tasks_returning(Some(task_fixture(Some("other-user")))),
             users_admin(),
         );
         assert!(
@@ -593,7 +583,7 @@ mod tests {
     /// tokens minted for `driver`.
     fn task_driven_by(visibility: Visibility, generation: i64, driver: &str) -> SandboxAuthorizer {
         let users: Arc<dyn CommitIdentity> = Arc::new(users_regular());
-        let mut task = task_fixture(Scope::User, Some("owner"));
+        let mut task = task_fixture(Some("owner"));
         task.visibility = visibility;
         SandboxAuthorizer::enforcing(
             "secret".to_string(),

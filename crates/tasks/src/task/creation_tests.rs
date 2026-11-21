@@ -34,7 +34,7 @@ fn sample_repo() -> Repository {
         default_branch: None,
         description: None,
         provider: None,
-        scope: Scope::User,
+        scope: moatless_types::access_control::Scope::User,
         owner_user_id: None,
         created_by: None,
         deleted: false,
@@ -237,15 +237,15 @@ async fn the_persisted_and_returned_rows_carry_the_requested_workspace() {
 }
 
 /// A global-scoped loop fires as its bot user; the spawned task must still
-/// be `Scope::User` owned by that bot — the pod authenticates as
-/// `created_by`, and the gate refuses a global or ownerless row.
+/// be owned by that bot — the pod authenticates as `created_by`, and the gate
+/// refuses an ownerless row.
 #[tokio::test]
-async fn a_task_defaults_to_user_scope_and_ownership_by_its_creator() {
+async fn a_task_defaults_to_ownership_by_its_creator() {
     let mut tasks = MockTaskDao::new();
     tasks.expect_exists_by_short_id().returning(|_| Ok(false));
     tasks
         .expect_insert_task()
-        .withf(|row, _| row.scope == Scope::User && row.owner_user_id.as_deref() == Some("bot1"))
+        .withf(|row, _| row.owner_user_id.as_deref() == Some("bot1"))
         .times(1)
         .returning(|_, _| Ok(()));
     let mut starter = MockStarter::new();
@@ -261,7 +261,6 @@ async fn a_task_defaults_to_user_scope_and_ownership_by_its_creator() {
         .await
         .expect("creation succeeds");
 
-    assert_eq!(outcome.task.scope, Scope::User);
     assert_eq!(outcome.task.owner_user_id.as_deref(), Some("bot1"));
 }
 

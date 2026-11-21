@@ -10,7 +10,6 @@ import type { CheckoutMode } from './checkoutMode';
 import type { ForkOrigin } from './forkOrigin';
 import type { SandboxDesiredState } from './sandboxDesiredState';
 import type { SandboxStopReason } from './sandboxStopReason';
-import type { Scope } from './scope';
 import type { TagResponse } from './tagResponse';
 import type { TaskBindingSummary } from './taskBindingSummary';
 import type { TaskRelationDto } from './taskRelationDto';
@@ -96,7 +95,6 @@ export interface TaskResponse {
      */
   sandboxStartedAt?: string | null;
   sandboxStopReason?: null | SandboxStopReason;
-  scope: Scope;
   /**
      * Idle hours after which the reaper settles the task. `None` follows
      * the deployment default (`TASK_SETTLE_AFTER_HOURS`); `0` never settles.

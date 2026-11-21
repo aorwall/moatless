@@ -32,12 +32,9 @@ fn tasks() -> TaskCommands {
                 task.visibility = moatless_types::task::Visibility::Public;
                 Ok(Some(task))
             }
-            // Reads to everyone and writes for admins only.
-            "task-shared" => {
-                let mut task = make_task_row(task_id, "user-2");
-                task.scope = Scope::Global;
-                Ok(Some(task))
-            }
+            // Another owner's private Task, which the store answers to any reader
+            // and which writes for its owner and admins only.
+            "task-shared" => Ok(Some(make_task_row(task_id, "user-2"))),
             _ => Ok(None),
         });
     TaskCommands::new(Arc::new(store))

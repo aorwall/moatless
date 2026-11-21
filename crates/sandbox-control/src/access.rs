@@ -50,7 +50,7 @@ pub(super) async fn authorize_task_owner(
     Ok(intent)
 }
 
-/// Read access to a Sandbox: its own scope/owner pair, or the public visibility
+/// Read access to a Sandbox: its own owner, or the public visibility
 /// its Task grants.
 ///
 /// Refuses as `NotFound`, never `Forbidden`, so a caller can't tell "not yours"
@@ -124,7 +124,6 @@ mod authz_tests {
     //! write + ownership over one `TaskIntent`, and which refusal each case earns.
     use super::*;
 
-    use moatless_types::access_control::Scope;
     use moatless_types::sandbox::ArchiveRetention;
     use moatless_types::sandbox::SandboxDesiredState;
     use moatless_types::task::TaskStatus;
@@ -135,13 +134,12 @@ mod authz_tests {
         uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, name.as_bytes())
     }
 
-    /// A `TaskIntent` carrying the given access-control pair; every other field
+    /// A `TaskIntent` carrying the given owner and visibility; every other field
     /// is an inert default the access check never reads.
-    fn intent(scope: Scope, owner_user_id: Option<&str>, visibility: Visibility) -> TaskIntent {
+    fn intent(owner_user_id: Option<&str>, visibility: Visibility) -> TaskIntent {
         TaskIntent {
             status: TaskStatus::Open,
             visibility,
-            scope,
             owner_user_id: owner_user_id.map(|u| uid(u).to_string()),
             reporter_user_id: None,
             sandbox_id: "task-1".to_string(),
@@ -156,7 +154,7 @@ mod authz_tests {
     }
 
     fn private(owner_user_id: Option<&str>) -> TaskIntent {
-        intent(Scope::User, owner_user_id, Visibility::Private)
+        intent(owner_user_id, Visibility::Private)
     }
 
     fn ctx(user_id: &str, is_admin: bool) -> ScopeContext {
@@ -202,13 +200,13 @@ mod authz_tests {
 
     #[test]
     fn read_of_a_public_task_is_allowed() {
-        let public = intent(Scope::User, Some("owner"), Visibility::Public);
+        let public = intent(Some("owner"), Visibility::Public);
         assert!(ensure_can_read(&Some(ctx("stranger", false)), &public, "task-1").is_ok());
     }
 
     #[test]
     fn write_of_a_public_task_is_allowed_for_any_signed_in_caller() {
-        let public = intent(Scope::User, Some("owner"), Visibility::Public);
+        let public = intent(Some("owner"), Visibility::Public);
         assert!(ensure_can_write(&Some(ctx("stranger", false)), &public, "task-1").is_ok());
     }
 
@@ -249,7 +247,7 @@ mod authz_tests {
     fn write_without_identity_is_forbidden() {
         // "Every signed-in user" is the grant — an unauthenticated caller is
         // still refused, even on a public Task.
-        let public = intent(Scope::User, Some("owner"), Visibility::Public);
+        let public = intent(Some("owner"), Visibility::Public);
         assert!(matches!(
             ensure_can_write(&None, &public, "task-1"),
             Err(SandboxError::Forbidden(_))
@@ -260,18 +258,12 @@ mod authz_tests {
     fn write_never_widens_to_ownership() {
         // Removing the Sandbox deletes its archives, which outlives anything a
         // visitor is doing, so it stays with the owner.
-        let public = intent(Scope::User, Some("owner"), Visibility::Public);
+        let public = intent(Some("owner"), Visibility::Public);
         assert!(ensure_can_write(&Some(ctx("stranger", false)), &public, "task-1").is_ok());
         assert!(matches!(
             ensure_is_owner(&Some(ctx("stranger", false)), &public, "task-1"),
             Err(SandboxError::Forbidden(_))
         ));
-    }
-
-    #[test]
-    fn read_of_a_global_sandbox_is_allowed() {
-        let global = intent(Scope::Global, None, Visibility::Private);
-        assert!(ensure_can_read(&Some(ctx("anyone", false)), &global, "task-1").is_ok());
     }
 
     #[test]
@@ -286,8 +278,7 @@ mod authz_tests {
 
     #[test]
     fn read_of_an_ownerless_sandbox_is_admin_only() {
-        // No Sandbox row leaves the pair ownerless. An admin still reaches it;
-        // nobody else does.
+        // An admin still reaches a Sandbox with no owner; nobody else does.
         let ownerless = private(None);
         assert!(matches!(
             ensure_can_read(&Some(ctx("anyone", false)), &ownerless, "task-1"),
@@ -309,17 +300,6 @@ mod authz_tests {
     }
 
     #[test]
-    fn ownership_by_a_read_only_viewer_is_forbidden() {
-        // Read access never implies ownership: a global sandbox is admin-owned.
-        let global = intent(Scope::Global, None, Visibility::Private);
-        assert!(ensure_can_read(&Some(ctx("viewer", false)), &global, "task-1").is_ok());
-        assert!(matches!(
-            ensure_is_owner(&Some(ctx("viewer", false)), &global, "task-1"),
-            Err(SandboxError::Forbidden(_))
-        ));
-    }
-
-    #[test]
     fn ownership_by_a_stranger_is_forbidden() {
         let err = ensure_is_owner(
             &Some(ctx("stranger", false)),
@@ -331,7 +311,7 @@ mod authz_tests {
     }
 
     #[test]
-    fn ownership_by_an_admin_bypasses_scope() {
+    fn ownership_by_an_admin_bypasses_the_owner() {
         assert!(
             ensure_is_owner(
                 &Some(ctx("root", true)),

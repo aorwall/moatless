@@ -33,12 +33,9 @@ fn tasks() -> TaskCommands {
                 task.loop_id = (task_id == "task-review").then(|| "loop-review".to_string());
                 Ok((ctx.user_id == "bot").then_some(task))
             }
-            // Reads to everyone and writes for admins only.
-            "task-shared" => {
-                let mut task = make_task_row(task_id, "user-2");
-                task.scope = moatless_types::access_control::Scope::Global;
-                Ok(Some(task))
-            }
+            // Another owner's private Task, which the store answers to any reader
+            // and which writes for its owner and admins only.
+            "task-shared" => Ok(Some(make_task_row(task_id, "user-2"))),
             _ => Ok(None),
         });
     TaskCommands::new(Arc::new(store))

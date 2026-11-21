@@ -19,7 +19,7 @@ use moatless_core::git_provider::GitProviderError;
 use moatless_ports::identity::CommitIdentity;
 use moatless_ports::identity::{GitHostTokenError, GitHostTokenIssuer};
 use moatless_ports::sandbox::{CodexCredentials, PreflightPort, PreflightRejection};
-use moatless_types::access_control::{Scope, ScopeContext, ScopedResource};
+use moatless_types::access_control::{ScopeContext, ScopedResource};
 use moatless_types::http::HttpTimeouts;
 use moatless_types::task::{Task, Visibility};
 use moatless_workspace_ports::{WorkspaceCredentialReader, WorkspaceResolver};
@@ -50,11 +50,10 @@ pub struct PreflightCredentials {
 /// Failure modes for the pre-flight check.
 #[derive(Debug, thiserror::Error)]
 pub enum PreflightError {
-    #[error("user {user_id} cannot write task {task_id} (scope {scope}, owner {owner:?})")]
+    #[error("user {user_id} cannot write task {task_id} (owner {owner:?})")]
     NoTaskControl {
         task_id: String,
         user_id: String,
-        scope: Scope,
         owner: Option<String>,
     },
 
@@ -106,8 +105,8 @@ impl PreflightError {
     /// "token can't see this repo" at a glance.
     pub fn user_message(&self) -> String {
         match self {
-            Self::NoTaskControl { user_id, scope, .. } => format!(
-                "The sandbox runs as {user_id}, who cannot write this {scope}-scoped task. \
+            Self::NoTaskControl { user_id, .. } => format!(
+                "The sandbox runs as {user_id}, who cannot write this task. \
                 Recreate the task so it is owned by the user it runs as."
             ),
             Self::NoGitCredential {
@@ -314,7 +313,7 @@ fn rejection(e: PreflightError) -> PreflightRejection {
 /// creator, as [`SandboxShape::acting_user_id`] reads the Sandbox row.
 ///
 /// Not `created_by` first: a bot Loop's Task is created by the bot but owned
-/// by its Reporter, and the bot cannot write that user-scoped Task.
+/// by its Reporter, and the bot cannot write that Task.
 fn acting_user_id<'a>(task: &'a Task, driver: Option<&'a str>) -> &'a str {
     driver
         .or(task.owner_user_id.as_deref())
@@ -354,7 +353,7 @@ pub(crate) async fn preflight_validate_sandbox_control(
     shape: &SandboxShape,
 ) -> Result<(), PreflightError> {
     let user_id = shape.acting_user_id().unwrap_or("system");
-    let resource = ScopedResource::borrowed(shape.scope, shape.owner_user_id.as_deref());
+    let resource = ScopedResource::task(shape.owner_user_id.as_deref());
     let visibility = if shape.public {
         Visibility::Public
     } else {
@@ -377,7 +376,6 @@ async fn validate_control(
     Err(PreflightError::NoTaskControl {
         task_id: task_id.to_string(),
         user_id: user_id.to_string(),
-        scope: resource.scope,
         owner: resource.owner_user_id.clone(),
     })
 }
@@ -576,7 +574,7 @@ mod tests {
     }
 
     /// A `Task` fixture carrying only the columns the control gate reads.
-    fn task(scope: Scope, created_by: Option<&str>, owner_user_id: Option<&str>) -> Task {
+    fn task(created_by: Option<&str>, owner_user_id: Option<&str>) -> Task {
         Task {
             task_id: "task-1".to_string(),
             short_id: None,
@@ -594,7 +592,6 @@ mod tests {
             created_by: created_by.map(|u| uid(u).to_string()),
             reporter_user_id: None,
             visibility: moatless_types::task::Visibility::Private,
-            scope,
             owner_user_id: owner_user_id.map(|u| uid(u).to_string()),
             run_as_user_id: None,
             updated_at: None,
@@ -636,28 +633,10 @@ mod tests {
         users
     }
 
-    /// The bug this gate exists for: a global loop firing as a bot yielded a
-    /// global, ownerless task, whose pod then authenticates as the bot.
-    ///
-    /// The gRPC gate grants control only to a user-scoped owner; refused
-    /// `GetCredentials` crash-loops the pod, so reject before one exists.
     #[tokio::test]
-    async fn a_global_task_cannot_be_controlled_by_the_user_its_sandbox_runs_as() {
+    async fn a_task_owned_by_its_creator_passes() {
         let users = users_with_role(UserRole::User);
-        let task = task(Scope::Global, Some("bot"), None);
-
-        let err = preflight_validate_task_control(&users, &task, None)
-            .await
-            .expect_err("a global task is uncontrollable");
-
-        assert!(matches!(err, PreflightError::NoTaskControl { .. }));
-        assert!(err.user_message().contains("cannot write"));
-    }
-
-    #[tokio::test]
-    async fn a_user_task_owned_by_its_creator_passes() {
-        let users = users_with_role(UserRole::User);
-        let task = task(Scope::User, Some("alice"), Some("alice"));
+        let task = task(Some("alice"), Some("alice"));
 
         assert!(
             preflight_validate_task_control(&users, &task, None)
@@ -669,9 +648,9 @@ mod tests {
     /// Ownership falls back to `created_by` for rows predating the
     /// `owner_user_id` column, matching `Task::scoped_resource`.
     #[tokio::test]
-    async fn a_user_task_with_only_created_by_passes() {
+    async fn a_task_with_only_created_by_passes() {
         let users = users_with_role(UserRole::User);
-        let task = task(Scope::User, Some("alice"), None);
+        let task = task(Some("alice"), None);
 
         assert!(
             preflight_validate_task_control(&users, &task, None)
@@ -685,7 +664,7 @@ mod tests {
     #[tokio::test]
     async fn a_loop_task_owned_by_its_reporter_passes() {
         let users = users_with_role(UserRole::User);
-        let task = task(Scope::User, Some("bot"), Some("alice"));
+        let task = task(Some("bot"), Some("alice"));
 
         assert!(
             preflight_validate_task_control(&users, &task, None)
@@ -697,23 +676,24 @@ mod tests {
     /// Platform admin short-circuits `is_owner`, so the gate would admit the
     /// pod. Preflight must agree, or it rejects tasks that in fact work.
     #[tokio::test]
-    async fn an_admin_creator_controls_even_a_global_task() {
+    async fn an_admin_controls_even_an_ownerless_task() {
         let users = users_with_role(UserRole::Admin);
-        let task = task(Scope::Global, Some("root"), None);
+        let task = task(None, None);
+        let root = uid("root").to_string();
 
         assert!(
-            preflight_validate_task_control(&users, &task, None)
+            preflight_validate_task_control(&users, &task, Some(&root))
                 .await
                 .is_ok()
         );
     }
 
     /// A public task grants write to every signed-in user, so its driver
-    /// controls the pod however it is scoped.
+    /// controls the pod.
     #[tokio::test]
     async fn the_driver_of_a_public_task_passes() {
         let users = users_with_role(UserRole::User);
-        let mut task = task(Scope::User, Some("alice"), Some("alice"));
+        let mut task = task(Some("alice"), Some("alice"));
         task.visibility = moatless_types::task::Visibility::Public;
         let bob = uid("bob").to_string();
 
@@ -728,7 +708,7 @@ mod tests {
     #[tokio::test]
     async fn a_driver_without_write_on_a_private_task_is_rejected() {
         let users = users_with_role(UserRole::User);
-        let task = task(Scope::User, Some("alice"), Some("alice"));
+        let task = task(Some("alice"), Some("alice"));
         let bob = uid("bob").to_string();
 
         assert!(
@@ -743,7 +723,7 @@ mod tests {
     #[tokio::test]
     async fn a_creatorless_task_is_rejected() {
         let users = users_rejecting_the_actor();
-        let task = task(Scope::User, None, None);
+        let task = task(None, None);
 
         assert!(
             preflight_validate_task_control(&users, &task, None)
@@ -757,7 +737,6 @@ mod tests {
         let no_control = PreflightError::NoTaskControl {
             task_id: "t".to_string(),
             user_id: "u".to_string(),
-            scope: Scope::Global,
             owner: None,
         };
         let no_token = PreflightError::NoGitCredential {
@@ -917,7 +896,7 @@ mod tests {
     }
 
     fn alice() -> Task {
-        task(Scope::User, Some("alice"), Some("alice"))
+        task(Some("alice"), Some("alice"))
     }
 
     /// The failure this gate exists for on a self-hosted host: with no

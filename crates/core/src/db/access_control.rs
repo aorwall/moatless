@@ -1,4 +1,8 @@
 //! SQL predicates for the shared access policy.
+//!
+//! A Task has no `scope` column: its rows are reached by owner, Reporter,
+//! admin or public visibility, which [`access_filter`], [`write_filter`] and
+//! [`owner_filter`] spell with no scope term. Every other entity keeps one.
 
 use moatless_types::access_control::ScopedEntity;
 
@@ -13,6 +17,17 @@ fn task_arms(entity: ScopedEntity, prefix: &str, user_param: usize) -> String {
         format!(" OR {prefix}visibility = 'public' OR {prefix}reporter_user_id = ${user_param}")
     } else {
         String::new()
+    }
+}
+
+/// The owner term: `user`-scoped and owned by the caller, or just owned by the
+/// caller on a Task, whose table has no `scope` column.
+fn owned_by(entity: ScopedEntity, prefix: &str, user_param: usize) -> String {
+    let owner = format!("COALESCE({prefix}owner_user_id, {prefix}created_by) = ${user_param}");
+    if has_visibility(entity) {
+        owner
+    } else {
+        format!("({prefix}scope = 'user' AND {owner})")
     }
 }
 
@@ -39,14 +54,17 @@ impl AccessFilter {
 /// from `start`: `is_admin` then `user_id`, bound from `ScopeContext`.
 ///
 /// `prefix` is the table alias (e.g. `"t."`); the entity decides whether
-/// [`task_arms`] are included.
+/// [`task_arms`] are included, and whether a `global` scope reads for everyone.
 pub fn access_filter(entity: ScopedEntity, prefix: &str, start: usize) -> AccessFilter {
     let (p1, p2) = (start, start + 1);
     let vis = task_arms(entity, prefix, p2);
-    let sql = format!(
-        "(${p1}{vis} OR {prefix}scope = 'global' \
-         OR ({prefix}scope = 'user' AND COALESCE({prefix}owner_user_id, {prefix}created_by) = ${p2}))"
-    );
+    let owner = owned_by(entity, prefix, p2);
+    let global = if has_visibility(entity) {
+        String::new()
+    } else {
+        format!(" OR {prefix}scope = 'global'")
+    };
+    let sql = format!("(${p1}{vis}{global} OR {owner})");
     AccessFilter {
         sql,
         next_param: start + 2,
@@ -62,10 +80,8 @@ pub fn access_filter(entity: ScopedEntity, prefix: &str, start: usize) -> Access
 pub fn write_filter(entity: ScopedEntity, prefix: &str, start: usize) -> AccessFilter {
     let (p1, p2) = (start, start + 1);
     let vis = task_arms(entity, prefix, p2);
-    let sql = format!(
-        "(${p1}{vis} OR ({prefix}scope = 'user' \
-         AND COALESCE({prefix}owner_user_id, {prefix}created_by) = ${p2}))"
-    );
+    let owner = owned_by(entity, prefix, p2);
+    let sql = format!("(${p1}{vis} OR {owner})");
     AccessFilter {
         sql,
         next_param: start + 2,
@@ -75,14 +91,12 @@ pub fn write_filter(entity: ScopedEntity, prefix: &str, start: usize) -> AccessF
 /// Build an ownership SQL filter, using 2 positional parameters from `start`:
 /// `is_admin` then `user_id`, bound from `ScopeContext`.
 ///
-/// The SQL form of `ScopeContext::is_owner`; identical for every entity, so it
-/// takes no [`ScopedEntity`].
-pub fn owner_filter(prefix: &str, start: usize) -> AccessFilter {
+/// The SQL form of `ScopeContext::is_owner`. Public visibility and the
+/// Reporter never widen it, so it takes the entity only for the scope term.
+pub fn owner_filter(entity: ScopedEntity, prefix: &str, start: usize) -> AccessFilter {
     let (p1, p2) = (start, start + 1);
-    let sql = format!(
-        "(${p1} OR ({prefix}scope = 'user' \
-         AND COALESCE({prefix}owner_user_id, {prefix}created_by) = ${p2}))"
-    );
+    let owner = owned_by(entity, prefix, p2);
+    let sql = format!("(${p1} OR {owner})");
     AccessFilter {
         sql,
         next_param: start + 2,
@@ -95,12 +109,12 @@ mod tests {
     use moatless_types::access_control::ScopeContext;
 
     #[test]
-    fn access_filter_task_includes_visibility() {
+    fn access_filter_task_names_no_scope() {
         let f = access_filter(ScopedEntity::Task, "", 1);
         assert_eq!(
             f.sql(),
-            "($1 OR visibility = 'public' OR reporter_user_id = $2 OR scope = 'global' \
-             OR (scope = 'user' AND COALESCE(owner_user_id, created_by) = $2))"
+            "($1 OR visibility = 'public' OR reporter_user_id = $2 \
+             OR COALESCE(owner_user_id, created_by) = $2)"
         );
         assert_eq!(f.next_param(), 3);
     }
@@ -132,14 +146,14 @@ mod tests {
         let f = access_filter(ScopedEntity::Task, "t.", 1);
         assert_eq!(
             f.sql(),
-            "($1 OR t.visibility = 'public' OR t.reporter_user_id = $2 OR t.scope = 'global' \
-             OR (t.scope = 'user' AND COALESCE(t.owner_user_id, t.created_by) = $2))"
+            "($1 OR t.visibility = 'public' OR t.reporter_user_id = $2 \
+             OR COALESCE(t.owner_user_id, t.created_by) = $2)"
         );
     }
 
     #[test]
     fn owner_filter_admin_or_owner_only() {
-        let f = owner_filter("", 1);
+        let f = owner_filter(ScopedEntity::Resource, "", 1);
         assert_eq!(
             f.sql(),
             "($1 OR (scope = 'user' AND COALESCE(owner_user_id, created_by) = $2))"
@@ -148,23 +162,19 @@ mod tests {
     }
 
     #[test]
-    fn owner_filter_with_table_prefix() {
-        let f = owner_filter("t.", 3);
+    fn owner_filter_task_names_no_scope() {
+        let f = owner_filter(ScopedEntity::Task, "t.", 3);
         assert_eq!(
             f.sql(),
-            "($3 OR (t.scope = 'user' AND COALESCE(t.owner_user_id, t.created_by) = $4))"
+            "($3 OR COALESCE(t.owner_user_id, t.created_by) = $4)"
         );
         assert_eq!(f.next_param(), 5);
     }
 
     #[test]
-    fn write_filter_task_adds_the_public_and_reporter_arms_to_the_owner_fragment() {
+    fn write_filter_task_is_the_read_rule() {
         let f = write_filter(ScopedEntity::Task, "", 1);
-        assert_eq!(
-            f.sql(),
-            "($1 OR visibility = 'public' OR reporter_user_id = $2 \
-             OR (scope = 'user' AND COALESCE(owner_user_id, created_by) = $2))"
-        );
+        assert_eq!(f.sql(), access_filter(ScopedEntity::Task, "", 1).sql());
         assert_eq!(f.next_param(), 3);
     }
 
@@ -175,7 +185,7 @@ mod tests {
         for entity in [ScopedEntity::Repository, ScopedEntity::Resource] {
             assert_eq!(
                 write_filter(entity, "t.", 3).sql(),
-                owner_filter("t.", 3).sql()
+                owner_filter(entity, "t.", 3).sql()
             );
         }
     }

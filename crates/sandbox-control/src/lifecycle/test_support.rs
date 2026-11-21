@@ -31,9 +31,9 @@ pub(crate) async fn seed_bare_task(pool: &PgPool, task_id: &str, status: &str) {
     .expect("seed workspace");
 
     sqlx::query(
-        r#"INSERT INTO sandboxes (sandbox_id, workspace_id, scope, owner_user_id,
+        r#"INSERT INTO sandboxes (sandbox_id, workspace_id, owner_user_id,
                run_as_user_id, agent_profile, storage_reclaimed_at)
-           VALUES ($1, 'ws_repo-x', 'user', 'user-1', 'user-1', 'claude-code', NOW())"#,
+           VALUES ($1, 'ws_repo-x', 'user-1', 'user-1', 'claude-code', NOW())"#,
     )
     .bind(task_id)
     .execute(pool)
@@ -42,10 +42,10 @@ pub(crate) async fn seed_bare_task(pool: &PgPool, task_id: &str, status: &str) {
 
     sqlx::query(
         r#"INSERT INTO tasks (task_id, created_at, last_message_at, agent_profile, repository_id,
-               status, total_cost_usd, visibility, scope, created_by, owner_user_id,
+               status, total_cost_usd, visibility, created_by, owner_user_id,
                workspace_id, sandbox_id)
            VALUES ($1, NOW()::text, NOW()::text, 'claude-code', 'repo-x', $2, 0,
-               'private', 'user', 'user-1', 'user-1', 'ws_repo-x', $1)"#,
+               'private', 'user-1', 'user-1', 'ws_repo-x', $1)"#,
     )
     .bind(task_id)
     .bind(status)

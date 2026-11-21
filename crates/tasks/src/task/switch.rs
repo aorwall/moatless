@@ -117,10 +117,7 @@ impl TaskSwitchService {
             .await?
             .ok_or_else(|| TaskError::NotFound(task_id.to_string()))?;
         if !scope_ctx.can_write(
-            &ScopedResource::borrowed(
-                task.scope,
-                task.owner_user_id.as_deref().or(task.created_by.as_deref()),
-            ),
+            &ScopedResource::task(task.owner_user_id.as_deref().or(task.created_by.as_deref())),
             Some(task.visibility),
         ) {
             return Err(TaskError::NotFound(task_id.to_string()));

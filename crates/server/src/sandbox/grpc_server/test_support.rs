@@ -11,8 +11,6 @@ use moatless_tasks::task::operations::TaskCommands;
 use super::authorize::SandboxAuthorizer;
 use super::state::BackendSandboxServiceImpl;
 
-use moatless_types::access_control::Scope;
-
 use moatless_ports::identity::MockCommitIdentity;
 use moatless_tasks::task::models::Task;
 use moatless_tasks::task::test_support::ScriptedTasks;
@@ -23,9 +21,9 @@ pub(super) fn uid(name: &str) -> uuid::Uuid {
     uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, name.as_bytes())
 }
 
-/// A `Task` fixture with the given scope/owner; all other columns are inert
+/// A `Task` fixture with the given owner; all other columns are inert
 /// defaults irrelevant to the access check.
-pub(super) fn task_fixture(scope: Scope, owner_user_id: Option<&str>) -> Task {
+pub(super) fn task_fixture(owner_user_id: Option<&str>) -> Task {
     Task {
         task_id: "task-1".to_string(),
         short_id: None,
@@ -43,7 +41,6 @@ pub(super) fn task_fixture(scope: Scope, owner_user_id: Option<&str>) -> Task {
         created_by: owner_user_id.map(|u| uid(u).to_string()),
         reporter_user_id: None,
         visibility: moatless_types::task::Visibility::Private,
-        scope,
         owner_user_id: owner_user_id.map(|u| uid(u).to_string()),
         run_as_user_id: None,
         updated_at: None,

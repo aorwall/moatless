@@ -90,20 +90,17 @@ async fn a_user_message_clears_settle_for_all_followers_and_snooze_only_for_send
     assert!(colleague.2.is_some(), "colleague snooze was cleared");
 }
 
-/// REST send is a write: a reader who cannot write is refused before anything
+/// REST send is a write: a visitor who cannot write is refused before anything
 /// lands, and a public Task's visitor is let through.
 #[sqlx::test]
-async fn a_user_message_needs_write_not_read(pool: PgPool) {
+async fn a_user_message_needs_write_access(pool: PgPool) {
     compose::workspaces(pool.clone())
         .insert_workspace(&make_workspace_row("ws-a", "user-1"))
         .await
         .unwrap();
-    // A `global` private row reads to everyone but writes for admins only.
-    let mut readable = make_task_row("t-readable", "user-1");
-    readable.workspace_id = Some("ws-a".to_string());
-    readable.scope = moatless_types::access_control::Scope::Global;
-    readable.owner_user_id = None;
-    moatless_tasks::task::test_support::seed_task(&pool, &readable)
+    let mut private = make_task_row("t-private", "user-1");
+    private.workspace_id = Some("ws-a".to_string());
+    moatless_tasks::task::test_support::seed_task(&pool, &private)
         .await
         .unwrap();
     seed_public_task(&pool, "t-public", "user-1", Some("ws-a")).await;
@@ -133,9 +130,9 @@ async fn a_user_message_needs_write_not_read(pool: PgPool) {
         }
     };
 
-    assert!(send("t-readable").await.is_err());
+    assert!(send("t-private").await.is_err());
     let follows: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM task_follows WHERE user_id = 'user-2' AND task_id = 't-readable'",
+        "SELECT count(*) FROM task_follows WHERE user_id = 'user-2' AND task_id = 't-private'",
     )
     .fetch_one(&pool)
     .await
@@ -510,15 +507,15 @@ async fn a_conversation_with_no_name_falls_back_to_new_thread(pool: PgPool) {
 #[sqlx::test]
 async fn every_listed_conversation_decodes(pool: PgPool) {
     seed_conversation_matrix(&pool).await;
-    seed_turn(&pool, "own-private-user-followed", 1, "error").await;
-    seed_sandbox(&pool, "own-private-user-followed", "removed", false).await;
-    seed_turn(&pool, "own-public-global-followed", 1, "stopped").await;
-    seed_sandbox(&pool, "own-public-global-followed", "stopped", true).await;
-    seed_user_message(&pool, "other-public-user-followed", "m-1").await;
+    seed_turn(&pool, "own-private-followed", 1, "error").await;
+    seed_sandbox(&pool, "own-private-followed", "removed", false).await;
+    seed_turn(&pool, "own-public-followed", 1, "stopped").await;
+    seed_sandbox(&pool, "own-public-followed", "stopped", true).await;
+    seed_user_message(&pool, "other-public-followed", "m-1").await;
 
     let snapshot = snapshot(&pool, &viewer("user-1")).await;
     let threads = snapshot["threads"].as_array().unwrap();
-    assert_eq!(threads.len(), 7);
+    assert_eq!(threads.len(), 3);
     for thread in threads {
         assert_decodable_thread(thread);
         assert_eq!(

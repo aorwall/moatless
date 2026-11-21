@@ -28,9 +28,9 @@ pub async fn seed_bare_task(pool: &PgPool, task_id: &str, status: &str) {
     .expect("seed workspace");
 
     sqlx::query(
-        r#"INSERT INTO sandboxes (sandbox_id, workspace_id, scope, owner_user_id,
+        r#"INSERT INTO sandboxes (sandbox_id, workspace_id, owner_user_id,
                run_as_user_id, storage_reclaimed_at)
-           VALUES ($1, 'ws_repo-x', 'user', 'user-1', 'user-1', NOW())"#,
+           VALUES ($1, 'ws_repo-x', 'user-1', 'user-1', NOW())"#,
     )
     .bind(task_id)
     .execute(pool)
@@ -39,12 +39,12 @@ pub async fn seed_bare_task(pool: &PgPool, task_id: &str, status: &str) {
 
     sqlx::query(
         r#"INSERT INTO tasks (task_id, created_at, last_message_at, agent_profile, repository_id,
-               status, total_cost_usd, visibility, scope, created_by, owner_user_id,
+               status, total_cost_usd, visibility, created_by, owner_user_id,
                workspace_id, sandbox_id)
            VALUES ($1, to_char(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
                to_char(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
                'claude-code', 'repo-x', $2, 0,
-               'private', 'user', 'user-1', 'user-1', 'ws_repo-x', $1)"#,
+               'private', 'user-1', 'user-1', 'ws_repo-x', $1)"#,
     )
     .bind(task_id)
     .bind(status)
@@ -221,7 +221,6 @@ pub fn make_task_row(task_id: &str, user_id: &str) -> Task {
         created_by: Some(user_id.to_string()),
         reporter_user_id: None,
         visibility: Visibility::Private,
-        scope: moatless_types::access_control::Scope::User,
         owner_user_id: Some(user_id.to_string()),
         run_as_user_id: None,
         updated_at: None,

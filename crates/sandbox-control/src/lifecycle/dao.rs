@@ -14,7 +14,6 @@ use chrono::{DateTime, Utc};
 
 use moatless_core::db::DbPool;
 use moatless_core::db_enum::{decode_optional, decode_required};
-use moatless_types::access_control::Scope;
 use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason, sandbox_intent_epoch};
 
 use super::events::LifecycleEvent;
@@ -34,8 +33,6 @@ use moatless_types::sandbox::ArchiveRetention;
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
 pub struct SandboxShape {
     pub workspace_id: String,
-    #[sqlx(try_from = "String")]
-    pub scope: Scope,
     pub owner_user_id: Option<String>,
     /// Holds the owner when nothing pinned another identity: the row is
     /// written `Task > Workspace > owner`. See [`Self::pinned_run_as`].
@@ -306,11 +303,10 @@ impl LifecycleDao for PgLifecycleDao {
     async fn load(&self, task_id: &str) -> Result<Option<TaskIntent>, StoreError> {
         // Left join: a Task with no Sandbox row is not TaskNotFound — it reads as
         // converged Stopped (never requested) with an epoch intent timestamp and
-        // an ownerless access-control pair, which only an admin can reach.
+        // no owner, which only an admin can reach.
         let row: Option<(
             String,
             String,
-            Option<String>,
             Option<String>,
             Option<String>,
             String,
@@ -327,7 +323,6 @@ impl LifecycleDao for PgLifecycleDao {
             r#"SELECT
                 t.status,
                 t.visibility,
-                s.scope,
                 s.owner_user_id,
                 t.reporter_user_id,
                 COALESCE(t.sandbox_id, t.task_id) AS sandbox_id,
@@ -353,7 +348,6 @@ impl LifecycleDao for PgLifecycleDao {
             |(
                 status,
                 visibility,
-                scope,
                 owner_user_id,
                 reporter_user_id,
                 sandbox_id,
@@ -370,9 +364,8 @@ impl LifecycleDao for PgLifecycleDao {
                 Ok::<_, sqlx::Error>(TaskIntent {
                     status: decode_required("status", status)?,
                     visibility: decode_required("visibility", visibility)?,
-                    // No Sandbox row leaves the pair ownerless, which reads as
+                    // No Sandbox row leaves it ownerless, which reads as
                     // reachable by an admin and nobody else.
-                    scope: decode_optional("scope", scope)?.unwrap_or(Scope::User),
                     owner_user_id,
                     reporter_user_id,
                     sandbox_id,
@@ -455,7 +448,7 @@ impl LifecycleDao for PgLifecycleDao {
 
     async fn sandbox_shape(&self, sandbox_id: &str) -> Result<Option<SandboxShape>, StoreError> {
         sqlx::query_as(
-            r#"SELECT s.workspace_id, s.scope, s.owner_user_id, s.run_as_user_id,
+            r#"SELECT s.workspace_id, s.owner_user_id, s.run_as_user_id,
                       (t.run_as_user_id IS NOT NULL) AS run_as_pinned,
                       s.driver_user_id, t.reporter_user_id,
                       COALESCE(t.visibility = 'public', false) AS public,
@@ -938,7 +931,6 @@ mod tests {
     fn a_pin_counts_even_when_it_names_the_owner() {
         let shape = |run_as: &str, pinned| SandboxShape {
             workspace_id: "ws".to_string(),
-            scope: Scope::Global,
             owner_user_id: Some("owner".to_string()),
             run_as_user_id: Some(run_as.to_string()),
             run_as_pinned: pinned,
@@ -1323,16 +1315,14 @@ mod db_tests {
     }
 
     #[sqlx::test]
-    async fn load_reads_access_control_off_the_sandbox_and_visibility_off_the_task(pool: PgPool) {
-        // One read answers who may reach the Sandbox. The pair is the Sandbox's
+    async fn load_reads_the_owner_off_the_sandbox_and_visibility_off_the_task(pool: PgPool) {
+        // One read answers who may reach the Sandbox. The owner is the Sandbox's
         // own; `visibility` is the Task's, because a public Task grants read.
         seed_bare_task(&pool, "t1", "open").await;
-        sqlx::query(
-            "UPDATE sandboxes SET scope = 'global', owner_user_id = NULL WHERE sandbox_id = 't1'",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
+        sqlx::query("UPDATE sandboxes SET owner_user_id = NULL WHERE sandbox_id = 't1'")
+            .execute(&pool)
+            .await
+            .unwrap();
         sqlx::query("UPDATE tasks SET visibility = 'public' WHERE task_id = 't1'")
             .execute(&pool)
             .await
@@ -1340,18 +1330,16 @@ mod db_tests {
         let store = PgLifecycleDao::new(pool.clone());
 
         let intent = store.load("t1").await.unwrap().expect("task exists");
-        assert_eq!(intent.scope, Scope::Global);
         assert_eq!(intent.owner_user_id, None);
         assert_eq!(intent.visibility, moatless_types::task::Visibility::Public);
 
-        // With the Sandbox row gone the pair is ownerless, which reaches nobody
+        // With the Sandbox row gone it is still ownerless, which reaches nobody
         // but an admin.
         sqlx::query("DELETE FROM sandboxes WHERE sandbox_id = 't1'")
             .execute(&pool)
             .await
             .unwrap();
         let intent = store.load("t1").await.unwrap().expect("task exists");
-        assert_eq!(intent.scope, Scope::User);
         assert_eq!(intent.owner_user_id, None);
     }
 

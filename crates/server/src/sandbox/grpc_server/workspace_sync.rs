@@ -354,8 +354,6 @@ mod tests {
     use super::super::test_support::users_regular;
     use super::*;
 
-    use moatless_types::access_control::Scope;
-
     fn repository_request(task_id: &str) -> Request<GetWorkspaceRepositoryAccessRequest> {
         Request::new(GetWorkspaceRepositoryAccessRequest {
             task_id: task_id.to_string(),
@@ -370,7 +368,7 @@ mod tests {
     #[tokio::test]
     async fn a_deployment_without_a_repository_refuses_the_grant() {
         let svc = service_with(
-            tasks_returning(Some(task_fixture(Scope::User, Some("owner")))),
+            tasks_returning(Some(task_fixture(Some("owner")))),
             users_regular(),
         );
 

@@ -15,7 +15,7 @@ use super::settle_dao;
 use super::snooze_dao;
 use moatless_core::db::DbPool;
 use moatless_core::db_enum::decode_optional;
-use moatless_types::access_control::{Scope, ScopeContext, ScopedEntity};
+use moatless_types::access_control::{ScopeContext, ScopedEntity};
 use moatless_types::agent::{AgentProfile, AgentProperties};
 use moatless_types::task::TaskRelationType;
 
@@ -376,7 +376,7 @@ impl TaskDao for PgTaskDao {
         task_id: &str,
         ctx: &ScopeContext,
     ) -> Result<Option<Task>, sqlx::Error> {
-        let owner = moatless_core::db::access_control::owner_filter("", 2);
+        let owner = moatless_core::db::access_control::owner_filter(ScopedEntity::Task, "", 2);
         self.find_under(task_id, ctx, &owner).await
     }
 
@@ -409,19 +409,18 @@ impl TaskDao for PgTaskDao {
             let owner = row.owner_user_id.as_deref().or(row.created_by.as_deref());
             let inserted = sqlx::query(
                 r#"INSERT INTO sandboxes (
-                       sandbox_id, workspace_id, scope, owner_user_id, run_as_user_id,
+                       sandbox_id, workspace_id, owner_user_id, run_as_user_id,
                        branch, headless, agent_profile, use_tmux, storage_reclaimed_at,
                        node_selector, stop_when_done
                    )
-                   SELECT $1, w.id, $2, $3,
-                          COALESCE(NULLIF($9, ''), NULLIF(w.run_as_user_id, ''), $3),
-                          $4, $5, $6, $7, NOW(),
-                          COALESCE($10, w.node_selector), $11
+                   SELECT $1, w.id, $2,
+                          COALESCE(NULLIF($8, ''), NULLIF(w.run_as_user_id, ''), $2),
+                          $3, $4, $5, $6, NOW(),
+                          COALESCE($9, w.node_selector), $10
                    FROM workspaces w
-                   WHERE w.id = $8"#,
+                   WHERE w.id = $7"#,
             )
             .bind(&sandbox_id)
-            .bind(row.scope.as_str())
             .bind(owner)
             .bind(&row.branch)
             .bind(row.headless)
@@ -449,16 +448,16 @@ impl TaskDao for PgTaskDao {
                 task_id, short_id, created_at, last_message_at, agent_profile,
                 repository_id, status, total_cost_usd, template_id,
                 name, description, branch,
-                created_by, visibility, scope, owner_user_id, run_as_user_id,
+                created_by, visibility, owner_user_id, run_as_user_id,
                 append_system_prompt, updated_at, headless, ttl_minutes,
                 close_after_settled_days, loop_id, model,
                 workspace_id, sandbox_id, checkout_mode, skills, memory_preload,
                 settle_after_hours, reporter_user_id, agent_properties
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                $11, $12, $13, $14, $15, $16, $17, $18,
-                NOW(), $19, $20, $21, $22, $23,
-                $24, $25, $26, $27, $28, $29, $30, $31
+                $11, $12, $13, $14, $15, $16, $17,
+                NOW(), $18, $19, $20, $21, $22,
+                $23, $24, $25, $26, $27, $28, $29, $30
             )"#,
         )
         .bind(&row.task_id)
@@ -475,7 +474,6 @@ impl TaskDao for PgTaskDao {
         .bind(&row.branch)
         .bind(&row.created_by)
         .bind(row.visibility.as_str())
-        .bind(row.scope.as_str())
         .bind(&row.owner_user_id)
         .bind(&row.run_as_user_id)
         .bind(&row.append_system_prompt)
@@ -553,7 +551,7 @@ impl TaskDao for PgTaskDao {
         // `status`, the empty conversation and the owner rule are all in this
         // one `WHERE`, so a Task that became usable between the caller's read
         // and this call is not deleted by a decision that has gone stale.
-        let ctrl = moatless_core::db::access_control::owner_filter("", 2);
+        let ctrl = moatless_core::db::access_control::owner_filter(ScopedEntity::Task, "", 2);
         let sql = format!(
             "DELETE FROM tasks \
              WHERE task_id = $1 AND status = $4 AND {} \
@@ -657,7 +655,6 @@ impl TaskDao for PgTaskDao {
             created_by: Option<String>,
             reporter_user_id: Option<String>,
             visibility: Option<String>,
-            scope: Option<String>,
             owner_user_id: Option<String>,
             run_as_user_id: Option<String>,
             updated_at: Option<DateTime<Utc>>,
@@ -711,7 +708,6 @@ impl TaskDao for PgTaskDao {
                     created_by: self.created_by,
                     reporter_user_id: self.reporter_user_id,
                     visibility: Visibility::try_from(self.visibility?.as_str()).ok()?,
-                    scope: Scope::try_from(self.scope?).ok()?,
                     owner_user_id: self.owner_user_id,
                     run_as_user_id: self.run_as_user_id,
                     updated_at: self.updated_at,
@@ -743,7 +739,7 @@ impl TaskDao for PgTaskDao {
                     t.repository_id, t.workspace_id, t.status, t.total_cost_usd, t.template_id,
                     t.sandbox_id, t.checkout_mode,
                     t.name, t.description, t.branch,
-                    t.model, t.created_by, t.reporter_user_id, t.visibility, t.scope, t.owner_user_id,
+                    t.model, t.created_by, t.reporter_user_id, t.visibility, t.owner_user_id,
                     t.run_as_user_id,
                     t.created_at_db, t.updated_at, t.append_system_prompt,
                     t.headless, t.ttl_minutes,
@@ -842,7 +838,7 @@ impl TaskDao for PgTaskDao {
         // the listing change and mutation must commit together or not at all.
         let mut tx = self.pool.begin().await?;
         let ctrl = if patch.owner_only() {
-            moatless_core::db::access_control::owner_filter("", 3)
+            moatless_core::db::access_control::owner_filter(ScopedEntity::Task, "", 3)
         } else {
             moatless_core::db::access_control::write_filter(ScopedEntity::Task, "", 3)
         };
@@ -984,7 +980,7 @@ impl TaskDao for PgTaskDao {
         task_id: &str,
         ctx: &ScopeContext,
     ) -> Result<bool, sqlx::Error> {
-        let ctrl = moatless_core::db::access_control::owner_filter("", 2);
+        let ctrl = moatless_core::db::access_control::owner_filter(ScopedEntity::Task, "", 2);
         let sql = format!(
             "UPDATE tasks SET status = 'closed' WHERE task_id = $1 AND {} \
              AND NOT EXISTS (SELECT 1 FROM task_inbox WHERE task_id = $1) \
@@ -1009,7 +1005,7 @@ impl TaskDao for PgTaskDao {
     }
 
     async fn delete_task(&self, task_id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error> {
-        let ctrl = moatless_core::db::access_control::owner_filter("", 2);
+        let ctrl = moatless_core::db::access_control::owner_filter(ScopedEntity::Task, "", 2);
         let sql = format!(
             "DELETE FROM tasks WHERE task_id = $1 AND {} RETURNING task_id, sandbox_id",
             ctrl.sql()

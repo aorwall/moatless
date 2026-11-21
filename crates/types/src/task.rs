@@ -7,7 +7,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::access_control::{Scope, ScopedResource};
+use crate::access_control::ScopedResource;
 use crate::agent::AgentProfile;
 
 /// The provenance that says a Message reached this Task from outside it.
@@ -445,7 +445,6 @@ pub struct Task {
     /// The verified person who requested a Loop's work; independent of following.
     pub reporter_user_id: Option<String>,
     pub visibility: Visibility,
-    pub scope: Scope,
     pub owner_user_id: Option<String>,
     /// The identity this task's Sandbox acts as outward (git-host credentials,
     /// delivered plugins), when the task names one itself.
@@ -485,12 +484,9 @@ impl Task {
     /// (`ScopeContext::can_read` / `can_write`).
     ///
     /// Ownership falls back to `created_by` for rows predating `owner_user_id`,
-    /// matching the `COALESCE` in the DAO's scope filter.
+    /// matching the `COALESCE` in the DAO's access filter.
     pub fn scoped_resource(&self) -> ScopedResource {
-        ScopedResource::borrowed(
-            self.scope,
-            self.owner_user_id.as_deref().or(self.created_by.as_deref()),
-        )
-        .reported_by(self.reporter_user_id.as_deref())
+        ScopedResource::task(self.owner_user_id.as_deref().or(self.created_by.as_deref()))
+            .reported_by(self.reporter_user_id.as_deref())
     }
 }

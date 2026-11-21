@@ -221,18 +221,18 @@ mod db_tests {
         for statement in [
             "INSERT INTO workspaces (id, name, scope, owner_user_id, created_by)
              VALUES ('ws-x', 'X', 'user', 'owner', 'owner')",
-            "INSERT INTO sandboxes (sandbox_id, workspace_id, scope, owner_user_id,
+            "INSERT INTO sandboxes (sandbox_id, workspace_id, owner_user_id,
                  run_as_user_id, agent_profile)
-             VALUES ('t1', 'ws-x', 'user', 'owner', 'owner', 'claude-code')",
+             VALUES ('t1', 'ws-x', 'owner', 'owner', 'claude-code')",
         ] {
             sqlx::query(statement).execute(pool).await.unwrap();
         }
         sqlx::query(
             "INSERT INTO tasks (task_id, created_at, last_message_at, agent_profile,
-                 repository_id, status, total_cost_usd, visibility, scope,
+                 repository_id, status, total_cost_usd, visibility,
                  created_by, owner_user_id, workspace_id, sandbox_id)
              VALUES ('t1', NOW()::text, NOW()::text, 'claude-code', 'repo-x', 'open', 0,
-                 $1, 'user', 'owner', 'owner', 'ws-x', 't1')",
+                 $1, 'owner', 'owner', 'ws-x', 't1')",
         )
         .bind(visibility)
         .execute(pool)

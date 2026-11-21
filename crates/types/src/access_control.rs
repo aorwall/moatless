@@ -2,7 +2,8 @@
 //!
 //! [`ScopeContext`]'s policy is a pure function of `(user_id, is_admin)` ×
 //! `(scope, owner, visibility)` with no database input; owner is
-//! `COALESCE(owner_user_id, created_by)`. See [`ScopeContext::can_read`],
+//! `COALESCE(owner_user_id, created_by)`. A Task has no scope column:
+//! see [`ScopedResource::task`]. See [`ScopeContext::can_read`],
 //! [`ScopeContext::can_write`] and [`ScopeContext::is_owner`] for the exact
 //! rules.
 
@@ -18,10 +19,10 @@
 use crate::task::Visibility;
 
 crate::string_enum!(
-    /// Access scope for repositories, tasks, integrations, and credentials.
+    /// Access scope for repositories, workspaces, integrations, and credentials.
     ///
-    /// `global` is world-readable and admin-writable; `user` is owner-managed. A
-    /// public Task additionally grants read and write, never ownership.
+    /// `global` is world-readable and admin-writable; `user` is owner-managed.
+    /// A Task has no scope; its access is [`ScopedResource::task`].
     Scope {
         Global => "global",
         User => "user",
@@ -38,7 +39,8 @@ crate::string_enum!(
 /// — callers never choose this themselves, eliminating a class of bugs.
 #[derive(Debug, Clone, Copy)]
 pub enum ScopedEntity {
-    /// `tasks` table — has a `visibility` column.
+    /// `tasks` table — has a `visibility` column and no `scope` column, so its
+    /// filters name none.
     Task,
     /// `repositories` table — canonical scoped resource; no visibility bypass.
     Repository,
@@ -80,6 +82,16 @@ impl ScopedResource {
             owner_user_id: owner_user_id.map(str::to_string),
             reporter_user_id: None,
         }
+    }
+
+    /// A Task, or the Sandbox of one: reached by its owner, its Reporter, an
+    /// admin, or anyone while public.
+    ///
+    /// Neither table has a `scope` column, so `Scope::User` is built in. An
+    /// unowned row (no `owner_user_id`, no `created_by`) names nobody, so only
+    /// an admin reaches it, or anyone while it is public.
+    pub fn task(owner_user_id: Option<&str>) -> Self {
+        Self::borrowed(Scope::User, owner_user_id)
     }
 
     /// The same resource, with `reporter` granted read and write.
@@ -461,7 +473,7 @@ mod tests {
 
     // -- policy matrix --
     //
-    // Exhaustive allow/deny table over actor × scope × task visibility ×
+    // Exhaustive allow/deny table over actor × owned/unowned Task × visibility ×
     // action. This test IS the policy's documentation: any behavioral change
     // to access control must show up as a diff in the expected table below.
 
@@ -476,13 +488,13 @@ mod tests {
         ];
 
         let tasks = [
-            ("global", ScopedResource::borrowed(Scope::Global, None)),
-            ("user", ScopedResource::borrowed(Scope::User, Some(owner))),
+            ("owned", ScopedResource::task(Some(owner))),
+            ("unowned", ScopedResource::task(None)),
         ];
 
         let verdict = |allowed: bool| if allowed { "allow" } else { "deny" };
         let mut lines = Vec::new();
-        for (scope_name, task) in &tasks {
+        for (kind, task) in &tasks {
             for visibility in [Visibility::Private, Visibility::Public] {
                 let public = visibility == Visibility::Public;
                 for (actor_name, ctx) in &actors {
@@ -495,7 +507,7 @@ mod tests {
                     // never follows from visibility.
                     let owns = ctx.is_owner(task);
                     lines.push(format!(
-                        "{scope_name:<6} {vis:<7} {actor_name:<5} \
+                        "{kind:<7} {vis:<7} {actor_name:<5} \
                          read={} write={} owner={}",
                         verdict(read),
                         verdict(write),
@@ -507,18 +519,18 @@ mod tests {
         }
 
         let expected = "\
-global private owner read=allow write=deny owner=deny
-global private other read=allow write=deny owner=deny
-global private admin read=allow write=allow owner=allow
-global public  owner read=allow write=allow owner=deny
-global public  other read=allow write=allow owner=deny
-global public  admin read=allow write=allow owner=allow
-user   private owner read=allow write=allow owner=allow
-user   private other read=deny write=deny owner=deny
-user   private admin read=allow write=allow owner=allow
-user   public  owner read=allow write=allow owner=allow
-user   public  other read=allow write=allow owner=deny
-user   public  admin read=allow write=allow owner=allow";
+owned   private owner read=allow write=allow owner=allow
+owned   private other read=deny write=deny owner=deny
+owned   private admin read=allow write=allow owner=allow
+owned   public  owner read=allow write=allow owner=allow
+owned   public  other read=allow write=allow owner=deny
+owned   public  admin read=allow write=allow owner=allow
+unowned private owner read=deny write=deny owner=deny
+unowned private other read=deny write=deny owner=deny
+unowned private admin read=allow write=allow owner=allow
+unowned public  owner read=allow write=allow owner=deny
+unowned public  other read=allow write=allow owner=deny
+unowned public  admin read=allow write=allow owner=allow";
         assert_eq!(lines.join("\n"), expected);
     }
 

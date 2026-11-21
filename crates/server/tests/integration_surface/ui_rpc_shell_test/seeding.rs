@@ -226,11 +226,11 @@ pub(super) async fn seed_workspaces(pool: &PgPool) {
 /// not what these tests vary — the conversation's is.
 pub(super) const MATRIX_WS: &str = "ws-matrix";
 
-/// One conversation per combination of owner, visibility, scope, and follow the
-/// two filters must distinguish.
+/// One conversation per combination of owner, visibility, and follow the two
+/// filters must distinguish.
 ///
-/// Ids read `{owner}-{visibility}-{scope}-{follow}`, so a failing assertion
-/// names the combination that broke.
+/// Ids read `{owner}-{visibility}-{follow}`, so a failing assertion names the
+/// combination that broke.
 pub(super) async fn seed_conversation_matrix(pool: &PgPool) {
     compose::workspaces(pool.clone())
         .insert_workspace(&make_workspace_row(MATRIX_WS, "user-1"))
@@ -242,31 +242,21 @@ pub(super) async fn seed_conversation_matrix(pool: &PgPool) {
             ("private", Visibility::Private),
             ("public", Visibility::Public),
         ] {
-            for (scope_label, scope) in [("user", Scope::User), ("global", Scope::Global)] {
-                for (follow_label, followed) in [("followed", true), ("unfollowed", false)] {
-                    let id =
-                        format!("{owner_label}-{visibility_label}-{scope_label}-{follow_label}");
-                    let mut task = make_task_row(&id, owner);
-                    task.workspace_id = Some(MATRIX_WS.to_string());
-                    task.visibility = visibility;
-                    task.scope = scope;
-                    // `tasks_owner_scope_chk`: a deployment-scoped row has no
-                    // owner. `created_by` still records who made it.
-                    task.owner_user_id = match scope {
-                        Scope::User => Some(owner.to_string()),
-                        Scope::Global => None,
-                    };
-                    moatless_tasks::task::test_support::seed_task(pool, &task)
-                        .await
-                        .unwrap();
+            for (follow_label, followed) in [("followed", true), ("unfollowed", false)] {
+                let id = format!("{owner_label}-{visibility_label}-{follow_label}");
+                let mut task = make_task_row(&id, owner);
+                task.workspace_id = Some(MATRIX_WS.to_string());
+                task.visibility = visibility;
+                moatless_tasks::task::test_support::seed_task(pool, &task)
+                    .await
+                    .unwrap();
 
-                    // Creation auto-follows for the creator, so the viewer's
-                    // follow is set both ways rather than only added.
-                    if followed {
-                        follow(pool, "user-1", &id).await;
-                    } else {
-                        unfollow(pool, "user-1", &id).await;
-                    }
+                // Creation auto-follows for the creator, so the viewer's
+                // follow is set both ways rather than only added.
+                if followed {
+                    follow(pool, "user-1", &id).await;
+                } else {
+                    unfollow(pool, "user-1", &id).await;
                 }
             }
         }

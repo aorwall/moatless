@@ -190,8 +190,7 @@ impl TaskForkService {
             .find_by_id(source_task_id, scope_ctx)
             .await?
             .ok_or_else(|| TaskError::NotFound(source_task_id.to_string()))?;
-        if !scope_ctx.can_read(&ScopedResource::borrowed(
-            source.scope,
+        if !scope_ctx.can_read(&ScopedResource::task(
             source
                 .owner_user_id
                 .as_deref()

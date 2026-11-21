@@ -454,8 +454,6 @@ async fn a_conversation_entering_a_project_the_client_lacks_arrives_as_a_listing
     // `ws-other` belongs to `user-2` and `user-1` cannot read it.
     theirs.workspace_id = Some("ws-other".to_string());
     theirs.visibility = Visibility::Public;
-    // `tasks_owner_scope_chk`: a deployment-scoped row has no owner.
-    theirs.scope = Scope::Global;
     theirs.owner_user_id = None;
     moatless_tasks::task::test_support::seed_task(&pool, &theirs)
         .await
@@ -778,8 +776,6 @@ async fn a_referenced_project_change_is_sent_as_a_snapshot(pool: PgPool) {
     let mut theirs = make_task_row("t-theirs", "user-2");
     theirs.workspace_id = Some("ws-other".to_string());
     theirs.visibility = Visibility::Public;
-    // `tasks_owner_scope_chk`: a deployment-scoped row has no owner.
-    theirs.scope = Scope::Global;
     theirs.owner_user_id = None;
     moatless_tasks::task::test_support::seed_task(&pool, &theirs)
         .await

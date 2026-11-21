@@ -19,7 +19,6 @@ use moatless_core::change_feed::listing::record_change;
 use moatless_tasks::task::models::TaskPatch;
 use moatless_tasks::task::models::TaskStatus;
 use moatless_tasks::task::models::Visibility;
-use moatless_types::access_control::Scope;
 use moatless_workspaces::compose;
 use moatless_workspaces::workspace::UpdateOutcome;
 use moatless_workspaces::workspace::models::WorkspacePatch;
@@ -146,7 +145,6 @@ async fn a_resumed_client_gaining_an_unreadable_project_still_gets_the_listing_w
     let mut theirs = make_task_row("t-theirs", "user-2");
     theirs.workspace_id = Some("ws-other".to_string());
     theirs.visibility = Visibility::Public;
-    theirs.scope = Scope::Global;
     theirs.owner_user_id = None;
     moatless_tasks::task::test_support::seed_task(&pool, &theirs)
         .await

@@ -841,7 +841,6 @@ mod tests {
         use super::super::*;
         use moatless_core::sandbox_identities::SandboxIdentity;
         use moatless_ports::identity::MockCommitIdentity;
-        use moatless_types::access_control::Scope;
 
         fn roles() -> RoleIdentities {
             let identity = |name: &str| SandboxIdentity {
@@ -857,7 +856,6 @@ mod tests {
         fn shape() -> SandboxShape {
             SandboxShape {
                 workspace_id: "ws".to_string(),
-                scope: Scope::Global,
                 owner_user_id: Some("owner".to_string()),
                 run_as_user_id: Some("owner".to_string()),
                 run_as_pinned: false,

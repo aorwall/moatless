@@ -18690,7 +18690,6 @@
           "lastMessageAt",
           "totalCostUsd",
           "visibility",
-          "scope",
           "tags",
           "ttlMinutes",
           "closeAfterSettledDays",
@@ -18861,9 +18860,6 @@
                 "description": "Reason the sandbox was intentionally moved away from `running`, if any."
               }
             ]
-          },
-          "scope": {
-            "$ref": "#/components/schemas/Scope"
           },
           "settleAfterHours": {
             "type": [

@@ -151,7 +151,6 @@ fn an_unclassified_failure_says_nothing_about_itself() {
 mod thread_ids {
     use super::*;
     use moatless_tasks::task::test_support::{ScriptedTasks, TaskStoreCalls};
-    use moatless_types::access_control::Scope;
 
     const DRAFT: &str = "thread-minted-by-the-client";
 
@@ -177,7 +176,6 @@ mod thread_ids {
             created_by: Some(owner.to_string()),
             reporter_user_id: None,
             visibility: moatless_types::task::Visibility::Private,
-            scope: Scope::User,
             owner_user_id: Some(owner.to_string()),
             run_as_user_id: None,
             updated_at: None,

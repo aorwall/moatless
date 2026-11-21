@@ -37,7 +37,7 @@ impl PgTaskDao {
                     repository_id, workspace_id, sandbox_id, checkout_mode, status,
                     total_cost_usd, template_id, name, description,
                     branch, model, created_by, reporter_user_id,
-                    visibility, scope, owner_user_id, run_as_user_id, created_at_db,
+                    visibility, owner_user_id, run_as_user_id, created_at_db,
                     updated_at, append_system_prompt, headless, ttl_minutes,
                     close_after_settled_days, settle_after_hours, loop_id, skills,
                     memory_preload, agent_properties

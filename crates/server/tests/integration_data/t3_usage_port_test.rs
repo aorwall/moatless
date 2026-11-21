@@ -60,23 +60,21 @@ async fn seed_turn(
 
 #[sqlx::test]
 async fn global_usage_respects_local_day_and_missing_metric_fields(pool: PgPool) {
-    seed_task(&pool, "global-task", USER_1).await;
+    seed_task(&pool, "public-task", USER_1).await;
     seed_turn(
         &pool,
-        "global-task",
+        "public-task",
         1,
         "codex",
         json!({"usage": {"input_tokens": 7}}),
     )
     .await;
-    seed_turn(&pool, "global-task", 2, "codex", json!({})).await;
-    sqlx::query(
-        "UPDATE tasks SET scope = 'global', owner_user_id = NULL WHERE task_id = 'global-task'",
-    )
-    .execute(&pool)
-    .await
-    .expect("global task");
-    sqlx::query("UPDATE task_turns SET started_at = '2026-09-02T00:30:00Z'::timestamptz WHERE task_id = 'global-task'")
+    seed_turn(&pool, "public-task", 2, "codex", json!({})).await;
+    sqlx::query("UPDATE tasks SET visibility = 'public' WHERE task_id = 'public-task'")
+        .execute(&pool)
+        .await
+        .expect("public task");
+    sqlx::query("UPDATE task_turns SET started_at = '2026-09-02T00:30:00Z'::timestamptz WHERE task_id = 'public-task'")
         .execute(&pool).await.expect("turn near day boundary");
     let reporter = moatless_backend::t3code::t3_graph_over(&pool).usage();
     let viewer = user_scope("22222222-2222-2222-2222-222222222222");

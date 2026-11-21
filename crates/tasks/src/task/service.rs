@@ -234,10 +234,7 @@ async fn require_write(
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.to_string()))?;
     if !scope_ctx.can_write(
-        &ScopedResource::borrowed(
-            task.scope,
-            task.owner_user_id.as_deref().or(task.created_by.as_deref()),
-        ),
+        &ScopedResource::task(task.owner_user_id.as_deref().or(task.created_by.as_deref())),
         Some(task.visibility),
     ) {
         return Err(TaskError::NotFound(task_id.to_string()));
@@ -920,7 +917,6 @@ mod tests {
             created_by: Some(owner.to_string()),
             reporter_user_id: None,
             visibility: Visibility::Private,
-            scope: moatless_types::access_control::Scope::User,
             owner_user_id: Some(owner.to_string()),
             run_as_user_id: run_as.map(str::to_string),
             updated_at: None,

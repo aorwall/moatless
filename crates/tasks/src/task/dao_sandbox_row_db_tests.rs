@@ -49,7 +49,6 @@ fn task_row(task_id: &str) -> Task {
         created_by: Some("user-1".to_string()),
         reporter_user_id: None,
         visibility: Visibility::Private,
-        scope: Scope::User,
         owner_user_id: Some("user-1".to_string()),
         run_as_user_id: None,
         updated_at: None,
@@ -71,7 +70,6 @@ fn task_row(task_id: &str) -> Task {
 #[derive(sqlx::FromRow)]
 struct SandboxShape {
     workspace_id: String,
-    scope: String,
     owner_user_id: Option<String>,
     run_as_user_id: Option<String>,
     branch: Option<String>,
@@ -80,7 +78,7 @@ struct SandboxShape {
 
 async fn sandbox_shape(pool: &PgPool, sandbox_id: &str) -> Option<SandboxShape> {
     sqlx::query_as(
-        "SELECT workspace_id, scope, owner_user_id, run_as_user_id, branch, headless
+        "SELECT workspace_id, owner_user_id, run_as_user_id, branch, headless
          FROM sandboxes WHERE sandbox_id = $1",
     )
     .bind(sandbox_id)
@@ -107,7 +105,6 @@ async fn insert_task_writes_the_sandbox_row_from_the_task(pool: PgPool) {
 
     let shape = sandbox_shape(&pool, "t1").await.expect("sandbox row");
     assert_eq!(shape.workspace_id, "ws_repo-x");
-    assert_eq!(shape.scope, "user");
     assert_eq!(shape.owner_user_id.as_deref(), Some("user-1"));
     assert_eq!(shape.branch.as_deref(), Some("feature/x"));
     assert!(shape.headless);

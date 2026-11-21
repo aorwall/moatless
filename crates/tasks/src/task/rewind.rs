@@ -64,10 +64,7 @@ impl TaskRewindService {
         // Existence hiding, as on every other write: a Task the caller may not
         // write is reported the same way as one that is not there.
         if !scope_ctx.can_write(
-            &ScopedResource::borrowed(
-                task.scope,
-                task.owner_user_id.as_deref().or(task.created_by.as_deref()),
-            ),
+            &ScopedResource::task(task.owner_user_id.as_deref().or(task.created_by.as_deref())),
             Some(task.visibility),
         ) {
             return Err(TaskError::NotFound(task_id.to_string()));

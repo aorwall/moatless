@@ -136,7 +136,6 @@ impl LifecycleDao for InMemoryLifecycleDao {
         *slot = Some(TaskIntent {
             status,
             visibility: Visibility::Private,
-            scope: Scope::User,
             owner_user_id: Some("user-1".to_string()),
             reporter_user_id: None,
             sandbox_id,
@@ -532,7 +531,6 @@ pub(super) fn intent(
     TaskIntent {
         status,
         visibility: Visibility::Private,
-        scope: Scope::User,
         owner_user_id: Some("user-1".to_string()),
         reporter_user_id: None,
         sandbox_id: "t".to_string(),

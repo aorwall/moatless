@@ -101,7 +101,6 @@ mod tests {
     use super::*;
     use chrono::TimeZone;
 
-    use moatless_types::access_control::Scope;
     use moatless_types::sandbox::SandboxStopReason;
     use moatless_types::task::{TaskStatus, Visibility};
 
@@ -121,7 +120,6 @@ mod tests {
         TaskIntent {
             status,
             visibility: Visibility::Private,
-            scope: Scope::User,
             owner_user_id: Some("user-1".to_string()),
             reporter_user_id: None,
             sandbox_id: "t1".to_string(),

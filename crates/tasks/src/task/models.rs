@@ -7,7 +7,7 @@
 use chrono::{DateTime, Utc};
 
 use moatless_core::db_enum::decode_optional;
-use moatless_types::access_control::{Scope, ScopeContext};
+use moatless_types::access_control::ScopeContext;
 use moatless_types::agent::AgentProfile;
 
 // The task band's vocabulary surface: call sites keep naming these through
@@ -71,8 +71,6 @@ pub struct TaskRow {
     pub reporter_user_id: Option<String>,
     #[sqlx(try_from = "String")]
     pub visibility: Visibility,
-    #[sqlx(try_from = "String")]
-    pub scope: Scope,
     pub owner_user_id: Option<String>,
     /// See [`moatless_types::task::Task::run_as_user_id`].
     pub run_as_user_id: Option<String>,
@@ -128,7 +126,6 @@ impl TryFrom<TaskRow> for Task {
             created_by: row.created_by,
             reporter_user_id: row.reporter_user_id,
             visibility: row.visibility,
-            scope: row.scope,
             owner_user_id: row.owner_user_id,
             run_as_user_id: row.run_as_user_id,
             updated_at: row.updated_at,

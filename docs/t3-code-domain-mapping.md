@@ -72,7 +72,7 @@ Where a concept exists only in T3 Code, **T3 Code's name carries over unchanged*
 | `Environment` | — | T3 Code only. Keep the name. |
 | Checkpoint, proposed plan, `settled`/`snoozed` | — | T3 Code only. Keep the names. |
 | — | `Binding`, `Adapter`, `Loop`, `Schedule`, `Subscription` | Moatless only. |
-| — | `Scope`, `Visibility` | Moatless only. `Scope` is two values (`Global`, `User`); ownership is `COALESCE(owner_user_id, created_by)`. |
+| — | `Scope`, `Visibility` | Moatless only. `Scope` is two values (`Global`, `User`) and a Task has none; ownership is `COALESCE(owner_user_id, created_by)`. |
 
 ### Do not rename `Project` to `Workspace`
 
@@ -271,8 +271,9 @@ same something.
   derives the id from the database it is serving, and a client that finds a
   different id is either starting fresh or refusing to connect — never resuming
   into a listing that no longer exists.
-- **Moatless federates over access scope.** Rows carry `scope` (`Global` or
-  `User`) plus ownership, and every query is filtered by a `ScopeContext`.
+- **Moatless federates over access scope.** Most rows carry `scope` (`Global`
+  or `User`) plus ownership, a Task carries ownership and `visibility` alone,
+  and every query is filtered by a `ScopeContext`.
 
 T3 Code has nowhere to express *who may see this*; Moatless has nowhere to
 express *this task lives on a machine I am not connected to right now*. The

@@ -19,7 +19,7 @@ use moatless_ports::sandbox as core_sandbox;
 
 use moatless_ports::sandbox::{AgentStopOutcome, SandboxLifecycle, SandboxOpError};
 use moatless_sandbox_runtime::error::SandboxError;
-use moatless_types::access_control::{Scope, ScopedResource};
+use moatless_types::access_control::ScopedResource;
 use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason};
 pub use moatless_types::store::StoreError;
 use moatless_types::task::TaskStatus;
@@ -40,13 +40,11 @@ use moatless_types::sandbox::ArchiveRetention;
 /// Persisted lifecycle intent for one Task's Sandbox membership.
 ///
 /// Answers who may reach it, what the Task's status permits, and what state it
-/// desires; `scope`/`owner_user_id` are the Sandbox's own, `visibility` is the
-/// Task's.
+/// desires; `owner_user_id` is the Sandbox's own, `visibility` is the Task's.
 #[derive(Debug, Clone)]
 pub struct TaskIntent {
     pub status: TaskStatus,
     pub visibility: Visibility,
-    pub scope: Scope,
     pub owner_user_id: Option<String>,
     /// The Task's Reporter, who reads and writes the Sandbox without owning it.
     pub reporter_user_id: Option<String>,
@@ -67,7 +65,7 @@ pub struct TaskIntent {
 impl TaskIntent {
     /// The Sandbox as an access-control subject.
     pub fn scoped_resource(&self) -> ScopedResource {
-        ScopedResource::borrowed(self.scope, self.owner_user_id.as_deref())
+        ScopedResource::task(self.owner_user_id.as_deref())
             .reported_by(self.reporter_user_id.as_deref())
     }
 }

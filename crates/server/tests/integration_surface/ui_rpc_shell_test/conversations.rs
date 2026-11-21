@@ -140,18 +140,14 @@ async fn a_viewer_sees_the_conversations_they_follow_and_may_still_read(pool: Pg
     seed_conversation_matrix(&pool).await;
 
     // Every followed combination except the one the viewer may not read:
-    // someone else's private, user-scoped conversation. Public and global
-    // conversations they follow are listed whoever owns them.
+    // someone else's private conversation. Public conversations they follow
+    // are listed whoever owns them.
     assert_eq!(
         thread_ids(&pool, &viewer("user-1")).await,
         vec![
-            "other-private-global-followed".to_string(),
-            "other-public-global-followed".to_string(),
-            "other-public-user-followed".to_string(),
-            "own-private-global-followed".to_string(),
-            "own-private-user-followed".to_string(),
-            "own-public-global-followed".to_string(),
-            "own-public-user-followed".to_string(),
+            "other-public-followed".to_string(),
+            "own-private-followed".to_string(),
+            "own-public-followed".to_string(),
         ]
     );
 }
@@ -168,8 +164,8 @@ async fn an_unfollowed_conversation_is_absent_however_readable_it_is(pool: PgPoo
         );
     }
     // Including the viewer's own, which they can both read and control.
-    assert!(!listed.contains(&"own-public-user-unfollowed".to_string()));
-    assert!(!listed.contains(&"own-private-user-unfollowed".to_string()));
+    assert!(!listed.contains(&"own-public-unfollowed".to_string()));
+    assert!(!listed.contains(&"own-private-unfollowed".to_string()));
 }
 
 /// An administrator's sidebar is what they follow, like everyone else's. This
@@ -187,10 +183,10 @@ async fn an_administrator_sees_only_the_conversations_they_follow(pool: PgPool) 
 
     // A conversation the administrator neither owns nor could reach through
     // scope — following it is the whole reason it appears.
-    follow(&pool, "root", "other-private-user-unfollowed").await;
+    follow(&pool, "root", "other-private-unfollowed").await;
     assert_eq!(
         thread_ids(&pool, &root).await,
-        vec!["other-private-user-unfollowed".to_string()]
+        vec!["other-private-unfollowed".to_string()]
     );
 }
 

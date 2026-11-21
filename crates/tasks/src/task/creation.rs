@@ -4,14 +4,14 @@
 //!
 //! [`TaskCreationService::create`] is every caller's one entry point. It
 //! guarantees a failed preflight or provisioning step still records the task as
-//! `Error` with a `SandboxStatus::Error` event. Every Task is `Scope::User`.
+//! `Error` with a `SandboxStatus::Error` event.
 
 use std::future::Future;
 use std::sync::Arc;
 
 use moatless_ports::identity::UserResolver;
 use moatless_ports::sandbox::{PreflightPort, SandboxError, SandboxJoiner, SandboxStarter};
-use moatless_types::access_control::{Scope, ScopeContext};
+use moatless_types::access_control::ScopeContext;
 use moatless_types::sandbox::{SandboxEventPayload, SandboxStatus};
 use moatless_types::task::TaskSubType;
 
@@ -44,7 +44,7 @@ pub const FIRST_MESSAGE_FAILED: &str = "first_message_failed";
 pub const TASK_ERRORED_LIFECYCLE_EVENTS: &[&str] = &[PREFLIGHT_FAILED, FIRST_MESSAGE_FAILED];
 
 /// Normalised task-creation input; every call path translates its domain input
-/// into this. Scope is always `Scope::User`.
+/// into this.
 pub struct NewTaskRequest {
     /// The Workspace's primary repository; `None` when it places none.
     pub repository_id: Option<String>,
@@ -340,7 +340,6 @@ impl TaskCreationService {
             created_by: req.created_by.clone(),
             reporter_user_id: req.reporter_user_id.clone(),
             visibility: req.visibility,
-            scope: Scope::User,
             owner_user_id,
             run_as_user_id: req.run_as_user_id.clone(),
             updated_at: None,

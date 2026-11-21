@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::bindings::TaskBindingSummary;
 use crate::enums::{
-    CheckoutMode, SandboxDesiredState, SandboxStopReason, Scope, TaskRelationType,
-    TaskRepositorySource, TaskStatus, Visibility,
+    CheckoutMode, SandboxDesiredState, SandboxStopReason, TaskRelationType, TaskRepositorySource,
+    TaskStatus, Visibility,
 };
 use moatless_types::agent::{AgentMode, AgentProfile};
 
@@ -332,7 +332,6 @@ pub struct TaskResponse {
     #[serde(default)]
     pub agent_properties: moatless_types::agent::AgentProperties,
     pub visibility: Visibility,
-    pub scope: Scope,
     pub owner_user_id: Option<String>,
     /// Derived from whichever parent relation in `relations` makes this task a
     /// child (`created_by` or `forked_from`).

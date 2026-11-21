@@ -129,10 +129,10 @@ test.describe('Chain 1: Repository Scope Filtering', () => {
 })
 
 // =============================================================================
-// Chain 2: Task Scope Inheritance
+// Chain 2: Task Ownership
 // =============================================================================
 
-test.describe('Chain 2: Task Scope Inheritance', () => {
+test.describe('Chain 2: Task Ownership', () => {
   requiresSeededUsers()
   test.describe.configure({ mode: 'serial' })
 
@@ -171,16 +171,13 @@ test.describe('Chain 2: Task Scope Inheritance', () => {
     ctx.task = task
   })
 
-  // ─── AUTH-23.1: Task inherits scope from its repository ──────────────
+  // ─── AUTH-23.1: Task is owned by its creator ─────────────────────────
 
-  test('AUTH-23.1: Task inherits scope from its repository', async ({ alice }) => {
+  test('AUTH-23.1: Task is owned by its creator', async ({ alice }) => {
     const task = await alice.getTask(ctx.taskId!)
     expect(task.taskId).toBe(ctx.taskId)
 
-    // The inheritance is the scenario. A task created under a user-scoped
-    // repository that came out global would be visible to the whole
-    // environment, and reading back only its own id would not notice.
-    expect(task.scope, "the task did not inherit its repository's scope").toBe('user')
+    // A Task has no scope; AUTH-23.3 proves the owner alone reaches it.
     expect(task.ownerUserId, 'the task is not owned by its creator').toBe(await alice.userId())
   })
 
