@@ -1067,7 +1067,7 @@ export class MoatApi {
 
   /** Create one and report how the API answered, for a rejection assertion. */
   async createTaskTriggerFixtureRaw(config: TaskLoopFixtureConfig): Promise<RawResponse> {
-    const adapterKind = config.adapterKind ?? config.provider ?? 'webhook'
+    const adapterKind = config.adapterKind ?? config.provider ?? 'slack'
     // A live loop routes inbound events into new tasks, so on a shared
     // environment it is the one leftover that keeps doing something. Both the
     // matcher and the name carry the run, so the sweep can find it.
@@ -1081,8 +1081,7 @@ export class MoatApi {
         adapterKind,
         externalAccountId: sourceId,
         sourceName,
-        connectionKind:
-          config.connectionKind ?? (adapterKind === 'webhook' ? 'webhook' : 'bot_api'),
+        connectionKind: config.connectionKind ?? 'bot_api',
         webhookSecret: adapterConfigSecret(config.adapterConfig),
       }),
     )
@@ -1189,41 +1188,6 @@ export class MoatApi {
     return loops
       .map(toTaskTriggerFixture)
       .filter((fixture) => !filters?.workspaceId || fixture.workspaceId === filters.workspaceId)
-  }
-
-  /** Deliver a message through a webhook connection. */
-  async sendWebhookMessage(
-    triggerId: string,
-    payload: {
-      text: string
-      threadId?: string
-      userId?: string
-      metadata?: Record<string, unknown>
-      deliveryId?: string
-    },
-  ): Promise<RawResponse> {
-    // The text is stamped like a name. This delivery creates a task the backend
-    // titles from the message itself, so the name it ends up with carries no
-    // prefix — the description, which holds this text verbatim, is the only place
-    // a sweep running in a different sandbox can still read the run off it.
-    return this.moat.raw('POST', `/api/v1/adapters/webhook/${triggerId}`, {
-      ...payload,
-      text: scopedName(payload.text),
-    })
-  }
-
-  /** Deliver an arbitrary webhook payload, for malformed-input assertions. */
-  async sendWebhookMessageRaw(
-    triggerId: string,
-    payload: unknown,
-    headers?: Record<string, string>,
-  ): Promise<RawResponse> {
-    return this.moat.raw(
-      'POST',
-      `/api/v1/adapters/webhook/${triggerId}`,
-      payload,
-      headers ? { headers } : undefined,
-    )
   }
 
   // =========================================================================

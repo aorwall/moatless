@@ -18,7 +18,7 @@ import type { Schedule } from '@moatless/api-client/sandbox/model'
 import { scopedName } from '../../shared/run-scope'
 import { ChainContext } from '../context/chain-context'
 import { expect, test } from '../fixtures/api-fixtures'
-import { createWebhookTriggerFixture } from '../steps'
+import { createSubscriptionLoopFixture } from '../steps'
 
 test.describe('Chain 1: Task Route and Trigger CRUD', () => {
   test.describe.configure({ mode: 'serial' })
@@ -39,18 +39,18 @@ test.describe('Chain 1: Task Route and Trigger CRUD', () => {
     }
   })
 
-  // ─── INT-01: Create webhook subscription loop fixture ───────────────────
+  // ─── INT-01: Create subscription loop fixture ───────────────────
 
-  test('INT-01: Create webhook task trigger fixture', async ({ api }) => {
+  test('INT-01: Create subscription loop fixture', async ({ api }) => {
     const sourceId = `crud-test-${Date.now()}`
-    const result = await createWebhookTriggerFixture(api, ctx.workspaceId!, {
+    const result = await createSubscriptionLoopFixture(api, ctx.workspaceId!, {
       sourceId,
-      sourceName: 'CRUD Test Webhook',
+      sourceName: 'CRUD Test Subscription',
     })
 
     expect(result.config.active).toBe(true)
     expect(result.triggerId).toBeTruthy()
-    expect(result.config.adapterKind).toBe('webhook')
+    expect(result.config.adapterKind).toBe('slack')
     expect(result.config.workspaceId).toBe(ctx.workspaceId)
     // The matcher is what the inbound event is routed by, so it has to be
     // the one asked for — the connection is created from the same string.
@@ -78,7 +78,7 @@ test.describe('Chain 1: Task Route and Trigger CRUD', () => {
     const config = await api.getTaskTriggerFixture(ctx.get<string>('triggerId')!)
 
     expect(config.id).toBe(ctx.get<string>('triggerId'))
-    expect(config.adapterKind).toBe('webhook')
+    expect(config.adapterKind).toBe('slack')
     expect(config.routingMode).toBe('by_subject')
     expect(config.active).toBe(true)
   })
@@ -87,16 +87,16 @@ test.describe('Chain 1: Task Route and Trigger CRUD', () => {
 
   test('INT-03: Update task trigger fixture', async ({ api }) => {
     const updated = await api.updateTaskTriggerFixture(ctx.get<string>('triggerId')!, {
-      sourceName: 'Updated CRUD Webhook',
+      sourceName: 'Updated CRUD Subscription',
       promptTemplate: 'Please help: {message}',
-      taskName: 'Updated webhook task',
+      taskName: 'Updated subscription task',
     })
 
-    expect(updated.sourceName).toBe(scopedName('Updated CRUD Webhook'))
+    expect(updated.sourceName).toBe(scopedName('Updated CRUD Subscription'))
     expect(updated.promptTemplate).toBe('Please help: {message}')
     // The name the routed task will be given, which is a separate field from
     // the prompt it will be started with.
-    expect(updated.taskName).toBe('Updated webhook task')
+    expect(updated.taskName).toBe('Updated subscription task')
     expect(updated.routingMode).toBe('by_subject')
   })
 

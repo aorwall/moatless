@@ -1,6 +1,6 @@
 //! Capability-matrix tests for the adapter registry.
 //!
-//! These build the four concrete providers, which live in this crate above the
+//! These build the three concrete providers, which live in this crate above the
 //! loops band, so they cannot live in the Adapter kernel alongside the registry
 //! itself. They call the registry's capability accessors directly, which is
 //! what makes the assertion worth something: the lookup under test is the
@@ -46,12 +46,6 @@ fn registry_with_all_current_adapters() -> Adapters {
         ),
     )
     .register_into(&mut providers);
-    Arc::new(
-        crate::adapters::providers::webhook::adapter::WebhookAdapter::new(
-            moatless_core::config::HttpConfig::default().webhook,
-        ),
-    )
-    .register_into(&mut providers);
     providers
 }
 
@@ -78,17 +72,7 @@ async fn registry_exposes_expected_capability_slots_for_current_adapters() {
             "{kind:?} message reply"
         );
     }
-    assert!(providers.get(AdapterKind::Webhook).is_some());
-    assert!(
-        providers
-            .outbound_for_binding_reply_by_name("webhook")
-            .is_ok()
-    );
-    assert!(
-        providers
-            .outbound_for_message_reply_by_name("webhook")
-            .is_ok()
-    );
+    assert!(providers.get(AdapterKind::Webhook).is_none());
 
     for kind in [AdapterKind::Slack, AdapterKind::GithubPr] {
         assert!(providers.reactions(kind).is_ok(), "{kind:?} reactions");
@@ -134,11 +118,6 @@ async fn registry_exposes_expected_capability_slots_for_current_adapters() {
     );
     assert!(
         providers
-            .outbound_for_direct_destination(AdapterKind::Webhook)
-            .is_err()
-    );
-    assert!(
-        providers
             .outbound_for_direct_message(AdapterKind::GithubPr)
             .is_err()
     );
@@ -149,34 +128,13 @@ async fn registry_exposes_expected_capability_slots_for_current_adapters() {
     );
     assert!(
         providers
-            .outbound_for_direct_message(AdapterKind::Webhook)
-            .is_err()
-    );
-    assert!(
-        providers
             .post_binding_followup(AdapterKind::Slack)
             .is_none()
     );
-    assert!(
-        providers
-            .post_binding_followup(AdapterKind::Webhook)
-            .is_none()
-    );
     assert!(providers.reactions(AdapterKind::Linear).is_err());
-    assert!(providers.reactions(AdapterKind::Webhook).is_err());
-    assert!(
-        providers
-            .inbound_presentation_by_name(AdapterKind::Webhook.as_str())
-            .is_none()
-    );
     assert!(
         providers
             .binding_status_by_name(AdapterKind::Slack.as_str())
-            .is_none()
-    );
-    assert!(
-        providers
-            .binding_status_by_name(AdapterKind::Webhook.as_str())
             .is_none()
     );
 }
@@ -287,20 +245,4 @@ async fn name_resolution_resolves_against_the_adapter_map() {
     assert_eq!(github.connection_provider_key(), "github");
 
     assert!(providers.get_by_name("nope").is_none());
-}
-
-#[tokio::test]
-async fn webhook_raw_destination_send_is_absent_from_registry() {
-    let providers = registry_with_all_current_adapters();
-
-    match providers.outbound_for_direct_destination(AdapterKind::Webhook) {
-        Err(AdapterError::Shared(SharedAdapterError::BadRequest(msg))) => {
-            assert!(
-                msg.contains("does not support direct destination sends"),
-                "unexpected message: {msg}"
-            );
-        }
-        Err(other) => panic!("expected BadRequest, got: {other:?}"),
-        Ok(_) => panic!("webhook must not register raw direct destination capability"),
-    }
 }

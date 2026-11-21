@@ -18,7 +18,6 @@ use crate::adapters::providers::github_pr::router::ReviewGuideTasks;
 use crate::adapters::providers::linear::active_turns::ActiveLinearTurns;
 use crate::adapters::providers::linear::adapter::LinearAdapter;
 use crate::adapters::providers::slack::adapter::SlackAdapter;
-use crate::adapters::providers::webhook::adapter::WebhookAdapter;
 use crate::compose::Ports;
 use crate::state::AppState;
 use moatless_adapter_model::delivery::AdapterDeliveryHandlers;
@@ -29,7 +28,7 @@ use moatless_types::store::StoreError;
 
 /// The external Adapters installed in one backend process.
 ///
-/// Production installs all four unconditionally, since credentials and
+/// Production installs all three unconditionally, since credentials and
 /// transport are resolved per workspace; a process without database ports
 /// carries none.
 pub struct AdapterInstallations {
@@ -46,7 +45,6 @@ impl AdapterInstallations {
         let runtime_config = Arc::new(config.clone());
 
         let slack = SlackInstallation::install(runtime_config.clone(), ports, &mut adapters);
-        WebhookInstallation::install(config, &mut adapters);
         let github_pr = GithubPrInstallation::install(config, ports, &mut adapters);
         let linear = LinearInstallation::install(runtime_config, ports, &mut adapters);
 
@@ -71,7 +69,6 @@ impl AdapterInstallations {
     pub fn delivery_handlers(&self, state: &AppState) -> AdapterDeliveryHandlers {
         let mut handlers = AdapterDeliveryHandlers::new();
         self.slack.register_delivery(&mut handlers, state);
-        WebhookInstallation::register_delivery(&mut handlers, state);
         self.github_pr.register_delivery(&mut handlers, state);
         self.linear.register_delivery(&mut handlers, state);
         if let Some(adapters) = &state.adapters {
@@ -116,22 +113,6 @@ impl AdapterInstallations {
     }
 }
 
-/// Register the one-handler inbound-message delivery shared by the Adapters
-/// whose `register_delivery` does nothing but bind their own
-/// `delivery::INBOUND_MESSAGE` and `delivery::ADAPTER` to an
-/// [`InboundMessageHandler`].
-fn register_inbound_message_delivery(
-    handlers: &mut AdapterDeliveryHandlers,
-    state: &AppState,
-    kind: &'static str,
-    adapter: &'static str,
-) {
-    handlers.register(
-        kind,
-        Arc::new(InboundMessageHandler::new(adapter, state.routing.clone())),
-    );
-}
-
 struct SlackInstallation {
     adapter: Arc<SlackAdapter>,
 }
@@ -158,25 +139,6 @@ impl SlackInstallation {
                 InboundMessageHandler::new(delivery::ADAPTER, state.routing.clone())
                     .with_files(Arc::new(files)),
             ),
-        );
-    }
-}
-
-struct WebhookInstallation;
-
-impl WebhookInstallation {
-    fn install(config: &Config, adapters: &mut Adapters) {
-        Arc::new(WebhookAdapter::new(config.http.webhook)).register_into(adapters);
-        tracing::info!("Webhook Adapter installed");
-    }
-
-    fn register_delivery(handlers: &mut AdapterDeliveryHandlers, state: &AppState) {
-        use crate::adapters::providers::webhook::delivery;
-        register_inbound_message_delivery(
-            handlers,
-            state,
-            delivery::INBOUND_MESSAGE,
-            delivery::ADAPTER,
         );
     }
 }

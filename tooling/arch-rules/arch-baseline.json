@@ -22,7 +22,6 @@
   "composition-root::moatless_backend::t3code::backend::commands::use crate::state::AppState as AppState names AppState",
   "composition-root::moatless_backend::t3code::backend::pull_requests::AppStateBoundPullRequests names AppState",
   "composition-root::moatless_backend::t3code::backend::pull_requests::use crate::state::AppState as AppState names AppState",
-  "duplicate-comment-prose::crates/adapter-slack/src/delivery.rs|crates/adapter-webhook/src/delivery.rs",
   "duplicate-comment-prose::crates/api-schemas/src/linear.rs|crates/cli/src/commands/linear.rs",
   "duplicate-comment-prose::crates/identity/src/auth/forgejo_connect.rs|crates/identity/src/auth/github_connect.rs",
   "duplicate-comment-prose::crates/sandbox/src/supervisor.rs|crates/server/src/supervisor.rs",

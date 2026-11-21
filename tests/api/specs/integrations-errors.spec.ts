@@ -3,80 +3,16 @@
  *
  * Independent error scenario tests for integration operations.
  *
- * INT-50: Webhook to non-existent config
- * INT-51: Webhook to inactive config
- * INT-52: Webhook with invalid signature
  * INT-53: Create config with non-existent workspace
- * INT-54: Webhook with missing text field
  */
 
 import { expect, test } from '../fixtures/api-fixtures'
-import { createWebhookTriggerFixture } from '../steps'
-
-// ─── INT-50: Webhook to non-existent config ──────────────────────────
-
-test('INT-50: Webhook to non-existent config returns error', async ({ api }) => {
-  const response = await api.sendWebhookMessage('non-existent-config-id', {
-    text: 'This should fail',
-  })
-
-  expect(response.status).toBe(404)
-})
-
-// ─── INT-51: Webhook to inactive config ──────────────────────────────
-
-test('INT-51: Webhook to inactive config is rejected', async ({ api }) => {
-  const workspace = await api.ensureTemplateWorkspace()
-
-  const { triggerId } = await createWebhookTriggerFixture(api, workspace.id, {
-    sourceId: `inactive-${Date.now()}`,
-  })
-
-  // Deactivate the config
-  await api.updateTaskTriggerFixture(triggerId, { active: false })
-
-  // A deactivated loop is rejected before admission — its inbound endpoint
-  // resolves no runnable subscription, so the delivery is refused, not owned.
-  const response = await api.sendWebhookMessage(triggerId, {
-    text: 'This should be rejected',
-  })
-
-  expect(response.status).toBe(404)
-
-  // Cleanup
-  await api.deleteTaskTriggerFixture(triggerId).catch(() => {})
-})
-
-// ─── INT-52: Webhook with invalid signature ──────────────────────────
-
-test('INT-52: Webhook with invalid signature is rejected', async ({ api }) => {
-  const workspace = await api.ensureTemplateWorkspace()
-
-  const { triggerId } = await createWebhookTriggerFixture(api, workspace.id, {
-    sourceId: `sig-test-${Date.now()}`,
-    adapterConfig: {
-      webhook_secret: 'my-secret-key',
-    },
-  })
-
-  // Send message with invalid signature
-  const response = await api.sendWebhookMessageRaw(
-    triggerId,
-    { text: 'This should fail' },
-    { 'X-Webhook-Signature': 'sha256=invalid' },
-  )
-
-  expect(response.status).toBe(401)
-
-  // Cleanup
-  await api.deleteTaskTriggerFixture(triggerId).catch(() => {})
-})
 
 // ─── INT-53: Create config with non-existent workspace ───────────────
 
 test('INT-53: Create config with non-existent workspace returns error', async ({ api }) => {
   const response = await api.createTaskTriggerFixtureRaw({
-    adapterKind: 'webhook',
+    adapterKind: 'slack',
     sourceId: `no-workspace-${Date.now()}`,
     workspaceId: 'non-existent-workspace-id',
     routingMode: 'by_subject',
@@ -85,22 +21,4 @@ test('INT-53: Create config with non-existent workspace returns error', async ({
   // The rule names a workspace that is not there, so the trigger is refused
   // rather than created and left pointing at nothing.
   expect(response.status).toBe(400)
-})
-
-// ─── INT-54: Webhook with missing text field ─────────────────────────
-
-test('INT-54: Webhook with missing text field returns error', async ({ api }) => {
-  const workspace = await api.ensureTemplateWorkspace()
-
-  const { triggerId } = await createWebhookTriggerFixture(api, workspace.id, {
-    sourceId: `no-text-${Date.now()}`,
-  })
-
-  // Send message without text field
-  const response = await api.sendWebhookMessageRaw(triggerId, { threadId: 'some-thread' })
-
-  expect(response.status).toBe(400)
-
-  // Cleanup
-  await api.deleteTaskTriggerFixture(triggerId).catch(() => {})
 })

@@ -2,28 +2,16 @@
  * Standalone: Task reply routing
  *
  * A reply has to go somewhere. Where is decided by the task's bindings: a task
- * with none has no destination, a task with one needs no choosing, and a task
- * with several has to be told which — the error that says so carries the
- * candidates and the flag that picks between them, because it is written for
- * somebody at a terminal.
+ * with none has no destination, and a binding that does not exist is not one.
  *
  * Scenarios:
  *   INT-40: Replying to a task with no binding answers 404
- *   INT-41: Replying to a task with one binding sends to it
- *   INT-42: Replying to a task with several bindings answers 400 and lists them
- *   INT-43: Naming the binding explicitly sends to it
  *   INT-44: Naming a binding that does not exist answers 404
  */
 
-import type { ReplyTargetDescriptor } from '@moatless/api-client/sandbox/model'
 import type { MoatApi } from '../../shared/moat-api'
 import { expect, test } from '../fixtures/api-fixtures'
 import { discardTask } from '../helpers/teardown'
-import {
-  createWebhookTriggerFixture,
-  waitForLoopTaskWithSubject,
-  webhookSubjectKey,
-} from '../steps'
 
 /** A task with a message and no binding of any kind. */
 async function bareTask(api: MoatApi): Promise<string> {
@@ -56,129 +44,6 @@ test('INT-40: Replying to a task with no binding answers 404', async ({ api }) =
     expect(body.error ?? '').toContain('no bindings')
   } finally {
     await discard(api, taskId)
-  }
-})
-
-// ─── INT-41: Replying to a task with one binding sends to it ────────────
-
-test('INT-41: Replying to a task with one binding sends to it', async ({ api }) => {
-  const workspace = await api.ensureTemplateWorkspace()
-  const suffix = Date.now()
-  const sourceId = `reply-single-${suffix}`
-  const threadId = `thread-${suffix}`
-  const { triggerId, config } = await createWebhookTriggerFixture(api, workspace.id, {
-    sourceId,
-  })
-
-  // The inbound message is what creates both the task and its one binding —
-  // which is the case worth testing, since it is how a real reply target
-  // comes to exist. The route answers with the delivery, not the task, so the
-  // task id is read afterwards from the loop's recent-tasks view.
-  const inbound = await api.sendWebhookMessage(triggerId, {
-    text: 'seed one binding',
-    threadId,
-  })
-  expect(inbound.status).toBe(200)
-  const taskId = await waitForLoopTaskWithSubject(
-    api,
-    triggerId,
-    webhookSubjectKey(config.sourceId, threadId),
-  )
-
-  try {
-    const bindings = await api.listTaskBindings(taskId)
-    expect(bindings).toHaveLength(1)
-
-    const result = await api.sendTaskReply(taskId, {
-      text: 'single-binding reply',
-      fileIds: [],
-    })
-
-    expect(result.sentCount).toBe(1)
-    expect(result.errors).toEqual([])
-    expect(result.targets).toHaveLength(1)
-    expect(result.targets?.[0]?.kind).toBe('binding')
-  } finally {
-    await discard(api, taskId)
-    await api.deleteLoop(triggerId).catch(() => {})
-  }
-})
-
-// ─── INT-42: Several bindings answer 400 and list them ──────────────────
-
-test('INT-42: Replying to a task with several bindings answers 400 and lists them', async ({
-  api,
-}) => {
-  const workspace = await api.ensureTemplateWorkspace()
-  const suffix = Date.now()
-  const taskId = await bareTask(api)
-  const { triggerId, config } = await createWebhookTriggerFixture(api, workspace.id, {
-    sourceId: `reply-multi-${suffix}`,
-  })
-
-  try {
-    for (const index of [1, 2]) {
-      await api.createTaskBinding(taskId, {
-        adapterKind: 'webhook',
-        connectionId: config.connectionId,
-        loopId: triggerId,
-        subjectKind: 'webhook_thread',
-        subjectKey: `manual-${suffix}-${index}`,
-        destinationConfig: {},
-        origin: 'test',
-      })
-    }
-
-    const response = await api.sendTaskReplyRaw(taskId, {
-      text: 'should fail - multiple bindings',
-      fileIds: [],
-    })
-
-    expect(response.status).toBe(400)
-    const body = response.body as { targets: ReplyTargetDescriptor[] }
-    expect(body.targets).toHaveLength(2)
-    for (const target of body.targets) {
-      expect(target.kind).toBe('binding')
-      // The hint is a command fragment, not explanatory text — it is meant to be pasted.
-      expect(target.flagHint.startsWith('--binding ')).toBe(true)
-    }
-  } finally {
-    await discard(api, taskId)
-    await api.deleteLoop(triggerId).catch(() => {})
-  }
-})
-
-// ─── INT-43: Naming the binding explicitly sends to it ──────────────────
-
-test('INT-43: Naming the binding explicitly sends to it', async ({ api }) => {
-  const workspace = await api.ensureTemplateWorkspace()
-  const suffix = Date.now()
-  const taskId = await bareTask(api)
-  const { triggerId, config } = await createWebhookTriggerFixture(api, workspace.id, {
-    sourceId: `reply-explicit-${suffix}`,
-  })
-
-  try {
-    const binding = await api.createTaskBinding(taskId, {
-      adapterKind: 'webhook',
-      connectionId: config.connectionId,
-      loopId: triggerId,
-      subjectKind: 'webhook_thread',
-      subjectKey: `manual-${suffix}`,
-      destinationConfig: {},
-      origin: 'test',
-    })
-
-    const result = await api.sendTaskReply(taskId, {
-      text: 'explicit-binding reply',
-      bindingId: binding.id,
-      fileIds: [],
-    })
-
-    expect(result.sentCount).toBe(1)
-  } finally {
-    await discard(api, taskId)
-    await api.deleteLoop(triggerId).catch(() => {})
   }
 })
 

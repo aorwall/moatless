@@ -32,8 +32,8 @@ mod tests {
     #[tokio::test]
     async fn a_refused_admission_reaches_receive_as_not_admitted() {
         let request = AdapterDeliveryRequest {
-            adapter: "webhook",
-            kind: "webhook.inbound_message",
+            adapter: "slack",
+            kind: "slack.inbound_message",
             event_id: "1".into(),
             payload: serde_json::json!({}),
         };

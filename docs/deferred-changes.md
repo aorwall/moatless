@@ -745,3 +745,9 @@ of its own.
 | Issue listings show no comment count | `crates/adapter-linear/src/issue_tracker.rs::list` passes 0 for `IssueSummary::comment_count`: Linear's issue connection carries no comment total, and counting would read every comment of every listed issue | When the count is missed in T3's issue list. Fetch counts in a second batched query per page |
 | A linked pull request never reads as closing the issue | `crates/adapter-linear/src/issue_tracker.rs::linked_pull_requests` sets `IssueLinkedPullRequest::closes_issue` to false: Linear's attachment metadata does not say whether a PR's merge moves the issue | When T3 shows a "closes" marker people rely on. Derive it from the team's Git automation states |
 | Unlinking deletes a Task's creator binding too | `crates/adapter-linear/src/issue_tracker.rs::LinearIssueTracker::unlink` removes every `linear_issue` binding with the identifier, as the PR unlink does, so a Task started from an issue stops hearing it | When someone unlinks an issue a Task was started from and expects it to keep hearing replies. Unlink only `Contributor` bindings, and refuse the creator's |
+
+## E2E reply routing
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| No E2E scenario reaches a Task with bindings or sends a reply through one | `tests/api/specs/task-reply-routing.spec.ts` keeps only the no-binding and unknown-binding cases; the single- and multi-binding cases and the loop-recent-tasks binding case drove the removed webhook adapter, the only Adapter the suite could run without an external account | When the suite gains an Adapter that needs no external account, or a reply-routing regression slips past the Rust tests. Restore INT-41 to INT-43 and INT-46 against it |

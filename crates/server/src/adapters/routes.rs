@@ -6,7 +6,7 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use axum::{Router, routing::post};
 
 use super::handlers;
-use super::providers::{github_pr, linear, slack, webhook};
+use super::providers::{github_pr, linear, slack};
 use crate::state::AppState;
 use moatless_loops::bindings;
 
@@ -50,7 +50,6 @@ use moatless_loops::bindings;
         linear::api_routes::relate_issue,
         linear::api_routes::graphql_passthrough,
         linear::api_routes::lookup,
-        webhook::handlers::webhook_inbound,
     )
 )]
 pub struct AdapterApiDoc;
@@ -94,7 +93,6 @@ pub fn adapter_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenAp
         .routes(routes!(linear::api_routes::relate_issue))
         .routes(routes!(linear::api_routes::graphql_passthrough))
         .routes(routes!(linear::api_routes::lookup))
-        .routes(routes!(webhook::handlers::webhook_inbound))
         .with_state(state.clone())
         .split_for_parts();
 
@@ -112,10 +110,6 @@ fn legacy_webhook_router(state: AppState) -> Router {
         .route(
             "/api/v1/channels/github/webhook",
             post(github_pr::handlers::github_webhook),
-        )
-        .route(
-            "/api/v1/channels/webhook/{loop_id}",
-            post(webhook::handlers::webhook_inbound),
         )
         .with_state(state)
 }

@@ -31,7 +31,6 @@ async fn installation_registers_capabilities_deliveries_and_handler_access(pool:
 
     for kind in [
         AdapterKind::Slack,
-        AdapterKind::Webhook,
         AdapterKind::GithubPr,
         AdapterKind::Linear,
     ] {
@@ -62,7 +61,6 @@ async fn installation_registers_capabilities_deliveries_and_handler_access(pool:
             "linear.session_provision",
             "room.open",
             "slack.inbound_message",
-            "webhook.inbound_message",
         ]
     );
 }

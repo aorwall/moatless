@@ -1284,48 +1284,6 @@
         }
       }
     },
-    "/api/v1/adapters/webhook/{loop_id}": {
-      "post": {
-        "tags": [
-          "adapters"
-        ],
-        "summary": "Take durable ownership of one inbound webhook delivery.",
-        "description": "A 200 means the backend owns it, not that a Task exists; anything that\nfails to record reaches the caller as a failure, so retry is the recovery\npath. Deactivated loops are rejected before admission; one paused or\nresynced after is handled by the worker without creating a Task.",
-        "operationId": "webhook_inbound",
-        "parameters": [
-          {
-            "name": "loop_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/WebhookPayload"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "The delivery is owned by the backend. Names the delivery, not a Task.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WebhookAccepted"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/admin/settings/adapter-apps": {
       "get": {
         "tags": [
@@ -21380,72 +21338,6 @@
           "wakeupAtUnixMs": {
             "type": "integer",
             "format": "int64"
-          }
-        }
-      },
-      "WebhookAccepted": {
-        "type": "object",
-        "description": "The answer to an accepted delivery.\n\nNames the delivery, not a Task — routing hasn't run yet, so no Task exists.",
-        "required": [
-          "deliveryId",
-          "status"
-        ],
-        "properties": {
-          "deliveryId": {
-            "type": "string",
-            "description": "The identity the delivery was admitted under — the caller's own\n`deliveryId`, or the one minted for it."
-          },
-          "status": {
-            "$ref": "#/components/schemas/WebhookAdmission"
-          }
-        }
-      },
-      "WebhookAdmission": {
-        "type": "string",
-        "description": "What admission did with a delivery.",
-        "enum": [
-          "admitted",
-          "duplicate"
-        ]
-      },
-      "WebhookPayload": {
-        "type": "object",
-        "description": "Inbound webhook payload.",
-        "required": [
-          "text"
-        ],
-        "properties": {
-          "deliveryId": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Caller-assigned identity for this delivery, used for deduplication.\n\nSupplied: repeated `deliveryId` values collapse into one delivery, done\nonce. Absent: each request is a new delivery. Read from the body, not a\nheader, since only the body is signed."
-          },
-          "metadata": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "description": "Arbitrary metadata stored in thread properties."
-          },
-          "text": {
-            "type": "string",
-            "description": "Message text (required)."
-          },
-          "threadId": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Thread ID for routing."
-          },
-          "userId": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "User identity override (defaults to config's default `user_id`)."
           }
         }
       },

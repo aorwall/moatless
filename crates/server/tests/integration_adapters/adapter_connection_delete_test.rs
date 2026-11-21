@@ -31,8 +31,8 @@ async fn seed_connection(state: &AppState, id: &str, user_id: &str) -> String {
     let now = Utc::now();
     let row = AdapterConnection {
         id: id.to_string(),
-        adapter_kind: AdapterKind::Webhook,
-        connection_kind: "webhook".to_string(),
+        adapter_kind: AdapterKind::Slack,
+        connection_kind: "slack".to_string(),
         scope_value: format!("acct-{id}"),
         credential_ref: None,
         webhook_secret: None,

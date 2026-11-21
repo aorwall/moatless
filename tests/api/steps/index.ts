@@ -17,17 +17,8 @@ export {
   waitForAgentTurnComplete,
   waitForPendingToolCall,
 } from './agent.steps'
-// Triggers and inbound messages
-export {
-  createWebhookTriggerFixture,
-  createWebhookTriggerFixtureWithRouting,
-  sendWebhookMessage,
-  taskMessageCount,
-  waitForLoopTasks,
-  waitForLoopTaskWithSubject,
-  waitForTaskMessages,
-  webhookSubjectKey,
-} from './integrations.steps'
+// Subscription loops
+export { createSubscriptionLoopFixture } from './integrations.steps'
 // Repository creation
 export { createRepository } from './repository.steps'
 // Sandbox lifecycle — each returns once the transition it triggered has landed

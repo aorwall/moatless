@@ -288,8 +288,8 @@ never called a "provider".)
 ### Integrations
 
 **Adapter**:
-A pluggable external-system integration — Slack, GitHub, GitHub PR, Linear,
-or Webhook. The integration type; each implements the `Adapter` trait.
+A pluggable external-system integration — Slack, GitHub, GitHub PR, or
+Linear. The integration type; each implements the `Adapter` trait.
 _Avoid_: provider, integration (for the type)
 
 **Adapter connection**:
@@ -356,10 +356,9 @@ _Avoid_: code channel (Slack's name for its implementation), session
 
 **Sender**:
 The external system on the other end of an Adapter, in its role of delivering an
-inbound event to us — Slack, Linear, GitHub, or an arbitrary client calling the
-Webhook Adapter. Used where the point is the retry contract ("the sender is
-acknowledged", "the sender's own delivery identifier") rather than the
-integration type.
+inbound event to us — Slack, Linear, or GitHub. Used where the point is the
+retry contract ("the sender is acknowledged", "the sender's own delivery
+identifier") rather than the integration type.
 _Avoid_: provider
 
 **Adapter delivery**:

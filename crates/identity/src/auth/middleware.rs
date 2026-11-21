@@ -82,14 +82,11 @@ fn is_exempt(path: &str) -> bool {
     // caller (frontend, CLI) already carries a session cookie or API key.
 
     // Webhook and slash-command endpoints use adapter-specific verification (HMAC, secret token, etc.)
-    // Match /api/v1/adapters/{adapter}/webhook,
-    // /api/v1/adapters/webhook/{loop_id}, and
+    // Match /api/v1/adapters/{adapter}/webhook and
     // /api/v1/adapters/{adapter}/slash.
     if let Some(rest) = path.strip_prefix("/api/v1/adapters/") {
         let segments: Vec<&str> = rest.split('/').filter(|s| !s.is_empty()).collect();
-        if segments.len() >= 2
-            && (segments[1] == "webhook" || segments[1] == "slash" || segments[0] == "webhook")
-        {
+        if segments.len() >= 2 && (segments[1] == "webhook" || segments[1] == "slash") {
             return true;
         }
     }
@@ -97,7 +94,7 @@ fn is_exempt(path: &str) -> bool {
     // Legacy webhook callback aliases. These are the only `/channels/*` routes.
     if let Some(rest) = path.strip_prefix("/api/v1/channels/") {
         let segments: Vec<&str> = rest.split('/').filter(|s| !s.is_empty()).collect();
-        if segments.len() >= 2 && (segments[1] == "webhook" || segments[0] == "webhook") {
+        if segments.len() >= 2 && segments[1] == "webhook" {
             return true;
         }
     }
@@ -674,10 +671,10 @@ mod tests {
         assert!(is_exempt("/api/v1/adapters/slack/webhook/"));
         assert!(is_exempt("/api/v1/adapters/github/webhook"));
         assert!(is_exempt("/api/v1/adapters/linear/webhook"));
-        assert!(is_exempt("/api/v1/adapters/webhook/trigger-123"));
         assert!(is_exempt("/api/v1/adapters/slack/slash"));
         assert!(is_exempt("/api/v1/channels/slack/webhook"));
-        assert!(is_exempt("/api/v1/channels/webhook/trigger-123"));
+        assert!(!is_exempt("/api/v1/adapters/webhook/trigger-123"));
+        assert!(!is_exempt("/api/v1/channels/webhook/trigger-123"));
         assert!(!is_exempt("/api/v1/channels/slack/slash"));
         // Non-webhook integration routes should NOT be exempt.
         assert!(!is_exempt("/api/v1/adapters/connections"));

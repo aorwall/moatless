@@ -42,7 +42,7 @@ pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
         }
     }
     // This legacy restriction includes documentation and tests, not only compiled paths.
-    for name in ["moatless-adapter-slack", "moatless-adapter-webhook"] {
+    for name in ["moatless-adapter-slack"] {
         if let Some(m) = ws.member(name) {
             for (file, text) in ws.sources(m)? {
                 if text.contains("moatless_loops") {

@@ -23,7 +23,6 @@ members = [
     "crates/sandbox-k8s",
     "crates/sandbox-docker",
     "crates/sandbox-local",
-    "crates/adapter-webhook",
     "crates/adapter-slack",
     "crates/adapter-linear",
     "crates/adapter-github-pr",
@@ -61,7 +60,6 @@ moatless-adapter-github-pr = { path = "crates/adapter-github-pr" }
 moatless-adapter-linear = { path = "crates/adapter-linear" }
 moatless-adapter-model = { path = "crates/adapter-model" }
 moatless-adapter-slack = { path = "crates/adapter-slack" }
-moatless-adapter-webhook = { path = "crates/adapter-webhook" }
 moatless-api-client = { path = "crates/api-client" }
 moatless-api-schemas = { path = "crates/api-schemas" }
 moatless-arch-rules = { path = "tooling/arch-rules" }

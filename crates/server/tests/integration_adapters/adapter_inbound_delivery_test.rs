@@ -28,7 +28,6 @@ use moatless_backend::state::AppState;
 use common::{test_app_state_with_adapters, test_config};
 
 const SLACK_KIND: &str = "slack.inbound_message";
-const WEBHOOK_KIND: &str = "webhook.inbound_message";
 
 /// The payload shape the webhook handlers write, spelled out rather than built
 /// from the private struct: it is a wire contract between two processes and a
@@ -215,32 +214,27 @@ async fn work_whose_trigger_was_deleted_goes_terminal_without_burning_the_budget
     );
 }
 
-/// Verification: restart recovery, for both providers.
+/// Verification: restart recovery.
 ///
 /// Claimed records survive worker death via claim-lease expiry (works even if a
 /// replaced pod returns under a new name), which is what makes acknowledging
 /// the provider before routing runs safe.
 #[sqlx::test]
-async fn claims_left_by_a_killed_worker_are_recovered_for_both_providers(pool: PgPool) {
+async fn claims_left_by_a_killed_worker_are_recovered(pool: PgPool) {
     let state = test_app_state_with_adapters(pool.clone(), test_config());
 
-    for (provider, kind, event_id, connection) in [
-        ("slack", SLACK_KIND, "Ev-restart", "pc_slack"),
-        ("webhook", WEBHOOK_KIND, "70001", "pc_webhook"),
-    ] {
-        state
-            .adapter_delivery
-            .admit(request(
-                provider,
-                kind,
-                event_id,
-                payload(connection, "tt_1", provider),
-            ))
-            .await
-            .unwrap();
-    }
+    state
+        .adapter_delivery
+        .admit(request(
+            "slack",
+            SLACK_KIND,
+            "Ev-restart",
+            payload("pc_slack", "tt_1", "slack"),
+        ))
+        .await
+        .unwrap();
 
-    // The kill: both records were claimed by a replica that is never coming
+    // The kill: the record was claimed by a replica that is never coming
     // back, long enough ago that its lease has expired.
     sqlx::query(
         "UPDATE adapter_delivery SET status = 'claimed', attempts = 1, \
@@ -250,25 +244,23 @@ async fn claims_left_by_a_killed_worker_are_recovered_for_both_providers(pool: P
     .await
     .unwrap();
 
-    // Neither connection was seeded, so recovery is observable as both records
+    // The connection was not seeded, so recovery is observable as the record
     // reaching a terminal state: only a record that was reclaimed and executed
     // gets there.
     run_worker_until_terminal(
         &state,
         &pool,
-        &[(SLACK_KIND, "Ev-restart"), (WEBHOOK_KIND, "70001")],
+        &[(SLACK_KIND, "Ev-restart")],
         Duration::from_secs(20),
     )
     .await;
 
-    for (kind, event_id) in [(SLACK_KIND, "Ev-restart"), (WEBHOOK_KIND, "70001")] {
-        let (status, _, last_error) = record(&pool, kind, event_id).await;
-        assert_eq!(status, "failed", "{kind} was recovered and executed");
-        assert!(
-            last_error
-                .unwrap_or_default()
-                .contains("adapter connection"),
-            "{kind} ran the real handler rather than being abandoned"
-        );
-    }
+    let (status, _, last_error) = record(&pool, SLACK_KIND, "Ev-restart").await;
+    assert_eq!(status, "failed", "the record was recovered and executed");
+    assert!(
+        last_error
+            .unwrap_or_default()
+            .contains("adapter connection"),
+        "the real handler ran rather than the record being abandoned"
+    );
 }

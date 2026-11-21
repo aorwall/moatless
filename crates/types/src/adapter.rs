@@ -16,6 +16,8 @@ crate::string_enum!(
         Github => "github",
         GithubPr => "github_pr",
         Linear => "linear",
+        /// No Adapter implements it. It stays as the lenient decode target for
+        /// stored rows and the placeholder origin of a schedule firing.
         Webhook => "webhook",
     }
 );

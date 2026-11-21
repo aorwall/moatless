@@ -46,12 +46,6 @@ const FORBIDDEN: &[Forbidden] = &[
         why: "the Adapter kernel freed this crate from the loops band",
     },
     Forbidden {
-        source: "moatless-adapter-webhook",
-        target: "moatless-loops",
-        transitive: true,
-        why: "the Adapter kernel freed this crate from the loops band",
-    },
-    Forbidden {
         source: "moatless-sandbox-docker",
         target: "moatless-api-schemas",
         transitive: false,
@@ -83,12 +77,6 @@ const FORBIDDEN: &[Forbidden] = &[
     },
     Forbidden {
         source: "moatless-adapter-slack",
-        target: "sqlx",
-        transitive: false,
-        why: "a provider owns no table",
-    },
-    Forbidden {
-        source: "moatless-adapter-webhook",
         target: "sqlx",
         transitive: false,
         why: "a provider owns no table",

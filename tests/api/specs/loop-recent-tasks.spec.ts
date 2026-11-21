@@ -8,19 +8,12 @@
  *
  * Scenarios:
  *   INT-45: A schedule loop's tasks are listed, with no binding
- *   INT-46: A subscription loop's tasks are listed with their binding
  */
 
 import { randomUUID } from 'node:crypto'
 import { missingCapability } from '../../shared/profile'
 import { expect, test } from '../fixtures/api-fixtures'
 import { psql } from '../helpers/psql'
-import { discardTask } from '../helpers/teardown'
-import {
-  createWebhookTriggerFixture,
-  waitForLoopTaskWithSubject,
-  webhookSubjectKey,
-} from '../steps'
 
 // ─── INT-45: A schedule loop's tasks are listed, with no binding ────────
 
@@ -66,38 +59,4 @@ test.describe('Standalone: Schedule loop recent tasks', () => {
       await api.deleteLoop(loop.id).catch(() => {})
     }
   })
-})
-
-// ─── INT-46: A subscription loop's tasks are listed with their binding ──
-
-test("INT-46: A subscription loop's tasks are listed with their binding", async ({ api }) => {
-  const workspace = await api.ensureTemplateWorkspace()
-  const suffix = Date.now()
-  const threadId = `recent-tasks-thread-${suffix}`
-  const { loopId, config } = await createWebhookTriggerFixture(api, workspace.id, {
-    sourceId: `recent-tasks-adapter-${suffix}`,
-  })
-
-  const inbound = await api.sendWebhookMessage(loopId, {
-    text: 'trigger-recent-binding-test',
-    threadId,
-  })
-  expect(inbound.status).toBe(200)
-
-  // The route answers with the delivery, not the task. Task creation and its
-  // binding are separate steps, so the task can surface in the recent-tasks
-  // view a beat before its binding — wait for the binding by its subject.
-  const subjectKey = webhookSubjectKey(config.sourceId, threadId)
-  const taskId = await waitForLoopTaskWithSubject(api, loopId, subjectKey)
-
-  try {
-    const [item] = await api.listLoopRecentTasks(loopId, 50)
-    expect(item?.task.taskId).toBe(taskId)
-    // An inbound event does create a binding, and it is reported.
-    expect(item?.binding?.id).toBeTruthy()
-    expect(item?.binding?.subjectKey).toBe(subjectKey)
-  } finally {
-    await discardTask(api, taskId)
-    await api.deleteLoop(loopId).catch(() => {})
-  }
 })

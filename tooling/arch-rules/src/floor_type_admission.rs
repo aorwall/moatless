@@ -126,7 +126,7 @@ mod tests {
         assert!(admitted(&readers(&["moatless-tasks", "moatless-t3code"])));
         assert!(admitted(&readers(&[
             "moatless-adapter-slack",
-            "moatless-adapter-webhook",
+            "moatless-adapter-github-pr",
             "moatless-adapter-linear"
         ])));
     }

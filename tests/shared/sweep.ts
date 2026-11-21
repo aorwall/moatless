@@ -225,7 +225,7 @@ async function deleteWhenTheSandboxHasGone(
  *
  *  - the **name**, for everything a test made through `scopedName`.
  *  - the **description**, which holds an inbound delivery's text verbatim. A
- *    webhook delivery creates a task the backend titles from the message, so the
+ *    inbound delivery creates a task the backend titles from the message, so the
  *    name is a summary the prefix does not survive into and the description is
  *    the only field that still carries it. This is the channel that works from
  *    another sandbox, which is why a killed run's leftovers are reachable at all.

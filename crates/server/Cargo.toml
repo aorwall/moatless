@@ -99,7 +99,6 @@ moatless-s3 = { workspace = true, features = ["default-chain", "sts"] }
 moatless-tasks = { workspace = true }
 moatless-loops = { workspace = true }
 moatless-decisions = { workspace = true }
-moatless-adapter-webhook = { workspace = true }
 moatless-adapter-slack = { workspace = true }
 moatless-adapter-linear = { workspace = true }
 moatless-adapter-github-pr = { workspace = true }

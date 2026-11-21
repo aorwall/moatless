@@ -323,7 +323,7 @@ mod tests {
 
     impl Adapter for DummyProvider {
         fn adapter_kind(&self) -> AdapterKind {
-            AdapterKind::Webhook
+            AdapterKind::Linear
         }
     }
 
@@ -332,8 +332,8 @@ mod tests {
         let mut providers = Adapters::new();
         providers.register_trait_object(Arc::new(DummyProvider));
 
-        assert_eq!(providers.registered_types(), vec![AdapterKind::Webhook]);
-        assert!(providers.get(AdapterKind::Webhook).is_some());
+        assert_eq!(providers.registered_types(), vec![AdapterKind::Linear]);
+        assert!(providers.get(AdapterKind::Linear).is_some());
     }
 
     #[tokio::test]

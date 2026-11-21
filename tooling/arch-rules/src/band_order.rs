@@ -64,7 +64,6 @@ pub const BANDS: &[(&[&str], &str)] = &[
     ),
     (
         &[
-            "moatless-adapter-webhook",
             "moatless-adapter-slack",
             "moatless-adapter-linear",
             "moatless-adapter-github-pr",
