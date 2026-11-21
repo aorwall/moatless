@@ -359,7 +359,9 @@ async fn turn_start(
             .await;
     }
 
-    let conversation = require_writable(ctx, viewer, &task_id).await?;
+    // An archived thread is accepted: the send reopens it
+    // (`message_service::send_user_message`).
+    let conversation = require_controllable(ctx, viewer, &task_id).await?;
     let agents = ctx.agents.list(viewer).await;
     let Selection { harness, model } = selection_for_existing(&agents, &conversation, command)?;
     let skills = match conversation.workspace_id.as_deref() {
@@ -1043,13 +1045,30 @@ fn plan_verdict(answers: &Value) -> Value {
     json!({ "approved": false, "feedback": said })
 }
 
-/// The Task, if this viewer may run a turn on it.
+/// The Task, if this viewer may run a command on it and it is not archived.
+///
+/// Archived Tasks fail here even for a reader who may still open them;
+/// unarchiving, or a turn through [`require_controllable`], is the way back.
+async fn require_writable(
+    ctx: &CommandContext<'_>,
+    viewer: &ScopeContext,
+    task_id: &str,
+) -> Result<Conversation, CommandRefusal> {
+    let conversation = require_controllable(ctx, viewer, task_id).await?;
+    if conversation.closed_at.is_some() {
+        return Err(CommandRefusal::NotWritable {
+            task_id: task_id.to_string(),
+        });
+    }
+    Ok(conversation)
+}
+
+/// The Task, archived or not, if this viewer may run a turn on it.
 ///
 /// Gated on write, not just read — a turn runs in the Sandbox a writer can
 /// already act in — and reports failure the same way as a Task that doesn't
-/// exist. Archived Tasks fail here even for a reader who may still open them;
-/// unarchiving is the way back and does not go through this function.
-async fn require_writable(
+/// exist.
+async fn require_controllable(
     ctx: &CommandContext<'_>,
     viewer: &ScopeContext,
     task_id: &str,
@@ -1069,7 +1088,6 @@ async fn require_writable(
         .readable_by_id(viewer, task_id)
         .await
         .map_err(unreachable)?
-        .filter(|conversation| conversation.closed_at.is_none())
         .ok_or_else(refused)?;
     if !ctx
         .conversations

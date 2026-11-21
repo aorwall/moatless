@@ -26,16 +26,37 @@ async fn a_thread_the_viewer_reads_but_does_not_control_is_refused() {
     assert!(calls.is_empty());
 }
 
-/// An archived conversation resolves — the viewer follows it and may read it,
-/// which is what lets them open it — and a turn into it is still refused.
-/// Unarchiving is the way back, and it does not come through here.
+/// A turn into an archived conversation reaches the sink, whose send reopens
+/// the Task.
 #[tokio::test]
-async fn a_turn_into_an_archived_thread_is_refused() {
+async fn a_turn_into_an_archived_thread_reaches_the_sink() {
     let archived = Conversation {
         closed_at: Some(Utc::now()),
         ..conversation(AgentProfile::ClaudeCode)
     };
     let (result, calls) = run_against(turn(None), Some(archived)).await;
+    assert!(result.is_ok(), "{result:?}");
+    assert!(
+        matches!(calls.as_slice(), [Call::SendTurn { .. }]),
+        "{calls:?}"
+    );
+}
+
+/// Only a turn reopens: any other command on an archived conversation is
+/// still refused.
+#[tokio::test]
+async fn a_rename_of_an_archived_thread_is_refused() {
+    let archived = Conversation {
+        closed_at: Some(Utc::now()),
+        ..conversation(AgentProfile::ClaudeCode)
+    };
+    let command = json!({
+        "type": "thread.meta.update",
+        "commandId": "cmd-1",
+        "threadId": "task-1",
+        "title": "Renamed"
+    });
+    let (result, calls) = run_against(command, Some(archived)).await;
     assert!(matches!(result, Err(CommandRefusal::NotWritable { .. })));
     assert!(calls.is_empty());
 }
