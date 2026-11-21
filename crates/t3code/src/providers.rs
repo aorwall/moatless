@@ -18,6 +18,7 @@ pub const CLAUDE_INSTANCE: &str = "claudeAgent";
 pub const CODEX_INSTANCE: &str = "codex";
 pub const PI_INSTANCE: &str = "pi";
 pub const MINI_SWE_INSTANCE: &str = "mini-swe";
+pub const ACP_INSTANCE: &str = "acp";
 
 /// Which instance a catalog agent belongs to.
 pub fn instance_for(harness: Harness) -> &'static str {
@@ -26,6 +27,7 @@ pub fn instance_for(harness: Harness) -> &'static str {
         Harness::Codex => CODEX_INSTANCE,
         Harness::Pi => PI_INSTANCE,
         Harness::MiniSwe => MINI_SWE_INSTANCE,
+        Harness::Acp => ACP_INSTANCE,
     }
 }
 
@@ -36,6 +38,7 @@ pub fn harness_for(instance: &str) -> Option<Harness> {
         CODEX_INSTANCE => Some(Harness::Codex),
         PI_INSTANCE => Some(Harness::Pi),
         MINI_SWE_INSTANCE => Some(Harness::MiniSwe),
+        ACP_INSTANCE => Some(Harness::Acp),
         _ => None,
     }
 }
@@ -62,7 +65,7 @@ const DEFAULT_EFFORT: &str = "high";
 
 /// The effort levels a published model row offers, weakest first.
 fn effort_levels(instance: &str, catalog_model: &str) -> &'static [&'static str] {
-    if instance == MINI_SWE_INSTANCE {
+    if instance == MINI_SWE_INSTANCE || instance == ACP_INSTANCE {
         return &[];
     }
     if instance == PI_INSTANCE {
@@ -98,7 +101,7 @@ fn effort_label(level: &str) -> &str {
 ///
 /// T3 sends the chosen value back on `modelSelection.options`.
 fn capabilities(instance: &str, catalog_model: &str) -> Value {
-    if instance == MINI_SWE_INSTANCE {
+    if instance == MINI_SWE_INSTANCE || instance == ACP_INSTANCE {
         return json!({"optionDescriptors": []});
     }
     let options: Vec<Value> = effort_levels(instance, catalog_model)
@@ -249,6 +252,7 @@ pub fn providers(
         (CODEX_INSTANCE, "Codex", Harness::Codex),
         (PI_INSTANCE, "Pi", Harness::Pi),
         (MINI_SWE_INSTANCE, "mini-swe-agent", Harness::MiniSwe),
+        (ACP_INSTANCE, "Antigravity", Harness::Acp),
     ]
     .into_iter()
     .map(|(instance, display_name, harness)| {
@@ -389,7 +393,7 @@ mod tests {
     #[test]
     fn publishes_harness_instances_in_order() {
         let list = published();
-        assert_eq!(list.len(), 4);
+        assert_eq!(list.len(), 5);
         assert_eq!(list[0]["instanceId"], CLAUDE_INSTANCE);
         assert_eq!(list[1]["instanceId"], CODEX_INSTANCE);
         assert_eq!(list[2]["instanceId"], "pi");
@@ -650,7 +654,9 @@ mod tests {
     fn exactly_one_level_per_row_is_the_default() {
         for provider in published() {
             for row in provider["models"].as_array().unwrap() {
-                if provider["instanceId"] == MINI_SWE_INSTANCE {
+                if provider["instanceId"] == MINI_SWE_INSTANCE
+                    || provider["instanceId"] == ACP_INSTANCE
+                {
                     assert_eq!(row["capabilities"]["optionDescriptors"], json!([]));
                     continue;
                 }
@@ -743,7 +749,7 @@ mod tests {
             std::slice::from_ref(&snapshot),
         );
 
-        assert_eq!(list.len(), 4);
+        assert_eq!(list.len(), 5);
         for provider in &list {
             assert_eq!(provider["workspaceSnapshots"], json!([snapshot]));
         }

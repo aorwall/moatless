@@ -67,7 +67,7 @@ async fn get_config_publishes_one_provider_per_agent_kind() {
             .iter()
             .map(|provider| provider["instanceId"].as_str().unwrap())
             .collect::<Vec<_>>(),
-        vec!["claudeAgent", "codex", "pi", "mini-swe"]
+        vec!["claudeAgent", "codex", "pi", "mini-swe", "acp"]
     );
     for provider in providers {
         assert!(
@@ -98,6 +98,10 @@ async fn get_config_enables_pi_in_settings() {
     assert_eq!(
         output.frames[0]["exit"]["value"]["settings"]["providerInstances"]["mini-swe"],
         json!({"driver":"mini-swe","enabled":true})
+    );
+    assert_eq!(
+        output.frames[0]["exit"]["value"]["settings"]["providerInstances"]["acp"],
+        json!({"driver":"acp","enabled":true})
     );
 }
 

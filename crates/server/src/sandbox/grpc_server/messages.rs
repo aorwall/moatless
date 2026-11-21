@@ -185,7 +185,10 @@ pub(super) async fn get_pending_messages(
             Ok(status) => status.is_some_and(|status| {
                 status.cut_off_session()
                     && !(status == TurnStatus::Stopped
-                        && matches!(task_agent_profile, AgentProfile::Pi | AgentProfile::MiniSwe))
+                        && matches!(
+                            task_agent_profile,
+                            AgentProfile::Pi | AgentProfile::MiniSwe | AgentProfile::Antigravity
+                        ))
             }),
             Err(e) => {
                 warn!(error = %e, task_id = %req.task_id, "Failed to read last closed turn; assuming resumable");

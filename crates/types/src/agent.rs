@@ -243,6 +243,8 @@ pub enum Harness {
     Pi,
     /// mini-swe-agent over the Python JSONL bridge.
     MiniSwe,
+    /// An Agent Client Protocol agent over JSON-RPC on stdio.
+    Acp,
 }
 
 /// The vendors a Pi model id may name, as `vendor/model`.
@@ -270,6 +272,7 @@ impl Harness {
             Self::Codex => "codex",
             Self::Pi => "pi",
             Self::MiniSwe => "mini-swe",
+            Self::Acp => "acp",
         }
     }
 
@@ -280,6 +283,7 @@ impl Harness {
             "codex" => Some(Self::Codex),
             "pi" => Some(Self::Pi),
             "mini-swe" => Some(Self::MiniSwe),
+            "acp" => Some(Self::Acp),
             _ => None,
         }
     }
@@ -308,11 +312,13 @@ pub enum AgentProfile {
     Pi,
     /// mini-swe-agent over the Python JSONL bridge.
     MiniSwe,
+    /// Google's Antigravity CLI (`agy`) over the ACP harness.
+    Antigravity,
 }
 
 impl AgentProfile {
     /// Every profile, in catalog display order.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::ClaudeCode,
         Self::ClaudeCodeTui,
         Self::ClaudeCodeCli,
@@ -320,6 +326,7 @@ impl AgentProfile {
         Self::Codex,
         Self::Pi,
         Self::MiniSwe,
+        Self::Antigravity,
     ];
 
     /// The wire and column value, e.g. `claude-code-tui`.
@@ -332,6 +339,7 @@ impl AgentProfile {
             Self::Codex => "codex",
             Self::Pi => "pi",
             Self::MiniSwe => "mini-swe",
+            Self::Antigravity => "antigravity",
         }
     }
 
@@ -350,6 +358,7 @@ impl AgentProfile {
             Self::Codex => Harness::Codex,
             Self::Pi => Harness::Pi,
             Self::MiniSwe => Harness::MiniSwe,
+            Self::Antigravity => Harness::Acp,
         }
     }
 }

@@ -314,6 +314,9 @@ pub fn effective_model(
         AgentProfile::ClaudeCodeFable => {
             chosen.or_else(|| Some(catalog::CLAUDE_CODE_FABLE.default_model.to_string()))
         }
+        AgentProfile::Antigravity => {
+            chosen.or_else(|| Some(catalog::ANTIGRAVITY.default_model.to_string()))
+        }
         AgentProfile::MiniSwe => {
             chosen.or_else(|| Some(catalog::MINI_SWE.default_model.to_string()))
         }

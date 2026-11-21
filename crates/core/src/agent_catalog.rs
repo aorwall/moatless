@@ -183,6 +183,35 @@ pub const MINI_SWE: AgentProfileEntry = AgentProfileEntry {
     missing_credential_hint: "Add ANTHROPIC_API_KEY or OPENAI_API_KEY, or configure the model hub",
 };
 
+/// Antigravity (`agy`) models, as the deployment's hub names them.
+///
+/// `agy` strips a `-high` or `-xhigh` suffix into a thinking level before it
+/// calls the gateway, so a hub id carrying one never resolves: list only
+/// unsuffixed ids.
+pub const ANTIGRAVITY: AgentProfileEntry = AgentProfileEntry {
+    profile: AgentProfile::Antigravity,
+    label: "Antigravity",
+    params: AgentParams { use_tmux: false },
+    credential_keys: &[OPENAI_API_KEY],
+    provider_token_providers: &[],
+    default_model: "gemini-3-flash",
+    models: &[
+        ModelEntry {
+            id: "gemini-3-flash",
+            label: "Gemini 3 Flash",
+        },
+        ModelEntry {
+            id: "claude-sonnet-5-5",
+            label: "Claude Sonnet 5.5",
+        },
+        ModelEntry {
+            id: "claude-opus-5-5",
+            label: "Claude Opus 5.5",
+        },
+    ],
+    missing_credential_hint: "Configure the model hub, or add OPENAI_API_KEY in Settings \u{2192} Secrets",
+};
+
 /// The catalog entry for `profile`.
 pub fn entry(profile: AgentProfile) -> &'static AgentProfileEntry {
     match profile {
@@ -193,6 +222,7 @@ pub fn entry(profile: AgentProfile) -> &'static AgentProfileEntry {
         AgentProfile::Codex => &CODEX,
         AgentProfile::Pi => &PI,
         AgentProfile::MiniSwe => &MINI_SWE,
+        AgentProfile::Antigravity => &ANTIGRAVITY,
     }
 }
 
@@ -244,6 +274,9 @@ pub fn validate_agent_model(
         return Err(
             "mini-swe requires anthropic/model or openai/model using an API key or hub".into(),
         );
+    }
+    if agent_profile == AgentProfile::Antigravity && model.contains('/') {
+        return Err("Antigravity takes the hub's own model id, such as gemini-3-flash".into());
     }
     if agent_profile == AgentProfile::Pi && split_pi_model(model).is_none() {
         return Err(

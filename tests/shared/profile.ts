@@ -37,6 +37,8 @@ export interface Capabilities {
   piCredentials: boolean
   /** A provider API key or hub is available for mini-swe-agent. */
   miniSweCredentials: boolean
+  /** The test hub serves Antigravity's models and `agy` is installed for the sandbox. */
+  antigravityCredentials: boolean
   /** The run can create and delete real repositories on GitHub — it has a PAT. */
   githubRepositories: boolean
   /** The runtime schedules onto this machine, so an image built here can run. */
@@ -116,6 +118,7 @@ function dockerProfile(): Profile {
       claudeCredentials: hasClaudeCredentials(),
       // The compose stack seeds no Codex connection.
       codexConnection: false,
+      antigravityCredentials: process.env.ANTIGRAVITY_E2E_HUB === '1',
       miniSweCredentials: Boolean(
         process.env.ANTHROPIC_API_KEY ||
           process.env.OPENAI_API_KEY ||
@@ -166,6 +169,7 @@ function k8sProfile(): Profile {
       inboundCallbacks: false,
       claudeCredentials: true,
       codexConnection: true,
+      antigravityCredentials: process.env.ANTIGRAVITY_E2E_HUB === '1',
       miniSweCredentials: Boolean(
         process.env.ANTHROPIC_API_KEY ||
           process.env.OPENAI_API_KEY ||
@@ -217,6 +221,7 @@ function localProfile(): Profile {
       claudeCredentials: hasClaudeCredentials(),
       // The harness seeds one when `OPENAI_API_KEY` is set.
       codexConnection: Boolean(process.env.OPENAI_API_KEY),
+      antigravityCredentials: process.env.ANTIGRAVITY_E2E_HUB === '1',
       miniSweCredentials: Boolean(
         process.env.ANTHROPIC_API_KEY ||
           process.env.OPENAI_API_KEY ||

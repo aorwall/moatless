@@ -110,7 +110,7 @@ jobs:
       # way every other sandbox image job is so a future feature (e.g. one
       # installing a CLI) can reference $CLAUDE_CLI_VERSION etc. for free.
       - name: Load CLI versions
-        run: grep -E '^[A-Z_]+=' docker/cli-versions.env >> "$GITHUB_ENV"
+        run: grep -E '^[A-Z0-9_]+=' docker/cli-versions.env >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4

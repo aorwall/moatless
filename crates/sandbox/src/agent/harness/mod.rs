@@ -11,6 +11,7 @@ pub mod source;
 pub mod trajectory;
 mod transcode;
 
+mod acp;
 mod claude;
 pub(crate) mod codex;
 mod driver;
@@ -31,6 +32,7 @@ mod contract_tests;
 #[cfg(test)]
 mod persistent_tests;
 
+pub use acp::AcpConfig;
 pub use claude::ClaudeConfig;
 pub(crate) use claude::continued_transcript as claude_continued_transcript;
 pub use codex::CodexConfig;

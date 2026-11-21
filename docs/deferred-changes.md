@@ -639,6 +639,16 @@ of its own.
 | Token streaming, plan mode, reasoning controls, and interactive approvals | `crates/sandbox/src/agent/harness/mini_swe/bridge.py` uses synchronous model queries and automatic sandbox command execution; T3 publishes no reasoning options | When the product needs these controls for mini-swe-agent and its bridge protocol can represent them |
 | OpenRouter and other model backends | `MINI_SWE` in `crates/core/src/agent_catalog.rs` and `MiniSweProcess::open` accept Anthropic and OpenAI only | When a requested provider has a tested gateway route and native-history conversion |
 
+## ACP harness capabilities
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| Reasoning effort | `AcpProcess::configure` ignores `Input::effort`: `agy acp` offers only `model` and `mode` config options; T3 publishes no effort options for the `acp` instance | When Antigravity exposes a thinking-level option over ACP |
+| Hub-discovered Antigravity models | `ANTIGRAVITY` in `crates/core/src/agent_catalog.rs` lists static model ids; `crates/t3code/src/owners.rs` replaces only Pi's and mini-swe's models from the hub | When the hub's `/v1/models` rows can be filtered to ids `agy` accepts unprefixed |
+| A second ACP agent | `AcpAgent` in `crates/sandbox/src/agent/harness/acp/agent.rs` has one variant, and `Harness::Acp` maps to the single T3 instance `acp` | When another ACP agent is requested; add a variant and decide whether each agent gets its own T3 instance |
+| An agent failure reported only as reply text | `AcpAgent::reported_failure` reads Antigravity's `⚠ request failed … (code N)` line, since `agy` ends such a prompt with `end_turn` | When `agy` returns a JSON-RPC error for a failed model call |
+| Tool children reparented before cancellation | `AcpProcess::kill` follows parent links from the agent, so a detached child whose parent already exited survives a cancel that times out | When a Turn's leftover process is reported after a cancel |
+
 ## Sandbox Bun version
 
 | Deferred | Anchor | Entry condition |

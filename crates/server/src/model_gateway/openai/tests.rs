@@ -527,3 +527,33 @@ async fn only_a_429_is_reshaped() {
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(response.headers()[header::RETRY_AFTER], "349693");
 }
+
+/// Antigravity's Chat Completions call authenticates like Codex's: a stale
+/// task token is refused in OpenAI's shape, which the CLI reports.
+#[tokio::test]
+async fn chat_completions_refuse_a_stale_token_in_openais_shape() {
+    let stale = generate_user_auth_token("user-1", "user", "sandbox-1", 1, SECRET, 3600).unwrap();
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::AUTHORIZATION,
+        HeaderValue::from_str(&format!("Bearer {stale}")).unwrap(),
+    );
+    headers.insert(
+        "x-moatless-auth-mode",
+        HeaderValue::from_static("api-key-or-hub"),
+    );
+
+    let (status, body) = error_of(
+        chat_completions(
+            axum::extract::State(Arc::new(gateway(None, &bases().chatgpt))),
+            "/llm/openai/v1/chat/completions".parse().unwrap(),
+            headers,
+            Body::from(r#"{"model":"gemini-3-flash"}"#),
+        )
+        .await,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+    assert!(body["error"]["message"].is_string(), "{body}");
+}

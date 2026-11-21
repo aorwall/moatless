@@ -713,6 +713,17 @@ impl Config {
         std::path::Path::new(&self.home_dir).join(".mini-swe")
     }
 
+    /// ACP journals and each ACP agent's own state, outside the credential
+    /// runtime mount.
+    pub(crate) fn acp_home_dir(&self) -> std::path::PathBuf {
+        std::path::Path::new(&self.home_dir).join(".acp")
+    }
+
+    /// The `--gemini-dir` the Antigravity CLI keeps all its state in.
+    pub(crate) fn antigravity_dir(&self) -> std::path::PathBuf {
+        self.acp_home_dir().join("antigravity")
+    }
+
     /// Filesystem path where the long-lived user auth token is persisted after
     /// `GetCredentials` fetches it.
     ///

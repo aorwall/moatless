@@ -22,6 +22,9 @@ pub struct SandboxHttpConfig {
     /// slow in-cluster link, bounded so a stuck transfer cannot wedge the
     /// upload path. Prefix `WORKSPACE_TRANSFER`.
     pub workspace_transfer: HttpTimeouts,
+    /// One model call an ACP agent makes through its loopback gateway proxy,
+    /// silent while the model thinks. Prefix `MODEL_GATEWAY`.
+    pub model_gateway: HttpStreamTimeouts,
 }
 
 impl Default for SandboxHttpConfig {
@@ -33,6 +36,10 @@ impl Default for SandboxHttpConfig {
             },
             git_probe: timeouts(Duration::from_secs(5), Duration::from_secs(5)),
             workspace_transfer: timeouts(Duration::from_secs(10), Duration::from_mins(5)),
+            model_gateway: HttpStreamTimeouts {
+                connect: Duration::from_secs(10),
+                idle: Duration::from_mins(5),
+            },
         }
     }
 }
@@ -49,6 +56,18 @@ impl SandboxHttpConfig {
             },
             git_probe: read(var, "GIT_PROBE", d.git_probe),
             workspace_transfer: read(var, "WORKSPACE_TRANSFER", d.workspace_transfer),
+            model_gateway: HttpStreamTimeouts {
+                connect: secs(
+                    var,
+                    "MODEL_GATEWAY_HTTP_CONNECT_TIMEOUT_SECS",
+                    d.model_gateway.connect,
+                ),
+                idle: secs(
+                    var,
+                    "MODEL_GATEWAY_HTTP_IDLE_TIMEOUT_SECS",
+                    d.model_gateway.idle,
+                ),
+            },
         }
     }
 }

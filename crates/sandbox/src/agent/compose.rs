@@ -54,6 +54,21 @@ pub fn build_harness(
         )
     })?;
 
+    if harness == moatless_types::agent::Harness::Acp {
+        let profile = agent_profile.parse().map_err(|diagnostic: String| {
+            HarnessError::new(
+                FailureStage::Startup,
+                ErrorClass::InvalidConfiguration,
+                SessionImpact::Intact,
+                diagnostic,
+            )
+        })?;
+        return Ok(HarnessRuntime::acp(crate::agent::harness::AcpConfig {
+            config: Arc::clone(config),
+            trajectory,
+            profile,
+        }));
+    }
     if harness == moatless_types::agent::Harness::MiniSwe {
         return Ok(HarnessRuntime::mini_swe(
             crate::agent::harness::MiniSweConfig {

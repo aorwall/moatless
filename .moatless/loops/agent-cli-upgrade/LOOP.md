@@ -341,3 +341,11 @@ and `docker/Dockerfile.sandbox-base`. Keep the bridge's LiteLLM and MCP pins
 compatible. Run the Python bridge contract tests and
 `tests/api/specs/agent-mini-swe-flow.spec.ts` through the local E2E runner with
 both providers before changing these pins.
+
+An Antigravity CLI upgrade reads `version`, `url` and `sha512` from the
+`linux_amd64.json` and `linux_arm64.json` release manifests named in
+`docker/cli-versions.env`. It sets `AGY_CLI_VERSION` to the path segment after
+`antigravity-cli/` in `url`, with both checksums, in that file and in
+`docker/Dockerfile.sandbox-base`. Run
+`tests/api/specs/agent-antigravity-flow.spec.ts` through the local E2E runner
+before changing these pins.

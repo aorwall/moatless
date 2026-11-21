@@ -77,7 +77,7 @@ impl AgentModelDefaults {
         match harness {
             Harness::ClaudeCode => self.claude_code.as_deref(),
             Harness::Codex => self.codex.as_deref(),
-            Harness::Pi | Harness::MiniSwe => None,
+            Harness::Pi | Harness::MiniSwe | Harness::Acp => None,
         }
     }
 }

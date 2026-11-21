@@ -98,6 +98,8 @@ start_standalone() {
   export ANTHROPIC_BASE_URL="$hub" ANTHROPIC_API_KEY="$MODEL_GATEWAY_HUB_KEY"
   export OPENAI_BASE_URL="${hub}/v1" OPENAI_API_KEY="$MODEL_GATEWAY_HUB_KEY"
   export PI_E2E_HUB=1 MINI_SWE_E2E_HUB=1
+  # Antigravity runs only where its CLI is installed for the local sandboxes.
+  if command -v agy >/dev/null; then export ANTIGRAVITY_E2E_HUB=1; fi
 }
 
 free_port() {

@@ -39,6 +39,37 @@ pub fn foreign_live_processes() -> Option<Vec<ForeignProcess>> {
     Some(found)
 }
 
+/// Every live process descended from `root`, parents before children.
+///
+/// Follows parent links rather than process groups, so it finds a tool child
+/// that left its group through `setsid`; one already reparented to init is
+/// beyond it. Blocks on `/proc`.
+pub fn descendants_of(root: u32) -> Vec<u32> {
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return Vec::new();
+    };
+    let links: Vec<(u32, u32)> = entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| entry.file_name().to_str()?.parse::<u32>().ok())
+        .filter_map(|pid| Some((pid, parent_of(pid)?)))
+        .collect();
+    let mut found = vec![root];
+    let mut next = 0;
+    while next < found.len() {
+        let parent = found[next];
+        found.extend(
+            links
+                .iter()
+                .filter(|(pid, ppid)| *ppid == parent && !found.contains(pid))
+                .map(|(pid, _)| *pid)
+                .collect::<Vec<_>>(),
+        );
+        next += 1;
+    }
+    found.remove(0);
+    found
+}
+
 /// One process's resident memory, as an OOM report names it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProcessMemory {
@@ -134,6 +165,36 @@ fn split_comm(stat: &str) -> Option<(&str, &str)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A tool child an agent detached with `setsid` is still below the agent.
+    #[tokio::test]
+    async fn descendants_include_a_child_that_left_the_group() {
+        let mut parent = tokio::process::Command::new("sh")
+            .arg("-c")
+            .arg("setsid sleep 30 & echo $!; wait")
+            .stdout(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .expect("spawn sh");
+        let mut out = tokio::io::BufReader::new(parent.stdout.take().expect("stdout"));
+        let mut line = String::new();
+        tokio::io::AsyncBufReadExt::read_line(&mut out, &mut line)
+            .await
+            .expect("child pid");
+        let child: u32 = line.trim().parse().expect("pid");
+        // `setsid` may fork before exec, so the sleeper is the child or its child.
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        let found = descendants_of(parent.id().expect("pid"));
+
+        assert!(found.contains(&child), "{found:?} misses {child}");
+        for pid in found {
+            let _ = nix::sys::signal::kill(
+                nix::unistd::Pid::from_raw(i32::try_from(pid).expect("pid")),
+                nix::sys::signal::Signal::SIGKILL,
+            );
+        }
+    }
 
     #[test]
     fn this_process_is_never_a_writer_to_wait_out() {

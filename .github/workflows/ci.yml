@@ -1277,7 +1277,7 @@ jobs:
         run: bash docker/sccache/test.sh
 
       - name: Load CLI versions
-        run: grep -E '^[A-Z_]+=' docker/cli-versions.env >> "$GITHUB_ENV"
+        run: grep -E '^[A-Z0-9_]+=' docker/cli-versions.env >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
@@ -1304,6 +1304,9 @@ jobs:
             CODEX_CLI_VERSION=${{ env.CODEX_CLI_VERSION }}
             PI_CLI_VERSION=${{ env.PI_CLI_VERSION }}
             MINI_SWE_VERSION=${{ env.MINI_SWE_VERSION }}
+            AGY_CLI_VERSION=${{ env.AGY_CLI_VERSION }}
+            AGY_CLI_SHA512_AMD64=${{ env.AGY_CLI_SHA512_AMD64 }}
+            AGY_CLI_SHA512_ARM64=${{ env.AGY_CLI_SHA512_ARM64 }}
             MINI_SWE_LITELLM_VERSION=${{ env.MINI_SWE_LITELLM_VERSION }}
             MINI_SWE_MCP_VERSION=${{ env.MINI_SWE_MCP_VERSION }}
             TASK_VERSION=${{ env.TASK_VERSION }}
@@ -1326,7 +1329,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Load CLI versions
-        run: grep -E '^[A-Z_]+=' docker/cli-versions.env >> "$GITHUB_ENV"
+        run: grep -E '^[A-Z0-9_]+=' docker/cli-versions.env >> "$GITHUB_ENV"
 
       - name: Compute short SHA
         id: sha
@@ -1356,6 +1359,9 @@ jobs:
             CODEX_CLI_VERSION=${{ env.CODEX_CLI_VERSION }}
             PI_CLI_VERSION=${{ env.PI_CLI_VERSION }}
             MINI_SWE_VERSION=${{ env.MINI_SWE_VERSION }}
+            AGY_CLI_VERSION=${{ env.AGY_CLI_VERSION }}
+            AGY_CLI_SHA512_AMD64=${{ env.AGY_CLI_SHA512_AMD64 }}
+            AGY_CLI_SHA512_ARM64=${{ env.AGY_CLI_SHA512_ARM64 }}
             MINI_SWE_LITELLM_VERSION=${{ env.MINI_SWE_LITELLM_VERSION }}
             MINI_SWE_MCP_VERSION=${{ env.MINI_SWE_MCP_VERSION }}
             TASK_VERSION=${{ env.TASK_VERSION }}

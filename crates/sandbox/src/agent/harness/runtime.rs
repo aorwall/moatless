@@ -56,6 +56,23 @@ impl HarnessRuntime {
         }
     }
 
+    /// Construct the persistent ACP harness: one agent process hosts every
+    /// Turn, and outlives them so a background command can wake it.
+    pub fn acp(config: super::AcpConfig) -> Self {
+        let (submit_tx, submit_rx) = mpsc::channel(SUBMIT_CAPACITY);
+        let (cancel_tx, cancel_rx) = mpsc::channel(1);
+        let (signal_tx, signal_rx) = mpsc::channel(SIGNAL_CAPACITY);
+        let process = super::acp::AcpProcess::new(config);
+        supervise(tokio::spawn(driver::run_persistent(
+            process, submit_rx, cancel_rx, signal_tx,
+        )));
+        Self {
+            submit_tx,
+            cancel_tx,
+            signal_rx,
+        }
+    }
+
     /// Construct a Pi RPC process for each execution.
     pub fn pi(config: super::PiConfig) -> Self {
         let (submit_tx, submit_rx) = mpsc::channel(SUBMIT_CAPACITY);

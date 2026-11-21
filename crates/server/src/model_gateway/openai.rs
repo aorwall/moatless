@@ -159,6 +159,25 @@ pub async fn responses(
     forward(&gateway, Method::POST, "/responses", &uri, &headers, body).await
 }
 
+/// `POST /llm/openai/v1/chat/completions`, which the ACP harness's Antigravity
+/// CLI calls: it speaks Chat Completions rather than the Responses API.
+pub async fn chat_completions(
+    State(gateway): State<Arc<ModelGateway>>,
+    uri: Uri,
+    headers: HeaderMap,
+    body: Body,
+) -> Response {
+    forward(
+        &gateway,
+        Method::POST,
+        "/chat/completions",
+        &uri,
+        &headers,
+        body,
+    )
+    .await
+}
+
 /// `POST /llm/openai/v1/responses/compact`, which Codex compacts a long
 /// conversation through.
 pub async fn compact(

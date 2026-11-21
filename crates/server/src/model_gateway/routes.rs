@@ -6,7 +6,7 @@ use axum::routing::{get, post};
 use super::{anthropic, openai};
 use crate::state::AppState;
 
-/// The `/llm/{provider}` endpoints a pod's Claude and Codex call.
+/// The `/llm/{provider}` endpoints a pod's agent CLIs call.
 ///
 /// Mounted outside `/api`, and exempt from the auth middleware
 /// (`moatless_identity::auth::middleware`): the route verifies the pod's task
@@ -21,5 +21,9 @@ pub fn model_gateway_router(state: AppState) -> Router {
         .route("/llm/openai/v1/responses", post(openai::responses))
         .route("/llm/openai/v1/responses/compact", post(openai::compact))
         .route("/llm/openai/v1/models", get(openai::models))
+        .route(
+            "/llm/openai/v1/chat/completions",
+            post(openai::chat_completions),
+        )
         .with_state(state)
 }
