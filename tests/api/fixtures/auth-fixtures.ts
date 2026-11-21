@@ -20,7 +20,7 @@
  *     requiresSeededUsers();
  *
  *     test("my test", async ({ alice }) => {
- *       const team = await alice.createTeam({ name: "Eng", slug: "eng" });
+ *       const repo = await alice.listRepositories();
  *     });
  *   });
  */
@@ -48,9 +48,7 @@ export function requiresSeededUsers(): void {
 /**
  * Create `login` (idempotent) and return an API authenticated as them.
  *
- * Exported so tests that mutate team membership can re-authenticate afterwards:
- * a key carries the group it was minted with, so one minted before
- * `addTeamMember` does not see the new team.
+ * Exported so a test can sign in as a second user.
  */
 export async function loginAs(
   driver: Moat,

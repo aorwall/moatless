@@ -39,7 +39,7 @@ pub struct HandlerDbPorts {
     pub memories: Arc<moatless_tasks::memory::operations::Memories>,
     /// Where a fork's first turn branches from.
     pub task_forks: Arc<TaskForks>,
-    /// Scoped secret resolver for global/team/user secrets.
+    /// Scoped secret resolver for global/user secrets.
     pub secrets: Arc<dyn moatless_ports::identity::SecretResolver>,
     /// Workspace projection: the primary repository, the run-as identity, and
     /// the `system_prompt` an append prompt is built from.

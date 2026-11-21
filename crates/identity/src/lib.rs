@@ -2,8 +2,8 @@
 // workspace `deny`/`warn`.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-//! Identity band (band 3): authentication, provider-token credentials, team
-//! membership, adapter-app registry, secret storage, and first-run setup.
+//! Identity band (band 3): authentication, provider-token credentials,
+//! adapter-app registry, secret storage, and first-run setup.
 //!
 //! Request extractors live in `moatless_core::http_auth`; this crate only
 //! implements `UserTokenVerifier`'s caller side.
@@ -24,4 +24,3 @@ pub mod git_host_tokens;
 pub mod ports;
 pub mod secret;
 pub mod setup;
-pub mod team;

@@ -10,23 +10,8 @@
 //! crate's own db-tests and, off `test-support`, the backend suites that seed a
 //! repository or a workspace before exercising their own band.
 
-use sqlx::PgPool;
-
 use crate::repository::models::{Repository, RepositoryKind, RepositoryProvider};
 use crate::workspace::models::{Workspace, WorkspaceRepo};
-
-/// Seed the `teams` row that repository (and other team-scoped) rows FK to. The
-/// factories below use `personal-{user_id}` as the team id; pass that value.
-pub async fn seed_team(pool: &PgPool, team_id: &str) {
-    sqlx::query(
-        "INSERT INTO teams (id, name, slug) VALUES ($1, $2, $1) ON CONFLICT (id) DO NOTHING",
-    )
-    .bind(team_id)
-    .bind(format!("Team {team_id}"))
-    .execute(pool)
-    .await
-    .expect("seed team row");
-}
 
 /// A minimal user-scoped Repository.
 pub fn make_repository_row(id: &str, user_id: &str) -> Repository {

@@ -147,7 +147,6 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     use moatless_decisions::routes::DecisionApiDoc;
     use moatless_identity::auth::routes::AuthApiDoc;
     use moatless_identity::secret::routes::SecretApiDoc;
-    use moatless_identity::team::routes::TeamApiDoc;
     use moatless_loops::loops::http::LoopsApiDoc;
     use moatless_tasks::agent::routes::AgentApiDoc;
     use moatless_tasks::artifact::routes::ArtifactApiDoc;
@@ -222,7 +221,6 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     merged.merge(AccessSettingsApiDoc::openapi());
     merged.merge(AdapterApiDoc::openapi());
     merged.merge(LoopsApiDoc::openapi());
-    merged.merge(TeamApiDoc::openapi());
     merged.merge(DecisionApiDoc::openapi());
     merged.merge(EventsApiDoc::openapi());
     merged.merge(TaskEventApiDoc::openapi());

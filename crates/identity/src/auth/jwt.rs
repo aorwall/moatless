@@ -13,8 +13,7 @@ use moatless_types::auth::AuthIdentity;
 use moatless_types::user::UserRole;
 
 /// Issuer stamped on session JWTs. Bumped at the internal-uuid cutover so
-/// cookies minted before it (provider-id `sub`, `personal-<provider-id>` teams)
-/// fail verification and force a fresh login.
+/// cookies minted before it (provider-id `sub`) fail verification and force a fresh login.
 const SESSION_JWT_ISSUER: &str = "moatless-vibe-backend/v2";
 
 /// Issuer stamped on WebSocket tickets.

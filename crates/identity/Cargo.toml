@@ -2,7 +2,7 @@
 name = "moatless-identity"
 version.workspace = true
 edition.workspace = true
-description = "Identity band: auth, extractors, team, adapter apps, secrets, and setup for Moatless"
+description = "Identity band: auth, extractors, adapter apps, secrets, and setup for Moatless"
 
 authors.workspace = true
 [dependencies]

@@ -6,7 +6,6 @@
 use std::sync::Arc;
 
 use moatless_core::db::DbPool;
-use moatless_core::http_auth::UserTokenVerifier;
 use moatless_types::auth::AuthConfig;
 use moatless_types::http::HttpTimeouts;
 
@@ -32,7 +31,6 @@ use crate::secret::audit::SecretAudit;
 use crate::secret::audit_dao::PgSecretAuditDao;
 use crate::secret::dao::PgSecretDao;
 use crate::secret::service::{SecretCipher, SecretService};
-use crate::team::dao::PgTeamDao;
 
 /// The `users` and `provider_tokens` tables behind the identity ports peers
 /// read.
@@ -197,17 +195,6 @@ pub fn device_pairing(db: DbPool) -> Arc<DevicePairing> {
         Arc::new(PgPairingCodeDao(db.clone())),
         Arc::new(PgPairedDeviceKeys(Arc::new(PgApiKeyDao(db)))),
     ))
-}
-
-/// The team routes and their OpenAPI metadata, over this crate's own store.
-pub fn team_router(
-    db: DbPool,
-    token_verifier: Arc<dyn UserTokenVerifier>,
-) -> (axum::Router, utoipa::openapi::OpenApi) {
-    crate::team::routes::team_router(crate::team::state::TeamState {
-        teams: Arc::new(PgTeamDao(db)),
-        token_verifier,
-    })
 }
 
 /// Seed the bootstrap administrator for local password auth.

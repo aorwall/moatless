@@ -34,10 +34,6 @@ pub(crate) fn domain_routes(app_state: &AppState) -> (Router, utoipa::openapi::O
         access_settings::routes::access_settings_router(app_state.clone()),
         adapters::routes::adapter_router(app_state.clone()),
         loops::http::loops_router(app_state.clone()),
-        moatless_identity::compose::team_router(
-            app_state.db.clone(),
-            app_state.token_verifier.clone(),
-        ),
         moatless_decisions::compose::decisions_router(
             &app_state.config.decision,
             app_state.config.http.decision,

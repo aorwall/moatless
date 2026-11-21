@@ -19,25 +19,8 @@ fn scope_ctx(user_id: &str) -> ScopeContext {
     ScopeContext::user(user_id)
 }
 
-/// Helper: insert the personal team a repository references, satisfying the
-/// `repositories_team_id_fkey` FK. Idempotent so repeated calls within a test
-/// are harmless. `make_repository_row` sets `team_id = personal-{user_id}`.
-async fn seed_team(pool: &PgPool, user_id: &str) {
-    sqlx::query(
-        r#"INSERT INTO teams (id, name, slug)
-           VALUES ($1, $2, $1)
-           ON CONFLICT (id) DO NOTHING"#,
-    )
-    .bind(format!("personal-{user_id}"))
-    .bind(format!("{user_id} Personal"))
-    .execute(pool)
-    .await
-    .expect("seed team");
-}
-
 /// Helper: insert a repository so task FK references are satisfied.
 async fn seed_repo(pool: &PgPool, id: &str, user_id: &str) {
-    seed_team(pool, user_id).await;
     let row = make_repository_row(id, user_id);
     moatless_workspaces::compose::seed_repository(pool, &row)
         .await
@@ -875,7 +858,6 @@ async fn list_tasks_acl_predicate_constrains_page_and_total(pool: PgPool) {
     let owner = "user-1";
     let other = "user-2";
     seed_repo(&pool, "repo-1", owner).await;
-    seed_team(&pool, other).await;
 
     // Two private tasks the other user must never see, plus one public one.
     for i in 0..2 {

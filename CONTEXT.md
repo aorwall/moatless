@@ -704,8 +704,6 @@ every signed-in user. A few actions are **owner-only** (the owner or an admin, n
 widened by visibility): deleting a Task, cleaning up its Sandbox, changing its
 visibility, its run-as and ownership fields, and the interactive terminal. Secrets use
 this same Scope.
-_Note_: `Team` is **not** a scope — teams are an org/entity concept and grant no
-resource access (removed in the access-scope redesign).
 _Avoid_: conflating with `OAuth scope` (a permission grant) — always qualify that.
 
 **Driver**:

@@ -5,7 +5,7 @@ use sqlx::PgPool;
 
 use crate::repository::dao::{PgRepositoryDao, RepositoryDao};
 use crate::repository::models::RepositoryPatch;
-use crate::test_support::{make_repository_row, seed_team};
+use crate::test_support::make_repository_row;
 
 /// Helper to create a non-admin `ScopeContext` for a given user.
 fn scope_ctx(user_id: &str) -> ScopeContext {
@@ -15,7 +15,6 @@ fn scope_ctx(user_id: &str) -> ScopeContext {
 #[sqlx::test]
 async fn insert_and_find_by_id(pool: PgPool) {
     let user = "user-1";
-    seed_team(&pool, "personal-user-1").await;
     let row = make_repository_row("repo-abc", user);
     PgRepositoryDao(pool.clone()).insert(&row).await.unwrap();
 
@@ -32,7 +31,6 @@ async fn insert_and_find_by_id(pool: PgPool) {
 
 #[sqlx::test]
 async fn find_by_id_access_control(pool: PgPool) {
-    seed_team(&pool, "personal-user-1").await;
     let row = make_repository_row("repo-priv", "user-1");
     PgRepositoryDao(pool.clone()).insert(&row).await.unwrap();
 
@@ -51,7 +49,6 @@ async fn find_by_id_access_control(pool: PgPool) {
 
 #[sqlx::test]
 async fn list_all_canonical_scope_filtering(pool: PgPool) {
-    seed_team(&pool, "personal-user-1").await;
     let user_repo = make_repository_row("repo-user", "user-1");
     PgRepositoryDao(pool.clone())
         .insert(&user_repo)
@@ -85,7 +82,6 @@ async fn list_all_canonical_scope_filtering(pool: PgPool) {
 
 #[sqlx::test]
 async fn update_partial(pool: PgPool) {
-    seed_team(&pool, "personal-user-1").await;
     let row = make_repository_row("repo-upd", "user-1");
     PgRepositoryDao(pool.clone()).insert(&row).await.unwrap();
 
@@ -115,7 +111,6 @@ async fn update_partial(pool: PgPool) {
 
 #[sqlx::test]
 async fn soft_delete(pool: PgPool) {
-    seed_team(&pool, "personal-user-1").await;
     let row = make_repository_row("repo-del", "user-1");
     PgRepositoryDao(pool.clone()).insert(&row).await.unwrap();
 
@@ -141,7 +136,6 @@ async fn soft_delete(pool: PgPool) {
 
 #[sqlx::test]
 async fn same_name_with_different_urls_is_allowed(pool: PgPool) {
-    seed_team(&pool, "personal-user-1").await;
     let first = make_repository_row("repo-name-a", "user-1");
     let mut second = make_repository_row("repo-name-b", "user-1");
     second.name = first.name.clone();
@@ -152,7 +146,6 @@ async fn same_name_with_different_urls_is_allowed(pool: PgPool) {
 
 #[sqlx::test]
 async fn canonical_url_is_unique_within_access_owner(pool: PgPool) {
-    seed_team(&pool, "personal-user-1").await;
     let first = make_repository_row("repo-url-a", "user-1");
     let mut second = make_repository_row("repo-url-b", "user-1");
     second.remote = Some(crate::repository::remote::resolve_remote(
@@ -176,7 +169,6 @@ async fn canonical_url_is_unique_within_access_owner(pool: PgPool) {
 
 #[sqlx::test]
 async fn canonical_url_can_be_reused_by_a_different_access_owner(pool: PgPool) {
-    seed_team(&pool, "personal-user-1").await;
     let user_repo = make_repository_row("repo-owner-user", "user-1");
     let mut global_repo = make_repository_row("repo-owner-global", "system");
     global_repo.scope = Scope::Global;
@@ -196,7 +188,6 @@ async fn canonical_url_can_be_reused_by_a_different_access_owner(pool: PgPool) {
 
 #[sqlx::test]
 async fn soft_delete_releases_canonical_url(pool: PgPool) {
-    seed_team(&pool, "personal-user-1").await;
     let first = make_repository_row("repo-release-a", "user-1");
     let mut replacement = make_repository_row("repo-release-b", "user-1");
     replacement.remote = first.remote.clone();
@@ -215,7 +206,6 @@ async fn soft_delete_releases_canonical_url(pool: PgPool) {
 #[sqlx::test]
 async fn reading_after_a_remote_update_rebuilds_the_host(pool: PgPool) {
     use crate::repository::models::RepositoryProvider;
-    seed_team(&pool, "personal-user-1").await;
     let dao = PgRepositoryDao(pool);
     let initial = make_repository_row("repo-remote", "user-1");
     dao.insert(&initial).await.unwrap();

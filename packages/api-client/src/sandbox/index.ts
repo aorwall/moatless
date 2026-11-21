@@ -25,6 +25,5 @@ export * from './tags/tags';
 export * from './task-bindings/task-bindings';
 export * from './task-events/task-events';
 export * from './tasks/tasks';
-export * from './teams/teams';
 export * from './users/users';
 export * from './workspaces/workspaces';

@@ -10,7 +10,6 @@ use uuid::Uuid;
 use super::{PgUserDao, UserDao};
 use crate::auth::password::dao::{PgUserCredentialDao, UserCredentialDao};
 use crate::auth::users::User;
-use crate::team::dao::{PgTeamDao, TeamDao};
 
 fn make_user(id: Uuid, login: &str, provider: &str, provider_user_id: &str) -> User {
     let now = Utc::now();
@@ -230,48 +229,19 @@ async fn the_directory_hides_disabled_accounts_by_default(pool: PgPool) {
     );
 }
 
-/// The FK columns (`team_members.user_id`, `user_credentials.user_id`) are
-/// native `uuid` referencing `users.id`; rows resolve through the DAOs and the
-/// FK rejects an unknown user.
+/// `user_credentials.user_id` is a native `uuid` referencing `users.id`; rows
+/// resolve through the DAO and the FK rejects an unknown user.
 #[sqlx::test]
 async fn native_uuid_foreign_keys_resolve_and_enforce(pool: PgPool) {
     let users = PgUserDao(pool.clone());
-    let teams = PgTeamDao(pool.clone());
     let creds = PgUserCredentialDao(pool.clone());
 
     let uid = Uuid::new_v4();
-    let uid_s = uid.to_string();
     users
         .upsert_user(&make_user(uid, "carol", "github", "12345"))
         .await
         .unwrap();
 
-    // Personal team; membership rides the native-uuid FK to users.
-    sqlx::query(
-        "INSERT INTO teams (id, name, slug) VALUES ($1, $2, $1) ON CONFLICT (id) DO NOTHING",
-    )
-    .bind(format!("personal-{uid_s}"))
-    .bind(format!("{uid_s} Personal"))
-    .execute(&pool)
-    .await
-    .unwrap();
-    teams
-        .add_member(&format!("personal-{uid_s}"), &uid, "owner")
-        .await
-        .unwrap();
-
-    assert!(
-        teams
-            .is_member(&format!("personal-{uid_s}"), &uid)
-            .await
-            .unwrap()
-    );
-    assert_eq!(
-        teams.find_team_ids_for_user(&uid).await.unwrap(),
-        vec![format!("personal-{uid_s}")]
-    );
-
-    // user_credentials.user_id is also a native-uuid FK to users.
     creds
         .upsert(&uid, "carol", "$argon2id$hash", false)
         .await
@@ -281,17 +251,13 @@ async fn native_uuid_foreign_keys_resolve_and_enforce(pool: PgPool) {
         uid
     );
 
-    // The FK is load-bearing: a membership for an unknown user is rejected.
-    let orphan = Uuid::new_v4();
-    let err =
-        sqlx::query("INSERT INTO team_members (team_id, user_id, role) VALUES ($1, $2, 'member')")
-            .bind(format!("personal-{uid_s}"))
-            .bind(orphan)
-            .execute(&pool)
-            .await;
+    // The FK is load-bearing: a credential for an unknown user is rejected.
+    let err = creds
+        .upsert(&Uuid::new_v4(), "orphan", "$argon2id$hash", false)
+        .await;
     assert!(
         err.is_err(),
-        "team_members.user_id FK must reject an unknown user"
+        "user_credentials.user_id FK must reject an unknown user"
     );
 }
 

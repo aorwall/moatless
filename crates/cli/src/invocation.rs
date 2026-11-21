@@ -109,9 +109,6 @@ async fn run_shared(
         SharedCommands::Events { action } => {
             commands::events::run(moat, action, json).await?;
         }
-        SharedCommands::Teams { action } => {
-            commands::teams::run(moat, action, json).await?;
-        }
         SharedCommands::Settings { action } => {
             commands::settings::run(moat, action, json).await?;
         }

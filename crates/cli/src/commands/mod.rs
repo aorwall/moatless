@@ -31,7 +31,6 @@ pub mod send;
 pub mod settings;
 mod subprocess;
 pub mod tasks;
-pub mod teams;
 pub mod users;
 pub mod workspaces;
 

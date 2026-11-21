@@ -26,11 +26,10 @@ use moatless_types::adapter::AdapterConnection;
 use moatless_types::adapter::TaskBinding;
 use moatless_workspaces::compose;
 
-use common::{USER_1, make_repository_row, make_task_row, seed_team, test_app_state, user_scope};
+use common::{USER_1, make_repository_row, make_task_row, test_app_state, user_scope};
 
 /// Seed the team + repository a task's FKs require, then the task itself.
 async fn seed_task(pool: &PgPool, task_id: &str, user_id: &str) {
-    seed_team(pool, &format!("personal-{user_id}")).await;
     let repo = make_repository_row("repo-1", user_id);
     // Repeated calls across tasks in one test share the single repository row.
     let _ = compose::seed_repository(pool, &repo).await;

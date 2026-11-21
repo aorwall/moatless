@@ -16,7 +16,6 @@ use crate::common::make_repository_row;
 use crate::common::make_task_row;
 use crate::common::make_workspace_row;
 use crate::common::run_config;
-use crate::common::seed_team;
 use crate::common::test_app_state;
 use axum::http::StatusCode;
 use futures::future::BoxFuture;
@@ -684,7 +683,6 @@ async fn a_tombstoned_project_keeps_the_conversations_still_running_in_it(pool: 
 /// delete statement lives in the handler and a direct call would miss it.
 #[sqlx::test]
 async fn deleting_a_repository_takes_its_workspaces_off_the_listing(pool: PgPool) {
-    seed_team(&pool, &format!("personal-{USER_1}")).await;
     compose::seed_repository(&pool, &make_repository_row("repo-gone", USER_1))
         .await
         .unwrap();

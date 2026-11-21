@@ -10,27 +10,17 @@
 //! crate's own db-tests and, off `test-support`, for the sandbox-control band's
 //! lifecycle db-tests (still in the backend), which seed the same task row
 //! shape before layering their own `sandboxes` row on top. The tasks band owns
-//! the `tasks`/`teams` tables, so it owns their seeder.
+//! the `tasks` table, so it owns its seeder.
 
 use sqlx::PgPool;
 
-/// Seed a team, one task, and the Sandbox row task creation writes for it — the
+/// Seed one task, and the Sandbox row task creation writes for it — the
 /// shape a Task has before any lifecycle operation: converged Stopped at the
 /// intent epoch, owning no volume.
 pub async fn seed_bare_task(pool: &PgPool, task_id: &str, status: &str) {
-    // tasks.team_id is NOT NULL (no FK); seed a row so the fixture matches the
-    // production shape.
     sqlx::query(
-        "INSERT INTO teams (id, name, slug) VALUES ('team-x', 'Team X', 'team-x')
-         ON CONFLICT (id) DO NOTHING",
-    )
-    .execute(pool)
-    .await
-    .expect("seed team");
-
-    sqlx::query(
-        "INSERT INTO workspaces (id, name, scope, team_id, owner_user_id, created_by)
-         VALUES ('ws_repo-x', 'Repo X', 'user', 'team-x', 'user-1', 'user-1')
+        "INSERT INTO workspaces (id, name, scope, owner_user_id, created_by)
+         VALUES ('ws_repo-x', 'Repo X', 'user', 'user-1', 'user-1')
          ON CONFLICT (id) DO NOTHING",
     )
     .execute(pool)
@@ -49,12 +39,12 @@ pub async fn seed_bare_task(pool: &PgPool, task_id: &str, status: &str) {
 
     sqlx::query(
         r#"INSERT INTO tasks (task_id, created_at, last_message_at, agent_profile, repository_id,
-               status, total_cost_usd, visibility, scope, team_id, created_by, owner_user_id,
+               status, total_cost_usd, visibility, scope, created_by, owner_user_id,
                workspace_id, sandbox_id)
            VALUES ($1, to_char(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
                to_char(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
                'claude-code', 'repo-x', $2, 0,
-               'private', 'user', 'team-x', 'user-1', 'user-1', 'ws_repo-x', $1)"#,
+               'private', 'user', 'user-1', 'user-1', 'ws_repo-x', $1)"#,
     )
     .bind(task_id)
     .bind(status)

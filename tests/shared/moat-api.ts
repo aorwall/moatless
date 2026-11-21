@@ -60,8 +60,6 @@ import type {
   SearchByNameResult,
   TaskLoopFixtureConfig,
   TaskLoopFixtureResponse,
-  TeamMemberResponse,
-  TeamResponse,
 } from './types'
 
 /**
@@ -1188,71 +1186,6 @@ export class MoatApi {
     return loops
       .map(toTaskTriggerFixture)
       .filter((fixture) => !filters?.workspaceId || fixture.workspaceId === filters.workspaceId)
-  }
-
-  // =========================================================================
-  // Teams
-  // =========================================================================
-
-  async createTeam(req: {
-    name: string
-    slug: string
-    description?: string
-  }): Promise<TeamResponse> {
-    return this.expect<TeamResponse>(
-      await this.moat.raw('POST', '/api/v1/teams', {
-        ...req,
-        name: scopedName(req.name),
-        slug: scopedSlug(req.slug),
-      }),
-    )
-  }
-
-  async createTeamRaw(req: {
-    name?: string
-    slug?: string
-    description?: string
-  }): Promise<RawResponse> {
-    return this.moat.raw('POST', '/api/v1/teams', req)
-  }
-
-  async getTeam(id: string): Promise<TeamResponse> {
-    return this.expect<TeamResponse>(await this.moat.raw('GET', `/api/v1/teams/${id}`))
-  }
-
-  async updateTeam(
-    id: string,
-    data: { name?: string; description?: string },
-  ): Promise<TeamResponse> {
-    return this.expect<TeamResponse>(await this.moat.raw('PUT', `/api/v1/teams/${id}`, data))
-  }
-
-  async deleteTeam(id: string): Promise<void> {
-    this.expect(await this.moat.raw('DELETE', `/api/v1/teams/${id}`))
-  }
-
-  async listTeams(): Promise<TeamResponse[]> {
-    return this.moat.json<TeamResponse[]>(['teams', 'list'])
-  }
-
-  async addTeamMember(
-    teamId: string,
-    userId: string,
-    role = 'member',
-  ): Promise<TeamMemberResponse> {
-    return this.expect<TeamMemberResponse>(
-      await this.moat.raw('POST', `/api/v1/teams/${teamId}/members`, { userId, role }),
-    )
-  }
-
-  async removeTeamMember(teamId: string, userId: string): Promise<void> {
-    this.expect(await this.moat.raw('DELETE', `/api/v1/teams/${teamId}/members/${userId}`))
-  }
-
-  async listTeamMembers(teamId: string): Promise<TeamMemberResponse[]> {
-    return this.expect<TeamMemberResponse[]>(
-      await this.moat.raw('GET', `/api/v1/teams/${teamId}/members`),
-    )
   }
 
   // =========================================================================

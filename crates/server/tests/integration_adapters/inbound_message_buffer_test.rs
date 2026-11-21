@@ -35,8 +35,7 @@ use moatless_types::loops::{RoutingMode, SubscriptionMatch};
 use moatless_workspaces::compose;
 
 use common::{
-    USER_1, make_repository_row, make_task_row, seed_team, test_app_state_with_adapters,
-    test_config,
+    USER_1, make_repository_row, make_task_row, test_app_state_with_adapters, test_config,
 };
 
 const KIND: &str = "slack.inbound_message";
@@ -78,7 +77,6 @@ fn event(external_event_id: &str, text: &str) -> serde_json::Value {
 /// A Task already bound to one Slack thread, on a Loop that holds inbound
 /// events for `window` seconds.
 async fn seed_bound_thread(state: &AppState, pool: &PgPool, window: i32) {
-    seed_team(pool, &format!("personal-{USER_1}")).await;
     let _ = compose::seed_repository(pool, &make_repository_row("repo-1", USER_1)).await;
     common::seed_workspace_placing(pool, common::FIXTURE_WORKSPACE, "repo-1", USER_1).await;
     task_fixtures::seed_task(pool, &make_task_row(TASK, USER_1))

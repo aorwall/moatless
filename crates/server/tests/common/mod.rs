@@ -503,7 +503,7 @@ pub async fn body_json(response: axum::http::Response<axum::body::Body>) -> serd
 /// same shape that band's own PostgreSQL tests write.
 #[allow(unused_imports)]
 pub use moatless_workspaces::test_support::{
-    make_repository_row, make_workspace_repo_row, make_workspace_row, run_config, seed_team,
+    make_repository_row, make_workspace_repo_row, make_workspace_row, run_config,
 };
 
 /// The row factories the tasks band owns, so a fixture here writes the same

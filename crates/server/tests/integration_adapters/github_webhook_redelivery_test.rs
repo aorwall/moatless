@@ -34,9 +34,7 @@ use sqlx::{PgPool, Row};
 use tokio_util::sync::CancellationToken;
 use tower::ServiceExt;
 
-use common::{
-    make_repository_row, make_task_row, seed_team, test_app_state_with_adapters, test_config,
-};
+use common::{make_repository_row, make_task_row, test_app_state_with_adapters, test_config};
 
 mod checks_rollup;
 
@@ -190,7 +188,6 @@ async fn stubbed_replica(pool: &PgPool, base_url: &str) -> AppState {
 }
 
 async fn seed_fixtures(pool: &PgPool, task_id: &str) {
-    seed_team(pool, &format!("personal-{TASK_USER}")).await;
     compose::seed_repository(pool, &make_repository_row("repo-1", TASK_USER))
         .await
         .expect("seed repository");

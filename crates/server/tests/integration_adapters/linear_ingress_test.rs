@@ -35,8 +35,8 @@ use moatless_types::loops::SubscriptionMatch;
 use moatless_workspaces::compose;
 
 use common::{
-    USER_1, linear_config, make_repository_row, seed_linear_app, seed_team,
-    test_app_state_with_linear, test_config,
+    USER_1, linear_config, make_repository_row, seed_linear_app, test_app_state_with_linear,
+    test_config,
 };
 
 const SECRET: &str = "linear-webhook-secret";
@@ -148,7 +148,6 @@ async fn seed_workspace_token(pool: &PgPool) {
 /// An active Linear Subscription for the team, which is what a created session
 /// is gated on.
 async fn seed_rule(state: &AppState, pool: &PgPool) {
-    seed_team(pool, &format!("personal-{USER_1}")).await;
     let mut repo = make_repository_row("repo-1", USER_1);
     repo.provider = None;
     repo.remote = None;

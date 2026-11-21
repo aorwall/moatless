@@ -92,11 +92,6 @@ pub(super) enum SharedCommands {
         #[command(subcommand)]
         action: commands::events::EventAction,
     },
-    /// Team management
-    Teams {
-        #[command(subcommand)]
-        action: commands::teams::TeamAction,
-    },
     /// Plugin management
     Plugins {
         #[command(subcommand)]

@@ -84,7 +84,7 @@ one field named. The fix is known in every case; what stops it is stated.
 | A Binding's origin is an open string | `crates/types/src/adapter.rs::TaskBinding::origin`, against `ADAPTER_EVENT_BINDING_ORIGIN` and its two siblings in `crates/adapter-model/src/binding.rs` | When the legal set is settled: the three declared constants are not the whole set — `bindings/handlers.rs` writes `"api"` and the Linear delivery tests write `"provider_event"` |
 | A Binding's `subject_kind` and a connection's `connection_kind` are open strings | `crates/types/src/adapter.rs::TaskBinding::subject_kind`, `AdapterConnection::connection_kind` | Same as `origin`: each Adapter declares its own values and no enumeration exists |
 | A Task's Workspace is optional in a model where every Task has one | `crates/types/src/task.rs::Task::workspace_id` — `Option<String>` over the nullable `tasks.workspace_id` (`crates/core/migrations/0079_workspaces.sql`), while `crates/tasks/src/task/dao.rs::insert_task` refuses a Task without one. Every `None` reader is dead for rows written since | When the rows predating Workspaces are backfilled or closed out, so the column takes `NOT NULL` and a foreign key to `workspaces` and the field becomes `String` |
-| `User` and `TeamMember` are not in `moatless-types` | `crates/identity/src/auth/users.rs::User`, `crates/identity/src/team/models.rs::TeamMember` — both key on `uuid::Uuid` | `uuid` is now on the list, so the block is gone. Move each one when a third crate outside `identity` names it |
+| `User` is not in `moatless-types` | `crates/identity/src/auth/users.rs::User` keys on `uuid::Uuid` | `uuid` is now on the list, so the block is gone. Move it when a third crate outside `identity` names it |
 
 ## Table ownership
 

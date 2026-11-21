@@ -305,10 +305,10 @@ impl ProviderTokenDao for PgProviderTokenDao {
                 .await
             }
             CodexScope::Global => {
-                // Global codex row: user_id=NULL, team_id=NULL, scope='global'.
+                // Global codex row: user_id=NULL, scope='global'.
                 // The unique constraint provider_tokens_scope_uq is
-                // UNIQUE NULLS NOT DISTINCT (user_id, provider, team_id),
-                // so the NULL/NULL combination is unique per provider.
+                // UNIQUE NULLS NOT DISTINCT (user_id, provider), so the
+                // NULL user is unique per provider.
                 sqlx::query(
                     r#"INSERT INTO provider_tokens (
                            provider, auth_method, access_token, refresh_token,
@@ -401,7 +401,7 @@ impl ProviderTokenDao for PgProviderTokenDao {
                       token_type, auth_method, expires_at, metadata, created_at, updated_at,
                       provider_user_id, provider_login
                FROM provider_tokens
-               WHERE provider = $1 AND user_id IS NULL AND team_id IS NULL
+               WHERE provider = $1 AND user_id IS NULL
                LIMIT 1"#,
         )
         .bind(provider)
@@ -424,7 +424,7 @@ impl ProviderTokenDao for PgProviderTokenDao {
                    metadata, connected_at, updated_at, scope, owner_user_id, expires_at
                )
                VALUES ($1, 'oauth', $2, $3, $4, $5, NOW(), NOW(), 'global', NULL, $6)
-               ON CONFLICT (user_id, provider, team_id) DO UPDATE SET
+               ON CONFLICT (user_id, provider) DO UPDATE SET
                    access_token = $2, refresh_token = $3, token_type = $4,
                    metadata = $5, auth_method = 'oauth', scope = 'global',
                    owner_user_id = NULL, updated_at = NOW(), expires_at = $6"#,
@@ -451,8 +451,8 @@ impl ProviderTokenDao for PgProviderTokenDao {
         // `pg_try_advisory_xact_lock` releases when the transaction ends. When
         // another replica already holds it, drop the transaction and read
         // whatever they end up writing rather than piling up waiters on a slow
-        // refresh. The key embeds the scope kind, so a user named "foo" and a
-        // team named "foo" do not collide.
+        // refresh. The key embeds the scope kind, so a user named "foo" and the
+        // global row do not collide.
         let acquired: bool =
             sqlx::query_scalar("SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0))")
                 .bind(codex_lock_key(scope))
@@ -617,8 +617,7 @@ fn codex_where_clause(scope: &CodexScope, placeholder: &str) -> String {
             format!("user_id = {placeholder} AND provider = 'codex' AND scope = 'user'")
         }
         CodexScope::Global => {
-            "user_id IS NULL AND team_id IS NULL AND provider = 'codex' AND scope = 'global'"
-                .to_string()
+            "user_id IS NULL AND provider = 'codex' AND scope = 'global'".to_string()
         }
     }
 }
@@ -635,7 +634,6 @@ mod scope_tests {
 
         let g = codex_where_clause(&CodexScope::Global, "$1");
         assert!(g.contains("user_id IS NULL"));
-        assert!(g.contains("team_id IS NULL"));
         assert!(g.contains("scope = 'global'"));
     }
 

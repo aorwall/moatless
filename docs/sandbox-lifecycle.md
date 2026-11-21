@@ -384,7 +384,7 @@ than baking them into the pod. Two flows matter for lifecycle:
   `providers[{provider: "github", connected}]` and the UI shows a Reconnect
   banner when refresh fails.
 - **Codex** (PR #301): the refresher keeps `CODEX_AUTH_JSON` fresh with
-  `user > team > global` scope precedence, skipping scopes with an open
+  `user > global` scope precedence, skipping scopes with an open
   codex task (the sandbox watcher rotates the single-use refresh token in
   that case). On *permanent* refresh failure it stamps
   `metadata.refresh_failure`, which now surfaces everywhere:

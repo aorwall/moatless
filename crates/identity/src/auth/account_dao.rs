@@ -154,8 +154,7 @@ pub(super) async fn upsert_bot(
     // Bot's provider_tokens row. `provider_user_id` carries the App key so
     // the resolver can pick the right App when minting installation tokens.
     // `access_token` holds the sentinel; bypassing the resolver to read the
-    // column directly hits a 401 instead of an empty Bearer token. team_id
-    // is NULL (migration 0097 dropped the team FK requirement).
+    // column directly hits a 401 instead of an empty Bearer token.
     sqlx::query(
         r#"
         INSERT INTO provider_tokens (
@@ -164,7 +163,7 @@ pub(super) async fn upsert_bot(
             connected_at, expires_at, scope, owner_user_id
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'user', $1)
-        ON CONFLICT (user_id, provider, team_id) DO UPDATE SET
+        ON CONFLICT (user_id, provider) DO UPDATE SET
             auth_method = EXCLUDED.auth_method,
             access_token = EXCLUDED.access_token,
             refresh_token = EXCLUDED.refresh_token,

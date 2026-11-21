@@ -16,7 +16,7 @@ refused. Look the area up in `references/surfaces.md` before changing it.
 
 | Owner | Covers | How a change takes effect |
 |---|---|---|
-| **API and CLI** | Users, teams, repositories, secrets, workspace credentials, plugins, skill activations not declared in git, adapters, provider apps, GitHub Apps, loop activation | Live, once the call returns |
+| **API and CLI** | Users, repositories, secrets, workspace credentials, plugins, skill activations not declared in git, adapters, provider apps, GitHub Apps, loop activation | Live, once the call returns |
 | **Git**, in each repository | `.moatless/workspaces.json` (workspaces, scripts, declared skills), `.moatless/loops/<name>/LOOP.md` | A PR to the repository's default branch. The backend checks the branch every 2 minutes, from webhook `push` events or by polling; `moat repos sync-config <repo>` syncs at once |
 | **Deployment** | Sign-in, admin ids, sandbox defaults, network profiles, identity grants, org sync, plugin repositories, feature flags, storage | A PR to the deployment's values, then a redeploy. Every env var is read once at startup |
 

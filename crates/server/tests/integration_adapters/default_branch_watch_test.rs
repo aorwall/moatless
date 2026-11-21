@@ -106,16 +106,6 @@ async fn github_stub(branch: Shared) -> String {
     format!("http://{addr}")
 }
 
-async fn seed_team(pool: &PgPool, user_id: &str) {
-    sqlx::query(
-        "INSERT INTO teams (id, name, slug) VALUES ($1, $1, $1) ON CONFLICT (id) DO NOTHING",
-    )
-    .bind(format!("personal-{user_id}"))
-    .execute(pool)
-    .await
-    .unwrap();
-}
-
 /// A backend whose GitHub calls reach a stub holding `branch`, and the watch
 /// composed from it as `app.rs` composes it. The repository's creator holds a
 /// GitHub credential.
@@ -128,7 +118,6 @@ async fn watched_without_credential(
     pool: &PgPool,
     branch: Branch,
 ) -> (AppState, DefaultBranchWatch, Shared) {
-    seed_team(pool, "user-1").await;
     compose::seed_repository(pool, &make_repository_row(REPO, "user-1"))
         .await
         .unwrap();

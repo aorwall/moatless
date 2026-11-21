@@ -3,9 +3,9 @@
  *
  * The deployed environment's database is shared and long-lived: there is no
  * truncate to fall back on, and no tenancy boundary to hide behind — resource
- * scope is only global or per-user, and teams grant no access (the access-scope redesign). So
- * the suite enforces the convention on itself. Every resource a test creates is
- * named through `scopedName`, which stamps it with the run's own prefix.
+ * scope is only global or per-user. So the suite enforces the convention on
+ * itself. Every resource a test creates is named through `scopedName`, which
+ * stamps it with the run's own prefix.
  *
  * The prefix carries the run's start time, so a sweep can decide what is stale
  * from the name alone — no database access, no bookkeeping file, nothing that
@@ -51,7 +51,7 @@ export function scopedName(label: string): string {
   return belongsToThisRun(label) ? label : `${runPrefix()}-${label}`
 }
 
-/** A slug belonging to this run, for resources that need one (teams). */
+/** A slug belonging to this run, for resources that need one. */
 export function scopedSlug(label: string): string {
   return scopedName(label)
     .toLowerCase()

@@ -43,8 +43,7 @@ use moatless_workspaces::compose;
 
 use common::{
     USER_1, drain_linear_adapter_delivery, linear_config, make_repository_row, make_task_row,
-    seed_linear_app, seed_team, test_app_state_with_linear, test_app_state_with_recorded_events,
-    test_config,
+    seed_linear_app, test_app_state_with_linear, test_app_state_with_recorded_events, test_config,
 };
 
 const SECRET: &str = "linear-webhook-secret";
@@ -208,7 +207,6 @@ pub(super) async fn seed_workspace_token(pool: &PgPool) {
 /// `make_repository_row` defaults to a GitHub-backed repository, which fails
 /// preflight without a token; that failure has its own budget row below.
 pub(super) async fn seed_local_repository(pool: &PgPool) {
-    seed_team(pool, &format!("personal-{USER_1}")).await;
     let mut repo = make_repository_row("repo-1", USER_1);
     repo.provider = None;
     repo.remote = None;
@@ -221,7 +219,6 @@ pub(super) async fn seed_local_repository(pool: &PgPool) {
 /// A GitHub-backed repository with no reachable credentials: creating a task
 /// against it fails preflight.
 async fn seed_preflight_failing_repository(pool: &PgPool) {
-    seed_team(pool, &format!("personal-{USER_1}")).await;
     compose::seed_repository(pool, &make_repository_row("repo-1", USER_1))
         .await
         .expect("seed repository");

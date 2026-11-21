@@ -323,12 +323,8 @@ mod tests {
     const OWNER: &str = "flusher-a";
 
     /// Seed the rows `inbound_message_buffer.binding_id` points at. The Binding
-    /// carries the real foreign keys, so its connection and team come first.
+    /// carries the real foreign keys, so its connection comes first.
     async fn seed_bindings(pool: &PgPool) {
-        sqlx::query("INSERT INTO teams (id, name, slug) VALUES ('tm_buf', 'buf', 'buf')")
-            .execute(pool)
-            .await
-            .expect("team seeds");
         sqlx::query(
             r#"INSERT INTO adapter_connections
                    (id, adapter_kind, connection_kind, external_account_id, created_by, scope)

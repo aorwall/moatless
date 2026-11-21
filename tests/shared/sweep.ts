@@ -36,7 +36,7 @@ export interface SweepOptions {
 }
 
 export interface SweptResource {
-  kind: 'task' | 'workspace' | 'repository' | 'team' | 'loop' | 'connection'
+  kind: 'task' | 'workspace' | 'repository' | 'loop' | 'connection'
   id: string
   name: string
 }
@@ -124,13 +124,6 @@ export async function sweep(api: MoatApi, options: SweepOptions = {}): Promise<S
     await record({ kind: 'repository', id: repository.id, name: repository.name }, () =>
       api.deleteRepository(repository.id),
     )
-  }
-
-  for (const team of await api.listTeams()) {
-    if (!owned(team.name)) {
-      continue
-    }
-    await record({ kind: 'team', id: team.id, name: team.name }, () => api.deleteTeam(team.id))
   }
 
   // Adapter connections last: a trigger points at one, so the loops pass above

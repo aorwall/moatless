@@ -18,8 +18,7 @@ use moatless_workspaces::compose;
 use moatless_workspaces::repository::routes::repository_router;
 
 use common::{
-    USER_1, authed_json_request, authed_request, body_json, make_repository_row, seed_team,
-    test_app_state,
+    USER_1, authed_json_request, authed_request, body_json, make_repository_row, test_app_state,
 };
 
 fn build_router(pool: PgPool) -> axum::Router {
@@ -105,7 +104,6 @@ async fn create_rejects_canonical_duplicate_url(pool: PgPool) {
 
 #[sqlx::test]
 async fn get_repository(pool: PgPool) {
-    seed_team(&pool, &format!("personal-{USER_1}")).await;
     let row = make_repository_row("repo-get", USER_1);
     compose::seed_repository(&pool, &row).await.unwrap();
 
@@ -120,7 +118,6 @@ async fn get_repository(pool: PgPool) {
 
 #[sqlx::test]
 async fn list_repositories(pool: PgPool) {
-    seed_team(&pool, &format!("personal-{USER_1}")).await;
     for id in ["repo-a", "repo-b"] {
         let row = make_repository_row(id, USER_1);
         compose::seed_repository(&pool, &row).await.unwrap();
@@ -137,7 +134,6 @@ async fn list_repositories(pool: PgPool) {
 
 #[sqlx::test]
 async fn update_repository(pool: PgPool) {
-    seed_team(&pool, &format!("personal-{USER_1}")).await;
     let row = make_repository_row("repo-upd", USER_1);
     compose::seed_repository(&pool, &row).await.unwrap();
 
@@ -157,7 +153,6 @@ async fn update_repository(pool: PgPool) {
 
 #[sqlx::test]
 async fn update_rejects_canonical_duplicate_url(pool: PgPool) {
-    seed_team(&pool, &format!("personal-{USER_1}")).await;
     let first = make_repository_row("repo-update-url-a", USER_1);
     let second = make_repository_row("repo-update-url-b", USER_1);
     compose::seed_repository(&pool, &first).await.unwrap();
@@ -179,7 +174,6 @@ async fn update_rejects_canonical_duplicate_url(pool: PgPool) {
 
 #[sqlx::test]
 async fn delete_repository(pool: PgPool) {
-    seed_team(&pool, &format!("personal-{USER_1}")).await;
     let row = make_repository_row("repo-del", USER_1);
     compose::seed_repository(&pool, &row).await.unwrap();
 

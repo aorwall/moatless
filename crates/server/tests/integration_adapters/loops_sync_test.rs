@@ -43,21 +43,6 @@ fn auth(user_id: &str) -> AuthUser {
     }
 }
 
-/// Insert the personal team a repository references, satisfying the
-/// `repositories_team_id_fkey` FK. Idempotent. `make_repository_row` sets
-/// `team_id = personal-{user_id}`.
-async fn seed_team(pool: &PgPool, user_id: &str) {
-    sqlx::query(
-        "INSERT INTO teams (id, name, slug) VALUES ($1, $2, $1) \
-         ON CONFLICT (id) DO NOTHING",
-    )
-    .bind(format!("personal-{user_id}"))
-    .bind(format!("{user_id} Personal"))
-    .execute(pool)
-    .await
-    .unwrap();
-}
-
 async fn insert_github_connection(pool: &PgPool, owner: &str) {
     sqlx::query(
         "INSERT INTO adapter_connections \
@@ -112,7 +97,6 @@ async fn count_manual_loops(pool: &PgPool) -> i64 {
 #[sqlx::test]
 async fn sync_creates_then_reconciles_loops(pool: PgPool) {
     let repo = make_repository_row("repo-loops", "user-1");
-    seed_team(&pool, "user-1").await;
     compose::seed_repository(&pool, &repo).await.unwrap();
     common::seed_workspace_placing(&pool, "ws-1", &repo.id, "user-1").await;
     // make_repository_row uses https://github.com/test/{id}.git -> org "test".
@@ -283,7 +267,6 @@ async fn sync_creates_then_reconciles_loops(pool: PgPool) {
 #[sqlx::test]
 async fn github_pr_loop_without_connection_is_skipped(pool: PgPool) {
     let repo = make_repository_row("repo-noconn", "user-1");
-    seed_team(&pool, "user-1").await;
     compose::seed_repository(&pool, &repo).await.unwrap();
     common::seed_workspace_placing(&pool, "ws-1", &repo.id, "user-1").await;
     // No github connection inserted for org "test".
@@ -321,7 +304,6 @@ async fn github_pr_loop_without_connection_is_skipped(pool: PgPool) {
 #[sqlx::test]
 async fn loop_whose_repository_is_placed_nowhere_is_skipped(pool: PgPool) {
     let repo = make_repository_row("repo-unplaced", "user-1");
-    seed_team(&pool, "user-1").await;
     compose::seed_repository(&pool, &repo).await.unwrap();
     // No workspace placing the repository, and the declaration names none.
 
@@ -356,7 +338,6 @@ async fn loop_whose_repository_is_placed_nowhere_is_skipped(pool: PgPool) {
 #[sqlx::test]
 async fn sync_creates_slack_loop(pool: PgPool) {
     let repo = make_repository_row("repo-slack", "user-1");
-    seed_team(&pool, "user-1").await;
     compose::seed_repository(&pool, &repo).await.unwrap();
     common::seed_workspace_placing(&pool, "ws-1", &repo.id, "user-1").await;
     insert_slack_connection(&pool, "T0000000001").await;
@@ -412,7 +393,6 @@ async fn sync_creates_slack_loop(pool: PgPool) {
 #[sqlx::test]
 async fn sync_creates_linear_loop(pool: PgPool) {
     let repo = make_repository_row("repo-linear", "user-1");
-    seed_team(&pool, "user-1").await;
     compose::seed_repository(&pool, &repo).await.unwrap();
     common::seed_workspace_placing(&pool, "ws-1", &repo.id, "user-1").await;
     // Single linear connection — resolved without an explicit teamId.
@@ -475,7 +455,6 @@ async fn sync_creates_linear_loop(pool: PgPool) {
 #[sqlx::test]
 async fn linear_loop_without_connection_is_skipped(pool: PgPool) {
     let repo = make_repository_row("repo-linear-noconn", "user-1");
-    seed_team(&pool, "user-1").await;
     compose::seed_repository(&pool, &repo).await.unwrap();
     common::seed_workspace_placing(&pool, "ws-1", &repo.id, "user-1").await;
     // No linear connection inserted.
@@ -502,7 +481,6 @@ async fn linear_loop_without_connection_is_skipped(pool: PgPool) {
 #[sqlx::test]
 async fn slack_loop_without_connection_is_skipped(pool: PgPool) {
     let repo = make_repository_row("repo-slack-noconn", "user-1");
-    seed_team(&pool, "user-1").await;
     compose::seed_repository(&pool, &repo).await.unwrap();
     common::seed_workspace_placing(&pool, "ws-1", &repo.id, "user-1").await;
     // No slack connection inserted for team T0000000001.
@@ -543,7 +521,6 @@ async fn slack_loop_without_connection_is_skipped(pool: PgPool) {
 #[sqlx::test]
 async fn resync_preserves_ongoing_task_id(pool: PgPool) {
     let repo = make_repository_row("repo-ongoing", "user-1");
-    seed_team(&pool, "user-1").await;
     compose::seed_repository(&pool, &repo).await.unwrap();
     common::seed_workspace_placing(&pool, "ws-1", &repo.id, "user-1").await;
     insert_github_connection(&pool, "test").await;
@@ -603,7 +580,6 @@ async fn resync_preserves_activation_across_a_changed_declaration(pool: PgPool) 
     const EDITED_GITHUB_LOOP: &str = "---\non: github_pr\nname: Java Review v2\nagentProfile: codex\ntags: [review, backend]\n---\n\nReview this PR against the backend guidelines.\n";
 
     let repo = make_repository_row("repo-reapprove", "user-1");
-    seed_team(&pool, "user-1").await;
     compose::seed_repository(&pool, &repo).await.unwrap();
     common::seed_workspace_placing(&pool, "ws-1", &repo.id, "user-1").await;
     insert_github_connection(&pool, "test").await;
@@ -674,7 +650,6 @@ async fn resync_preserves_activation_across_a_changed_declaration(pool: PgPool) 
 #[sqlx::test]
 async fn reset_to_git_keeps_the_execution_approval(pool: PgPool) {
     let repo = make_repository_row("repo-reset", "user-1");
-    seed_team(&pool, "user-1").await;
     compose::seed_repository(&pool, &repo).await.unwrap();
     common::seed_workspace_placing(&pool, "ws-1", &repo.id, "user-1").await;
 
@@ -773,7 +748,6 @@ fn schedule_upsert(repo: &Repository) -> ManagedLoopUpsert {
 #[sqlx::test]
 async fn resync_flags_an_override_whose_directory_is_gone(pool: PgPool) {
     let repo = make_repository_row("repo-override-gone", "user-1");
-    seed_team(&pool, "user-1").await;
     compose::seed_repository(&pool, &repo).await.unwrap();
     common::seed_workspace_placing(&pool, "ws-1", &repo.id, "user-1").await;
     insert_github_connection(&pool, "test").await;
@@ -815,7 +789,6 @@ async fn resync_flags_an_override_whose_directory_is_gone(pool: PgPool) {
 #[sqlx::test]
 async fn resync_skips_an_override_and_preserves_its_approval(pool: PgPool) {
     let repo = make_repository_row("repo-override", "user-1");
-    seed_team(&pool, "user-1").await;
     compose::seed_repository(&pool, &repo).await.unwrap();
     common::seed_workspace_placing(&pool, "ws-1", &repo.id, "user-1").await;
     insert_github_connection(&pool, "test").await;
@@ -874,7 +847,6 @@ async fn resync_skips_an_override_and_preserves_its_approval(pool: PgPool) {
 #[sqlx::test]
 async fn concurrent_activation_and_resync_finish_in_a_serial_state(pool: PgPool) {
     let repo = make_repository_row("repo-concurrent", "user-1");
-    seed_team(&pool, "user-1").await;
     compose::seed_repository(&pool, &repo).await.unwrap();
     common::seed_workspace_placing(&pool, "ws-1", &repo.id, "user-1").await;
     insert_github_connection(&pool, "test").await;
@@ -937,7 +909,6 @@ const AUTO_WORKSPACE_WITHOUT_CREATE_ON: &str =
 #[sqlx::test]
 async fn an_org_trigger_loop_syncs_only_with_create_on_check_run(pool: PgPool) {
     let repo = make_repository_row("repo-org-review", "user-1");
-    seed_team(&pool, "user-1").await;
     compose::seed_repository(&pool, &repo).await.unwrap();
     common::seed_workspace_placing(&pool, "ws-1", &repo.id, "user-1").await;
     insert_github_connection(&pool, "test").await;

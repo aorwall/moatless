@@ -14,9 +14,8 @@ area controls, who may change it, and which owner wins.
 
 Resources are scoped `global` or `user`. Anyone reads a global one, and only an
 admin writes or creates one; a user-scoped one belongs to its owner. An admin
-acting through the API acts as themselves, not as the resource's owner. There
-is no team scope: `--scope team` on `moat secret set` is refused by the
-backend.
+acting through the API acts as themselves, not as the resource's owner. `moat secret set --scope`
+takes `user` or `global`.
 
 ## API and CLI areas
 
@@ -24,7 +23,6 @@ backend.
 |---|---|---|---|
 | Users | Accounts, roles, provider id mappings | `user set-name`, `set-email`, `activate`, `deactivate`, `set-provider-id`, `delete-provider-id`; role through `moat api` | Admin for anyone else; see `users.md` |
 | Bots | User accounts backed by a registered GitHub App | `bot create --app-key <key>` | Admin |
-| Teams | Teams and members | No CLI command; `POST`, `PUT`, `DELETE /api/v1/teams…` and `…/members` | Team owners, or an admin |
 | Repositories | The repository registry | `repos create`, `update`, `import --org <org> [--dry-run]`, `sync-config <repo>`, `delete <id> --yes` | Admin for global repositories and `sync-config` |
 | Workspaces | Listing and removing legacy manual rows only; configured in git | `workspaces delete <id> --yes` | Admin for global workspaces |
 | Workspace credentials | A provider token pinned to a workspace, used instead of the run-as user's | `workspaces credentials set <ws> <provider> --value-file <file>`, `credentials remove` | Whoever may write the workspace; every attempt is audited |

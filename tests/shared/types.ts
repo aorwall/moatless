@@ -106,8 +106,6 @@ export type {
   SandboxStatusFullResponse,
   SetActivationRequest,
   TaskResponse,
-  TeamMemberResponse,
-  TeamResponse,
   UiMessage,
   UpdateRepositoryRequest,
 } from '@moatless/api-client/sandbox/model'

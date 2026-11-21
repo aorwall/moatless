@@ -12,12 +12,11 @@ use crate::output;
 pub enum SecretAction {
     /// List secret metadata for a scope
     List {
-        /// Secret scope: user, team, or global
+        /// Secret scope: user or global
         #[arg(long, short = 's', default_value = "user")]
         scope: String,
 
-        /// Scope ID (team ID for team scope; defaults to current user for user
-        /// scope)
+        /// Scope ID (defaults to current user for user scope)
         #[arg(long)]
         scope_id: Option<String>,
     },
@@ -35,11 +34,11 @@ pub enum SecretAction {
         #[arg(long, conflicts_with = "value")]
         value_file: Option<String>,
 
-        /// Secret scope: user, team, or global
+        /// Secret scope: user or global
         #[arg(long, short = 's', default_value = "user")]
         scope: String,
 
-        /// Scope ID (team ID for team scope)
+        /// Scope ID (defaults to current user for user scope)
         #[arg(long)]
         scope_id: Option<String>,
 
@@ -94,11 +93,11 @@ pub enum SecretAction {
         /// Secret key
         key: String,
 
-        /// Secret scope: user, team, or global
+        /// Secret scope: user or global
         #[arg(long, short = 's', default_value = "user")]
         scope: String,
 
-        /// Scope ID (team ID for team scope)
+        /// Scope ID (defaults to current user for user scope)
         #[arg(long)]
         scope_id: Option<String>,
 
@@ -112,11 +111,11 @@ pub enum SecretAction {
         /// Secret key to remove
         key: String,
 
-        /// Secret scope: user, team, or global
+        /// Secret scope: user or global
         #[arg(long, short = 's', default_value = "user")]
         scope: String,
 
-        /// Scope ID (team ID for team scope)
+        /// Scope ID (defaults to current user for user scope)
         #[arg(long)]
         scope_id: Option<String>,
 
@@ -130,11 +129,11 @@ pub enum SecretAction {
         /// Secret key to disable
         key: String,
 
-        /// Secret scope: user, team, or global
+        /// Secret scope: user or global
         #[arg(long, short = 's', default_value = "user")]
         scope: String,
 
-        /// Scope ID (team ID for team scope)
+        /// Scope ID (defaults to current user for user scope)
         #[arg(long)]
         scope_id: Option<String>,
 
@@ -148,11 +147,11 @@ pub enum SecretAction {
         /// Secret key to enable
         key: String,
 
-        /// Secret scope: user, team, or global
+        /// Secret scope: user or global
         #[arg(long, short = 's', default_value = "user")]
         scope: String,
 
-        /// Scope ID (team ID for team scope)
+        /// Scope ID (defaults to current user for user scope)
         #[arg(long)]
         scope_id: Option<String>,
 
@@ -579,9 +578,9 @@ async fn set_enabled(
 
 fn validate_scope(scope: &str) -> Result<(), ClientError> {
     match scope {
-        "user" | "team" | "global" => Ok(()),
+        "user" | "global" => Ok(()),
         other => Err(ClientError::Other(format!(
-            "Invalid scope '{other}'. Must be one of: user, team, global"
+            "Invalid scope '{other}'. Must be one of: user, global"
         ))),
     }
 }

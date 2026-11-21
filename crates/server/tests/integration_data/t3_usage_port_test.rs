@@ -19,11 +19,10 @@ use moatless_workspaces::compose;
 use serde_json::json;
 use sqlx::PgPool;
 
-use common::{USER_1, make_repository_row, make_task_row, seed_team, user_scope};
+use common::{USER_1, make_repository_row, make_task_row, user_scope};
 
 /// Seed the team + repository a task's FKs require, then the task itself.
 async fn seed_task(pool: &PgPool, task_id: &str, user_id: &str) {
-    seed_team(pool, &format!("personal-{user_id}")).await;
     let repo = make_repository_row("repo-1", user_id);
     let _ = compose::seed_repository(pool, &repo).await;
     let task = make_task_row(task_id, user_id);

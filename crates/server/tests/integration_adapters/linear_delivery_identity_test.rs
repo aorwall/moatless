@@ -41,7 +41,7 @@ use moatless_workspaces::compose;
 
 use common::{
     USER_1, drain_linear_adapter_delivery, linear_config, make_repository_row, make_task_row,
-    seed_linear_app, seed_team, test_app_state_with_linear, test_config,
+    seed_linear_app, test_app_state_with_linear, test_config,
 };
 
 const SECRET: &str = "linear-webhook-secret";
@@ -148,7 +148,6 @@ fn distinct_identities(messages: &[(String, String)]) -> usize {
 /// envelope's `organizationId` resolves to, and an active session binding
 /// pointing at both the session and its issue.
 async fn seed_bound_session(state: &AppState, pool: &PgPool) {
-    seed_team(pool, &format!("personal-{USER_1}")).await;
     let _ = compose::seed_repository(pool, &make_repository_row("repo-1", USER_1)).await;
     common::seed_workspace_placing(pool, common::FIXTURE_WORKSPACE, "repo-1", USER_1).await;
     task_fixtures::seed_task(pool, &make_task_row(TASK, USER_1))

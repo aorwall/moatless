@@ -36,8 +36,7 @@ pub struct CodexOAuthConfig {
 pub enum CodexScope {
     /// Per-user row: `(user_id = id, scope = 'user')`.
     User(String),
-    /// Singleton global row: `(user_id IS NULL, team_id IS NULL, scope =
-    /// 'global')`.
+    /// Singleton global row: `(user_id IS NULL, scope = 'global')`.
     Global,
 }
 

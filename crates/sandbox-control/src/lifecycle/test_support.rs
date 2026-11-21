@@ -19,21 +19,11 @@ use sqlx::PgPool;
 /// before any lifecycle operation: converged Stopped at the intent epoch,
 /// owning no volume.
 pub(crate) async fn seed_bare_task(pool: &PgPool, task_id: &str, status: &str) {
-    // tasks.team_id is NOT NULL (no FK); seed a row so the fixture matches the
-    // production shape.
-    sqlx::query(
-        "INSERT INTO teams (id, name, slug) VALUES ('team-x', 'Team X', 'team-x')
-         ON CONFLICT (id) DO NOTHING",
-    )
-    .execute(pool)
-    .await
-    .expect("seed team");
-
     // `sandboxes_workspace_id_fkey` is ON DELETE RESTRICT, so the workspace
     // exists before the Sandbox that names it.
     sqlx::query(
-        "INSERT INTO workspaces (id, name, scope, team_id, owner_user_id, created_by)
-         VALUES ('ws_repo-x', 'Repo X', 'user', 'team-x', 'user-1', 'user-1')
+        "INSERT INTO workspaces (id, name, scope, owner_user_id, created_by)
+         VALUES ('ws_repo-x', 'Repo X', 'user', 'user-1', 'user-1')
          ON CONFLICT (id) DO NOTHING",
     )
     .execute(pool)
@@ -52,10 +42,10 @@ pub(crate) async fn seed_bare_task(pool: &PgPool, task_id: &str, status: &str) {
 
     sqlx::query(
         r#"INSERT INTO tasks (task_id, created_at, last_message_at, agent_profile, repository_id,
-               status, total_cost_usd, visibility, scope, team_id, created_by, owner_user_id,
+               status, total_cost_usd, visibility, scope, created_by, owner_user_id,
                workspace_id, sandbox_id)
            VALUES ($1, NOW()::text, NOW()::text, 'claude-code', 'repo-x', $2, 0,
-               'private', 'user', 'team-x', 'user-1', 'user-1', 'ws_repo-x', $1)"#,
+               'private', 'user', 'user-1', 'user-1', 'ws_repo-x', $1)"#,
     )
     .bind(task_id)
     .bind(status)

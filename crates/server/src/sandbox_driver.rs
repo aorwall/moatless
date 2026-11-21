@@ -219,9 +219,8 @@ mod db_tests {
     /// `owner`'s task `t1`, its own Sandbox, at `visibility`.
     async fn seed(pool: &PgPool, visibility: &str) {
         for statement in [
-            "INSERT INTO teams (id, name, slug) VALUES ('team-x', 'Team X', 'team-x')",
-            "INSERT INTO workspaces (id, name, scope, team_id, owner_user_id, created_by)
-             VALUES ('ws-x', 'X', 'user', 'team-x', 'owner', 'owner')",
+            "INSERT INTO workspaces (id, name, scope, owner_user_id, created_by)
+             VALUES ('ws-x', 'X', 'user', 'owner', 'owner')",
             "INSERT INTO sandboxes (sandbox_id, workspace_id, scope, owner_user_id,
                  run_as_user_id, agent_profile)
              VALUES ('t1', 'ws-x', 'user', 'owner', 'owner', 'claude-code')",
@@ -230,10 +229,10 @@ mod db_tests {
         }
         sqlx::query(
             "INSERT INTO tasks (task_id, created_at, last_message_at, agent_profile,
-                 repository_id, status, total_cost_usd, visibility, scope, team_id,
+                 repository_id, status, total_cost_usd, visibility, scope,
                  created_by, owner_user_id, workspace_id, sandbox_id)
              VALUES ('t1', NOW()::text, NOW()::text, 'claude-code', 'repo-x', 'open', 0,
-                 $1, 'user', 'team-x', 'owner', 'owner', 'ws-x', 't1')",
+                 $1, 'user', 'owner', 'owner', 'ws-x', 't1')",
         )
         .bind(visibility)
         .execute(pool)

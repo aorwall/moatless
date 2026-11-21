@@ -355,16 +355,7 @@ async fn ingress_writes_event_row_idempotently(pool: PgPool) {
 
 #[sqlx::test]
 async fn terminal_reopens_task_but_not_when_closed(pool: PgPool) {
-    // Seed the FK chain (team → repo → task) so the tasks row exists.
-    sqlx::query(
-        r#"INSERT INTO teams (id, name, slug) VALUES ($1, $2, $1)
-           ON CONFLICT (id) DO NOTHING"#,
-    )
-    .bind("personal-user-1")
-    .bind("user-1 Personal")
-    .execute(&pool)
-    .await
-    .unwrap();
+    // Seed the repo the task references so the tasks row exists.
     moatless_workspaces::compose::seed_repository(&pool, &make_repository_row("repo-1", "user-1"))
         .await
         .unwrap();

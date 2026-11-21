@@ -153,9 +153,6 @@ pub struct AuthConfig {
     /// When set, upserts a dedicated `test-api-user` and inserts the API key.
     /// No OAuth login required.
     pub test_api_key: Option<String>,
-    /// Default team slug. On login, if a user has no teams and a default team
-    /// exists, they are added to it.
-    pub default_team_slug: Option<String>,
 
     // --- GitHub App (user authorization flow) ---
     /// GitHub App client ID (from App settings, different from OAuth App).

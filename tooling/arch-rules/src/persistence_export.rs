@@ -115,13 +115,6 @@ pub const CONCERNS: &[Concern] = &[
         slice: 3,
     },
     Concern {
-        name: "teams",
-        owner: "moatless-identity",
-        roots: &["crates/identity/src/team/dao"],
-        tables: &["team_members", "teams"],
-        slice: 3,
-    },
-    Concern {
         name: "account creation",
         owner: "moatless-identity",
         roots: &["crates/identity/src/auth/account_dao"],

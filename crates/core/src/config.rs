@@ -1063,7 +1063,6 @@ impl Config {
                 },
                 session_jwt_secret: env_opt("SESSION_JWT_SECRET"),
                 test_api_key: env_opt("TEST_API_KEY").map(|s| s.trim().to_string()),
-                default_team_slug: env_opt("DEFAULT_TEAM_SLUG"),
 
                 github_app_client_id: env_opt("GITHUB_APP_CLIENT_ID"),
                 github_app_client_secret: env_opt("GITHUB_APP_CLIENT_SECRET"),
@@ -1527,7 +1526,6 @@ impl Config {
                 sandbox_token_scope: SandboxTokenScope::Enforce,
                 session_jwt_secret: Some("test-session-secret".into()),
                 test_api_key: None,
-                default_team_slug: None,
                 github_app_client_id: None,
                 github_app_client_secret: None,
                 github_app_callback_url: None,
