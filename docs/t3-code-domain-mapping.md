@@ -283,7 +283,7 @@ stays entirely on the Moatless side.
 ## What phase two has to fill
 
 `projects[]` and `threads[]` are populated; the sequence and replay
-(`orchestration.replayEvents → []`) are not. `server_config` already advertises
+are not. `server_config` already advertises
 `shellResumeCompletionMarker` / `threadResumeCompletionMarker`. The wire shape
 is fixed by T3 Code's contract:
 

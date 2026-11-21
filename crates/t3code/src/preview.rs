@@ -285,22 +285,6 @@ pub async fn resize(
     commit(state, tab, "resized").await
 }
 
-/// Reloading a frame changes nothing anyone else can observe.
-///
-/// No stored state moves and no event is published — the client that asked
-/// re-keys its own frame; publishing one would reload the page for everyone
-/// else.
-pub async fn refresh(
-    state: &PreviewState,
-    viewer: &ScopeContext,
-    input: &PreviewInput,
-) -> Result<(), PreviewError> {
-    let task_id = input.thread_id()?;
-    let tab_id = input.tab_id()?;
-    authorize(state, viewer, task_id).await?;
-    require_tab(state, task_id, tab_id).await.map(drop)
-}
-
 /// What the desktop client saw, written verbatim.
 ///
 /// The one method whose values are observations rather than commands — and the
@@ -540,34 +524,6 @@ mod tests {
         assert!(event["revision"].as_u64().unwrap() > 0);
     }
 
-    /// Refresh is the one method with no observable effect. If it ever starts
-    /// publishing, every other client reloads a page nobody asked them to.
-    #[tokio::test]
-    async fn refreshing_publishes_nothing_and_moves_no_revision() {
-        let state = state(Some("task"));
-        let opened = open(&state, &viewer(), &input(json!({ "threadId": "task" })))
-            .await
-            .unwrap();
-        let before = list(&state, &viewer(), &input(json!({ "threadId": "task" })))
-            .await
-            .unwrap();
-        let mut events = state.tabs.subscribe();
-
-        refresh(
-            &state,
-            &viewer(),
-            &input(json!({ "threadId": "task", "tabId": opened["tabId"] })),
-        )
-        .await
-        .unwrap();
-
-        let after = list(&state, &viewer(), &input(json!({ "threadId": "task" })))
-            .await
-            .unwrap();
-        assert_eq!(before["revision"], after["revision"]);
-        assert!(events.try_recv().is_err());
-    }
-
     #[tokio::test]
     async fn resizing_stores_the_viewport_verbatim() {
         let state = state(Some("task"));
@@ -755,10 +711,6 @@ mod tests {
         ));
         assert!(matches!(
             resize(&state, &viewer(), &payload).await,
-            Err(PreviewError::NotFound)
-        ));
-        assert!(matches!(
-            refresh(&state, &viewer(), &payload).await,
             Err(PreviewError::NotFound)
         ));
         assert!(matches!(

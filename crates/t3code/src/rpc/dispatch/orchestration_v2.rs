@@ -8,8 +8,6 @@
 use crate::authentication::viewer_scope;
 use crate::commands;
 use crate::commands::CommandContext;
-use crate::config::OrchestrationProtocol;
-use crate::dao::ListingError;
 use crate::oauth::Scope;
 use crate::projection::Compactions;
 use crate::projection::turn_number_of_run;
@@ -17,21 +15,17 @@ use crate::rpc::envelope::RequestId;
 use crate::rpc::envelope::failure_exit;
 use crate::rpc::envelope::success_exit;
 use crate::rpc::envelope::typed_failure_exit;
-use crate::rpc::errors::shell_failure_exit;
 use crate::rpc::session::ProtocolSession;
 use crate::rpc::table::MethodTable;
 use crate::rpc::table::Request;
 use crate::rpc::watch;
 use crate::snapshots::SnapshotShape;
-use crate::snapshots::archived_shell_page;
 use crate::snapshots::thread_detail_v2;
 use crate::state::UiRpcState;
 use crate::subscriptions::OrchestrationV2SubscribeThreadInput;
 use moatless_tasks::task::service::ForceStop;
-use moatless_types::access_control::ScopeContext;
 use moatless_types::ui_rpc::UiRpcAuthIdentity;
 use serde::Deserialize;
-use serde::de::IgnoredAny;
 use serde_json::Value;
 use serde_json::json;
 use tracing::error;
@@ -65,13 +59,6 @@ pub(super) fn orchestration_v2_methods() -> MethodTable {
             "orchestration.launchThread",
             Scope::OrchestrationOperate,
             orchestration_launch_thread,
-        )
-        // V1's event log has no V2 counterpart, and no V2 client asks.
-        .declared("orchestration.replayEvents", Scope::OrchestrationRead)
-        .stream(
-            "orchestration.subscribeArchivedShell",
-            Scope::OrchestrationRead,
-            |session, request| Box::pin(session.orchestration_subscribe_archived_shell(request)),
         )
         .stream(
             "orchestration.subscribeThread",
@@ -527,48 +514,6 @@ impl ProtocolSession {
             watch::watch_thread_v2(sink, watched)
         })
     }
-
-    /// `orchestration.subscribeArchivedShell`: the newest archived page, then
-    /// that page again whenever the listing moves.
-    pub(super) async fn orchestration_subscribe_archived_shell(
-        &mut self,
-        request: Request<IgnoredAny>,
-    ) -> Vec<Value> {
-        let Request {
-            id,
-            state,
-            identity,
-            ..
-        } = request;
-        let viewer = viewer_scope(&identity);
-        let snapshot = archived_snapshot(&state, &viewer);
-        let snapshot = match state.reads.poll_gate().run(snapshot).await {
-            Ok(snapshot) => snapshot,
-            Err(error) => return vec![shell_failure_exit(&id, &error, &identity)],
-        };
-        let reads = state.reads.clone();
-        let model_defaults = state.model_defaults.clone();
-        let initial = vec![json!({ "kind": "snapshot", "snapshot": snapshot.clone() })];
-        let listing = state.changes.listing();
-        self.streams
-            .start_produced(&id, Some(initial), move |sink| {
-                watch::watch_archived_shell(sink, reads, model_defaults, viewer, snapshot, listing)
-            })
-    }
-}
-
-async fn archived_snapshot(
-    state: &UiRpcState,
-    viewer: &ScopeContext,
-) -> Result<Value, ListingError> {
-    archived_shell_page(
-        &state.reads,
-        &state.model_defaults,
-        viewer,
-        None,
-        OrchestrationProtocol::V2,
-    )
-    .await
 }
 
 #[cfg(test)]

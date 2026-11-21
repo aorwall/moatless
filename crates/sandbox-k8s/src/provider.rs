@@ -1087,17 +1087,6 @@ impl K8sSandboxAdapter {
     }
 }
 
-#[async_trait]
-impl core_sandbox::ClusterDiagnostics for K8sSandboxAdapter {
-    async fn list_sandbox_diagnostics(
-        &self,
-    ) -> Result<Vec<core_sandbox::SandboxDiagnosticsEntry>, core_sandbox::SandboxError> {
-        crate::pod_reader::fetch_fleet_diagnostics(&self.k8s)
-            .await
-            .map_err(|e| core_sandbox::SandboxError::Other(e.to_string()))
-    }
-}
-
 // =============================================================================
 // Private helper methods
 // =============================================================================

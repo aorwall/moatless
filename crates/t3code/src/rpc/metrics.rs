@@ -553,7 +553,7 @@ mod tests {
     #[test]
     fn an_unsupported_method_does_not_label_with_its_tag() {
         assert_eq!(
-            Outcome::Unsupported.tag_label(Some("orchestration.replayEvents")),
+            Outcome::Unsupported.tag_label(Some("test.unsupported")),
             "unsupported"
         );
         assert_eq!(

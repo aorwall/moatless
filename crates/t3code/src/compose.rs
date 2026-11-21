@@ -21,7 +21,6 @@ use crate::terminal;
 use crate::terminal_relay::{TerminalRelay, TerminalRelayWorker};
 use axum::Router;
 use moatless_identity::auth::pairing::DevicePairing;
-use moatless_ports::sandbox::ClusterDiagnostics;
 use moatless_ports::sandbox::SandboxIntentReader;
 use moatless_ports::sandbox::SandboxObserver;
 use moatless_ports::sandbox::SandboxOperator;
@@ -68,7 +67,6 @@ pub async fn mount(
         sandboxes,
         snapshots,
         observer,
-        diagnostics,
         ports,
         intent,
         starter,
@@ -171,7 +169,6 @@ pub async fn mount(
             starter,
             stopper,
             operator,
-            diagnostics,
             poll_gate: reads.poll_gate().clone(),
             events: graph.task_events.clone(),
         },
@@ -303,9 +300,6 @@ pub struct UiRpcDependencies {
     pub snapshots: Option<Arc<dyn WorkspaceSnapshotSource>>,
     /// Reports what a Task's Sandbox is doing, without reaching inside.
     pub observer: Arc<dyn SandboxObserver>,
-    /// Fleet-wide Sandbox status and live resource usage, deployment-scoped
-    /// rather than per-Task.
-    pub diagnostics: Arc<dyn ClusterDiagnostics>,
     /// Publishes a Script's port on a running Sandbox. The Kubernetes provider
     /// patches the Service and creates the route; the Docker provider returns
     /// `None` (no way out of the fixed-port agent container).

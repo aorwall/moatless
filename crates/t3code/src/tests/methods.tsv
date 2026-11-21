@@ -38,11 +38,9 @@ orchestration.getThreadProjection	orchestration:read	unsupported	detached	-
 orchestration.getThreadTitles	orchestration:read	unsupported	detached	-
 orchestration.getTurnItem	orchestration:read	unsupported	detached	-
 orchestration.launchThread	orchestration:operate	unsupported	session	-
-orchestration.replayEvents	orchestration:read	session	unsupported	-
 orchestration.searchThread	orchestration:read	unsupported	detached	-
 orchestration.searchThreadStream	orchestration:read	unsupported	stream	-
 orchestration.searchThreads	orchestration:read	detached	detached	same
-orchestration.subscribeArchivedShell	orchestration:read	unsupported	stream	-
 orchestration.subscribeShell	orchestration:read	stream	stream	same
 orchestration.subscribeThread	orchestration:read	stream	stream	own
 preview.automationConnect	orchestration:operate	declared	declared	-
@@ -52,7 +50,6 @@ preview.close	orchestration:operate	session	session	same
 preview.list	orchestration:read	detached	detached	same
 preview.navigate	orchestration:operate	session	session	same
 preview.open	orchestration:operate	session	session	same
-preview.refresh	orchestration:operate	session	session	same
 preview.reportStatus	orchestration:operate	session	session	same
 preview.resize	orchestration:operate	session	session	same
 projects.add	orchestration:operate	declared	declared	-
@@ -96,7 +93,6 @@ pullRequests.updateComment	orchestration:operate	detached	detached	same
 review.getDiffFileContents	review:write	detached	detached	same
 review.getDiffPreview	review:write	detached	detached	same
 sandbox.cleanup	orchestration:operate	session	session	same
-sandbox.listDiagnostics	orchestration:read	detached	detached	same
 sandbox.redeploy	orchestration:operate	session	session	same
 sandbox.restart	orchestration:operate	session	session	same
 sandbox.setIdleTimeout	orchestration:operate	session	session	same
@@ -110,7 +106,7 @@ scripts.run	orchestration:read	session	session	same
 secrets.answerRequest	orchestration:operate	session	session	same
 server.discoverSourceControl	orchestration:read	detached	detached	same
 server.getConfig	orchestration:read	detached	detached	same
-server.getSettings	orchestration:read	session	session	same
+server.getSettings	orchestration:read	declared	declared	-
 server.getUsageSummary	orchestration:read	detached	detached	same
 server.probe	orchestration:read	session	session	same
 server.refreshProviders	orchestration:operate	detached	detached	same
@@ -131,7 +127,6 @@ subscribeAuthAccess	access:read	stream	stream	same
 subscribePreviewEvents	orchestration:read	stream	stream	same
 subscribeServerConfig	orchestration:read	stream	stream	same
 subscribeServerLifecycle	orchestration:read	stream	stream	same
-subscribeTerminalEvents	terminal:operate	stream	stream	same
 subscribeTerminalMetadata	terminal:operate	stream	stream	same
 subscribeVcsStatus	orchestration:read	stream	stream	same
 subscribeWorktreeSetup	orchestration:read	stream	stream	same
@@ -141,7 +136,6 @@ terminal.clear	terminal:operate	session	session	same
 terminal.close	terminal:operate	session	session	same
 terminal.open	terminal:operate	session	session	same
 terminal.resize	terminal:operate	session	session	same
-terminal.restart	terminal:operate	session	session	same
 terminal.write	terminal:operate	session	session	same
 threads.browse	orchestration:read	detached	detached	same
 threads.getShell	orchestration:read	detached	detached	same

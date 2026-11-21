@@ -100,18 +100,6 @@ impl moatless_ports::sandbox::SandboxOperator for UnreachableSandboxes {
 }
 
 #[async_trait]
-impl ClusterDiagnostics for UnreachableSandboxes {
-    async fn list_sandbox_diagnostics(
-        &self,
-    ) -> Result<
-        Vec<moatless_ports::sandbox::SandboxDiagnosticsEntry>,
-        moatless_ports::sandbox::SandboxError,
-    > {
-        Ok(Vec::new())
-    }
-}
-
-#[async_trait]
 impl SandboxObserver for UnreachableSandboxes {
     async fn sandbox_status(
         &self,
@@ -999,7 +987,6 @@ fn state_from(
             starter: Arc::new(UnreachableSandboxes),
             stopper: Arc::new(UnreachableSandboxes),
             operator: Arc::new(UnreachableSandboxes),
-            diagnostics: Arc::new(UnreachableSandboxes),
             poll_gate: crate::poll_gate::PollGate::new(4),
             events: Arc::new(crate::sandbox_setup::LoggedEvents::default()),
         },
@@ -1055,9 +1042,13 @@ pub(super) struct Connection {
 }
 
 pub(super) fn connection() -> Connection {
+    connection_over(methods())
+}
+
+pub(super) fn connection_over(table: &'static crate::rpc::table::MethodTable) -> Connection {
     let (frames, pushed) = crate::rpc::outbound::channel(OUTBOUND_FRAMES);
     Connection {
-        session: ProtocolSession::new(frames, methods()),
+        session: ProtocolSession::new(frames, table),
         pushed,
     }
 }
@@ -1098,19 +1089,6 @@ impl Connection {
             .expect("the frame channel is open")
             .into_value()
     }
-}
-
-/// A Task projection that answers for `readable` and for nothing else, which is
-/// what a scoped read does for a viewer without access.
-pub(super) fn tasks_readable(readable: &'static str) -> Arc<dyn moatless_ports::task::TaskReader> {
-    let mut tasks = MockTaskReader::new();
-    tasks
-        .expect_describe()
-        .returning(move |task_id, _| Ok((task_id == readable).then(|| super::open_task(task_id))));
-    tasks
-        .expect_may_access()
-        .returning(move |task_id, _| Ok(task_id == readable));
-    Arc::new(tasks)
 }
 
 /// `owned` is owned and readable, `visited` only readable: a public Task's

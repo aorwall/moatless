@@ -339,21 +339,17 @@ mod tests {
     #[test]
     fn a_v2_group_answers_v2_connections_only() {
         let table = MethodTable::new()
-            .session(
-                "orchestration.replayEvents",
-                Scope::OrchestrationRead,
-                answer,
-            )
+            .session("test.replay", Scope::OrchestrationRead, answer)
             .merge(
                 MethodTable::v2()
-                    .declared("orchestration.replayEvents", Scope::OrchestrationRead)
+                    .declared("test.replay", Scope::OrchestrationRead)
                     .detached(
                         "orchestration.getTurnItem",
                         Scope::OrchestrationRead,
                         answer,
                     ),
             );
-        let replay = table.get("orchestration.replayEvents").expect("registered");
+        let replay = table.get("test.replay").expect("registered");
         assert!(replay.handler(OrchestrationProtocol::V1).is_some());
         assert!(replay.handler(OrchestrationProtocol::V2).is_none());
         let turn_item = table.get("orchestration.getTurnItem").expect("registered");

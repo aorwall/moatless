@@ -19,7 +19,6 @@ use crate::rpc::table::Request;
 use crate::server_settings::PatchRefusal;
 use crate::server_settings::settings_object;
 use crate::server_settings::stored_patch;
-use crate::server_settings::viewer_settings;
 use crate::usage;
 use crate::usage::UsageSummaryInput;
 use serde::Deserialize;
@@ -47,11 +46,6 @@ pub(super) fn server_methods() -> MethodTable {
             Scope::OrchestrationRead,
             server_get_config,
         )
-        .session(
-            "server.getSettings",
-            Scope::OrchestrationRead,
-            server_get_settings,
-        )
         .detached(
             "server.getUsageSummary",
             Scope::OrchestrationRead,
@@ -63,6 +57,7 @@ pub(super) fn server_methods() -> MethodTable {
             Scope::OrchestrationOperate,
             server_refresh_providers,
         )
+        .declared("server.getSettings", Scope::OrchestrationRead)
         .declared("server.removeKeybinding", Scope::OrchestrationOperate)
         .session(
             "server.reportClientActivity",
@@ -94,11 +89,6 @@ pub(super) fn server_methods() -> MethodTable {
 
 pub(super) async fn server_probe(request: Request<IgnoredAny>) -> Vec<Value> {
     vec![success_exit(&request.id, json!({}))]
-}
-
-pub(super) async fn server_get_settings(request: Request<IgnoredAny>) -> Vec<Value> {
-    let settings = viewer_settings(&request.state, &request.identity).await;
-    vec![success_exit(&request.id, settings)]
 }
 
 /// The contract's `server.updateSettings` payload.

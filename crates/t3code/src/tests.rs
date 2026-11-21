@@ -60,14 +60,13 @@ use moatless_identity::auth::pairing::{
     PairedDevice, PairedDeviceKey, PairedDeviceKeys, PairingCode, PairingError,
     device_pairing_over, hash_key,
 };
-use moatless_ports::sandbox::ClusterDiagnostics;
 use moatless_ports::sandbox::SandboxIntentReader;
 use moatless_ports::sandbox::SandboxObserver;
 use moatless_ports::sandbox::SandboxStarter;
 use moatless_ports::sandbox::SandboxStopper;
 use moatless_ports::sandbox::{
-    ContractSandboxStatus, LiveStatus, SandboxDesiredState, SandboxDiagnosticsContainer,
-    SandboxDiagnosticsEntry, SandboxError, SandboxPortPublisher, SandboxStatus,
+    ContractSandboxStatus, LiveStatus, SandboxDesiredState, SandboxError, SandboxPortPublisher,
+    SandboxStatus,
 };
 use moatless_ports::task::{MockTaskReader, TaskDescriptor};
 use moatless_types::access_control::ScopeContext;
@@ -82,7 +81,6 @@ use serde_json::json;
 use std::env;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::Notify;
 use uuid::Uuid;
 
 /// A readable open Task. Inert but for the id: the gates read whether a scoped
@@ -112,7 +110,6 @@ mod attachment_uploads;
 mod attachments;
 mod config;
 mod descriptor;
-mod diagnostics;
 mod files;
 mod http_compression;
 mod listing;

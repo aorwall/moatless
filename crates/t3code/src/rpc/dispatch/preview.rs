@@ -23,11 +23,6 @@ pub(super) fn preview_methods() -> MethodTable {
         )
         .session("preview.open", Scope::OrchestrationOperate, preview_open)
         .session(
-            "preview.refresh",
-            Scope::OrchestrationOperate,
-            preview_refresh,
-        )
-        .session(
             "preview.reportStatus",
             Scope::OrchestrationOperate,
             preview_report_status,
@@ -105,24 +100,6 @@ pub(super) async fn preview_resize(request: Request<PreviewInput>) -> Vec<Value>
 
 /// The three void methods answer `null` rather than a snapshot, matching the
 /// contract's declared success type.
-pub(super) async fn preview_refresh(request: Request<PreviewInput>) -> Vec<Value> {
-    let Request {
-        id,
-        scope,
-        payload,
-        state,
-        identity,
-        ..
-    } = request;
-    preview_answer(
-        &id,
-        scope,
-        preview::refresh(&state.preview, &viewer_scope(&identity), &payload)
-            .await
-            .map(|()| Value::Null),
-    )
-}
-
 pub(super) async fn preview_report_status(request: Request<PreviewInput>) -> Vec<Value> {
     let Request {
         id,

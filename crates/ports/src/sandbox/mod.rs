@@ -40,6 +40,3 @@ pub use credentials::CodexCredentials;
 
 mod port_publishing;
 pub use port_publishing::SandboxPortPublisher;
-
-mod diagnostics;
-pub use diagnostics::{ClusterDiagnostics, SandboxDiagnosticsContainer, SandboxDiagnosticsEntry};

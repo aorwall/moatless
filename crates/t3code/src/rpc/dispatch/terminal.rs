@@ -16,7 +16,6 @@ pub(super) fn terminal_methods() -> MethodTable {
         .session("terminal.close", Scope::TerminalOperate, terminal_close)
         .session("terminal.open", Scope::TerminalOperate, terminal_open)
         .session("terminal.resize", Scope::TerminalOperate, terminal_resize)
-        .session("terminal.restart", Scope::TerminalOperate, terminal_restart)
         .session("terminal.write", Scope::TerminalOperate, terminal_write)
 }
 
@@ -99,36 +98,12 @@ pub(super) async fn terminal_clear(request: Request<TerminalInput>) -> Vec<Value
     match terminal::clear(
         state.reads.conversations(),
         state.sandboxes.as_ref(),
-        &state.terminal,
         &viewer,
         &payload,
     )
     .await
     {
         Ok(()) => vec![success_exit(&id, Value::Null)],
-        Err(error) => vec![terminal_failure_exit(&id, &payload, &error, &identity)],
-    }
-}
-
-pub(super) async fn terminal_restart(request: Request<TerminalInput>) -> Vec<Value> {
-    let Request {
-        id,
-        payload,
-        state,
-        identity,
-        ..
-    } = request;
-    let viewer = viewer_scope(&identity);
-    match terminal::restart(
-        state.reads.conversations(),
-        state.sandboxes.as_ref(),
-        &state.terminal,
-        &viewer,
-        &payload,
-    )
-    .await
-    {
-        Ok(snapshot) => vec![success_exit(&id, snapshot)],
         Err(error) => vec![terminal_failure_exit(&id, &payload, &error, &identity)],
     }
 }

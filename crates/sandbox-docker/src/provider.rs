@@ -650,18 +650,6 @@ impl core_sandbox::SandboxPortPublisher for DockerSandboxAdapter {
     }
 }
 
-/// Local Docker has no fleet-wide view — a container is only ever addressed by
-/// its Task. Empty rather than an error, so the diagnostics page renders
-/// normally under `docker-compose`.
-#[async_trait]
-impl core_sandbox::ClusterDiagnostics for DockerSandboxAdapter {
-    async fn list_sandbox_diagnostics(
-        &self,
-    ) -> Result<Vec<core_sandbox::SandboxDiagnosticsEntry>, core_sandbox::SandboxError> {
-        Ok(Vec::new())
-    }
-}
-
 // =============================================================================
 // Private helper methods
 // =============================================================================

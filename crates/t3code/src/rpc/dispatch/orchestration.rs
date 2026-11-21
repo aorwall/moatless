@@ -18,7 +18,6 @@ use crate::snapshots::archived_shell_page;
 use crate::snapshots::browse_snapshot;
 use crate::snapshots::thread_shell;
 use serde::Deserialize;
-use serde::de::IgnoredAny;
 use serde_json::Value;
 use serde_json::json;
 use tracing::error;
@@ -36,11 +35,6 @@ pub(super) fn orchestration_methods() -> MethodTable {
             "orchestration.getArchivedShellSnapshot",
             Scope::OrchestrationRead,
             orchestration_get_archived_shell_snapshot,
-        )
-        .session(
-            "orchestration.replayEvents",
-            Scope::OrchestrationRead,
-            orchestration_replay_events,
         )
         .detached(
             "orchestration.searchThreads",
@@ -170,16 +164,6 @@ pub(super) async fn orchestration_search_threads(
             )]
         }
     }
-}
-
-/// Answers with nothing, deliberately: no T3 client calls it, since all three
-/// share `client-runtime`, whose only resume is `subscribeShell` with
-/// `afterSequence` (`state/shell.ts:181`).
-///
-/// Its `OrchestrationEvent` result carries an event id, an aggregate and a
-/// causation chain, none of which this backend records.
-pub(super) async fn orchestration_replay_events(request: Request<IgnoredAny>) -> Vec<Value> {
-    vec![success_exit(&request.id, json!([]))]
 }
 
 /// `before` is optional: a client that sends none gets the newest page.

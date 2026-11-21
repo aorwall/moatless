@@ -457,8 +457,7 @@ pub(crate) fn shell_snapshot_v2(
     })
 }
 
-/// The archived-only snapshot `getArchivedShellSnapshot`/
-/// `subscribeArchivedShell` answer with.
+/// The archived-only snapshot `getArchivedShellSnapshot` answers with.
 pub(crate) fn archived_shell_snapshot_v2(
     workspaces: &[ListedWorkspace],
     archived: &[Conversation],

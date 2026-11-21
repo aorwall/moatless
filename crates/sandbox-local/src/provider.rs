@@ -390,15 +390,3 @@ impl core_sandbox::SandboxPortPublisher for LocalSandboxAdapter {
         })
     }
 }
-
-/// The local runtime has no cluster-wide view beyond its own in-memory
-/// registry, and nothing outside this one backend process could observe it
-/// anyway.
-#[async_trait]
-impl core_sandbox::ClusterDiagnostics for LocalSandboxAdapter {
-    async fn list_sandbox_diagnostics(
-        &self,
-    ) -> Result<Vec<core_sandbox::SandboxDiagnosticsEntry>, core_sandbox::SandboxError> {
-        Ok(Vec::new())
-    }
-}

@@ -342,13 +342,13 @@ async fn a_settings_patch_naming_a_deployment_setting_saves_nothing() {
     );
     let read = connection
         .exchange(
-            &request("2", "server.getSettings", json!({})),
+            &request("2", "server.getConfig", json!({})),
             &state,
             &viewer(),
         )
         .await;
     assert!(
-        read.frames[0]["exit"]["value"]
+        read.frames[0]["exit"]["value"]["settings"]
             .get("hideTaggedThreads")
             .is_none()
     );

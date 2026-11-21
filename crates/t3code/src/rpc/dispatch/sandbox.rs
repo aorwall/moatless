@@ -16,7 +16,6 @@ use crate::scripts::ScriptsRunInput;
 use crate::subtasks;
 use crate::subtasks::SubtasksError;
 use serde::Deserialize;
-use serde::de::IgnoredAny;
 use serde_json::Value;
 use serde_json::json;
 
@@ -26,11 +25,6 @@ pub(super) fn sandbox_methods() -> MethodTable {
             "sandbox.cleanup",
             Scope::OrchestrationOperate,
             sandbox_cleanup,
-        )
-        .detached(
-            "sandbox.listDiagnostics",
-            Scope::OrchestrationRead,
-            sandbox_list_diagnostics,
         )
         .session(
             "sandbox.redeploy",
@@ -290,21 +284,6 @@ pub(super) async fn sandbox_status(request: Request<SandboxStatusInput>) -> Vec<
     let viewer = viewer_scope(&identity);
     match sandbox::status(&state.sandbox, &viewer, &task_id).await {
         Ok(status) => vec![success_exit(&id, status)],
-        Err(error) => vec![sandbox_failure_exit(&id, scope, tag, &error, &identity)],
-    }
-}
-
-pub(super) async fn sandbox_list_diagnostics(request: Request<IgnoredAny>) -> Vec<Value> {
-    let Request {
-        id,
-        tag,
-        scope,
-        state,
-        identity,
-        ..
-    } = request;
-    match sandbox::list_diagnostics(&state.sandbox).await {
-        Ok(entries) => vec![success_exit(&id, entries)],
         Err(error) => vec![sandbox_failure_exit(&id, scope, tag, &error, &identity)],
     }
 }

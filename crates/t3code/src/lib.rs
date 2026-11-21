@@ -78,8 +78,8 @@ pub use config::UiRpcConfigError;
 pub use feed::{ShellFeed, ThreadFeed};
 pub use moatless_identity::auth::pairing::DevicePairing;
 pub use moatless_ports::sandbox::{
-    ClusterDiagnostics, SandboxIntentReader, SandboxObserver, SandboxPortPublisher, SandboxStarter,
-    SandboxStopper, WorkspaceSnapshotSource,
+    SandboxIntentReader, SandboxObserver, SandboxPortPublisher, SandboxStarter, SandboxStopper,
+    WorkspaceSnapshotSource,
 };
 pub use moatless_types::ui_rpc::{UiRpcAuthIdentity, UiRpcAuthMethod, UserRole};
 pub use reads::T3Reads;

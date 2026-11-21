@@ -17,7 +17,6 @@ pub(crate) struct SandboxDependencies {
     pub sandbox_runtime: Arc<dyn moatless_sandbox_runtime::runtime::SandboxRuntime>,
     pub sandbox_observer: Arc<dyn sandbox::status_reader::SandboxStatusReader>,
     pub sandbox_connector: Arc<dyn sandbox_proto::client::SandboxConnector>,
-    pub cluster_diagnostics: Arc<dyn moatless_ports::sandbox::ClusterDiagnostics>,
     pub sandbox_port_publisher: Arc<dyn moatless_ports::sandbox::SandboxPortPublisher>,
     pub default_sandbox_image: String,
     pub reaper_k8s: Option<sandbox::k8s::client::K8sClient>,
@@ -74,7 +73,6 @@ pub(crate) async fn build(
     let sandbox_runtime: Arc<dyn moatless_sandbox_runtime::runtime::SandboxRuntime>;
     let sandbox_observer: Arc<dyn sandbox::status_reader::SandboxStatusReader>;
     let sandbox_connector: Arc<dyn sandbox_proto::client::SandboxConnector>;
-    let cluster_diagnostics: Arc<dyn moatless_ports::sandbox::ClusterDiagnostics>;
     let sandbox_port_publisher: Arc<dyn moatless_ports::sandbox::SandboxPortPublisher>;
     let default_sandbox_image: String;
     let reaper_k8s: Option<sandbox::k8s::client::K8sClient>;
@@ -104,7 +102,6 @@ pub(crate) async fn build(
             sandbox_connector = adapter.clone();
             sandbox_port_publisher = adapter.clone();
             storage_fallback = Some(adapter.clone());
-            cluster_diagnostics = adapter;
             default_sandbox_image = config.sandbox.image.clone();
             sandbox_fleet_observer = Arc::new(sandbox::k8s::fleet_observer::K8sFleetObserver::new(
                 k8s.clone(),
@@ -132,7 +129,6 @@ pub(crate) async fn build(
             sandbox_observer = adapter.clone();
             sandbox_connector = adapter.clone();
             sandbox_port_publisher = adapter.clone();
-            cluster_diagnostics = adapter;
             default_sandbox_image = config.docker.image.clone();
             sandbox_fleet_observer =
                 Arc::new(sandbox::docker::fleet_observer::DockerFleetObserver::new(
@@ -162,7 +158,6 @@ pub(crate) async fn build(
             sandbox_observer = adapter.clone();
             sandbox_connector = adapter.clone();
             sandbox_port_publisher = adapter.clone();
-            cluster_diagnostics = adapter;
             default_sandbox_image = String::new();
             sandbox_fleet_observer =
                 Arc::new(sandbox::local::fleet_observer::LocalFleetObserver::new(
@@ -179,7 +174,6 @@ pub(crate) async fn build(
         sandbox_runtime,
         sandbox_observer,
         sandbox_connector,
-        cluster_diagnostics,
         sandbox_port_publisher,
         default_sandbox_image,
         reaper_k8s,

@@ -179,7 +179,6 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         workspace_snapshots,
         sandbox_observer,
         sandbox_connector,
-        cluster_diagnostics,
         sandbox_port_publisher,
         reaper_k8s,
         docker_watcher_client,
@@ -322,7 +321,6 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 connector: sandbox_connector.clone(),
                 snapshots: workspace_snapshots.clone(),
                 observer: sandbox_observer.clone(),
-                diagnostics: cluster_diagnostics.clone(),
                 ports: sandbox_port_publisher.clone(),
             },
         )

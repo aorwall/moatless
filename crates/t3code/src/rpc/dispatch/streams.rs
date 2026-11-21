@@ -84,11 +84,6 @@ pub(super) fn stream_methods() -> MethodTable {
             |session, request| Box::pin(session.subscribe_server_lifecycle(request)),
         )
         .stream(
-            "subscribeTerminalEvents",
-            Scope::TerminalOperate,
-            |session, request| Box::pin(session.subscribe_terminal_events(request)),
-        )
-        .stream(
             "subscribeTerminalMetadata",
             Scope::TerminalOperate,
             |session, request| Box::pin(session.subscribe_terminal_metadata(request)),
@@ -440,18 +435,6 @@ impl ProtocolSession {
         let viewer = viewer_scope(&request.identity);
         self.streams.start_produced(&request.id, None, move |sink| {
             watch::watch_preview_events(sink, preview, viewer)
-        })
-    }
-
-    pub(super) async fn subscribe_terminal_events(
-        &mut self,
-        request: Request<IgnoredAny>,
-    ) -> Vec<Value> {
-        let events = request.state.terminal.subscribe_events();
-        let tasks = request.state.reads.tasks_arc();
-        let viewer = viewer_scope(&request.identity);
-        self.streams.start_produced(&request.id, None, move |sink| {
-            watch::watch_terminal_events(sink, events, tasks, viewer)
         })
     }
 

@@ -14,8 +14,8 @@ use crate::poll_gate::{PollGate, first_tick};
 use crate::sandbox_setup::{self, SandboxEventLog};
 use crate::subscription::{StreamFailure, StreamResult, StreamSink};
 use moatless_ports::sandbox::{
-    ClusterDiagnostics, SandboxError, SandboxIntentReader, SandboxObserver, SandboxOperator,
-    SandboxStarter, SandboxStopper,
+    SandboxError, SandboxIntentReader, SandboxObserver, SandboxOperator, SandboxStarter,
+    SandboxStopper,
 };
 use moatless_ports::task::{TaskDescriptor, TaskReader};
 use moatless_types::access_control::ScopeContext;
@@ -41,10 +41,6 @@ pub struct SandboxState {
     pub stopper: Arc<dyn SandboxStopper>,
     /// Restart, redeploy and cleanup, for the sandbox panel's other controls.
     pub operator: Arc<dyn SandboxOperator>,
-    /// Fleet-wide status and live resource usage. Deployment-scoped rather than
-    /// per-Task, so it takes no `tasks` authorization: the caller's environment
-    /// scope is the whole of it.
-    pub diagnostics: Arc<dyn ClusterDiagnostics>,
     /// Shared with [`crate::reads::T3Reads::poll_gate`]: one bound per replica.
     pub(crate) poll_gate: PollGate,
     /// The Task's `sandbox` events, which [`setup`] stages a start from.
@@ -454,19 +450,6 @@ pub async fn start(
     status(state, viewer, task_id).await
 }
 
-/// Every Sandbox in the deployment, with its status and live resource usage.
-///
-/// Deployment-global, not per-Task: there is no `threadId` to authorize
-/// against, so reaching this at all is the authorization.
-pub async fn list_diagnostics(state: &SandboxState) -> Result<Value, SandboxRpcError> {
-    let entries = state
-        .diagnostics
-        .list_sandbox_diagnostics()
-        .await
-        .map_err(SandboxRpcError::Sandbox)?;
-    Ok(json!({ "sandboxes": entries }))
-}
-
 /// Request that a Task's Sandbox move toward Stopped, then return lifecycle
 /// status only.
 pub async fn stop(
@@ -706,7 +689,6 @@ mod tests {
             starter: Arc::new(UnreachableStarter),
             stopper: Arc::new(UnreachableStarter),
             operator: Arc::new(UnreachableStarter),
-            diagnostics: Arc::new(UnreachableStarter),
             poll_gate: PollGate::new(1),
             events: Arc::new(crate::sandbox_setup::LoggedEvents::default()),
         }
@@ -751,15 +733,6 @@ mod tests {
         /// running, so the panel's "up to date" comparison has both halves.
         async fn expected_image(&self, _task_id: &str) -> Result<String, SandboxError> {
             Ok("moatless/sandbox:2".to_string())
-        }
-    }
-
-    #[async_trait]
-    impl ClusterDiagnostics for UnreachableStarter {
-        async fn list_sandbox_diagnostics(
-            &self,
-        ) -> Result<Vec<moatless_ports::sandbox::SandboxDiagnosticsEntry>, SandboxError> {
-            unreachable!("watching a status reads no fleet")
         }
     }
 

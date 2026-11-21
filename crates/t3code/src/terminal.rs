@@ -4,8 +4,8 @@
 //! credentials live. This module only authorizes T3's thread/cwd-shaped
 //! requests, calls the sandbox gRPC terminal surface, and projects protobuf
 //! snapshots/events into T3's JSON contract. A small in-process hub feeds the
-//! global terminal event and metadata subscriptions for clients attached to
-//! this backend instance.
+//! global terminal metadata subscription for clients attached to this backend
+//! instance.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -14,8 +14,8 @@ use futures::StreamExt;
 use sandbox_proto::terminal_attach_stream_event::Event as ProtoEvent;
 use sandbox_proto::{
     TerminalAttachRequest, TerminalAttachStreamEvent, TerminalClearRequest, TerminalCloseRequest,
-    TerminalOpenRequest, TerminalResizeRequest, TerminalRestartRequest, TerminalSessionSnapshot,
-    TerminalSessionStatus, TerminalWriteRequest,
+    TerminalOpenRequest, TerminalResizeRequest, TerminalSessionSnapshot, TerminalSessionStatus,
+    TerminalWriteRequest,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -37,7 +37,6 @@ const TERMINAL_EVENT_BUFFER: usize = 512;
 #[derive(Clone)]
 pub struct TerminalHub {
     inner: Arc<Mutex<HubInner>>,
-    events: broadcast::Sender<Value>,
     metadata: broadcast::Sender<Value>,
     /// Identifies this hub on the relay feed, so its own records are skipped.
     /// New per process: the summaries it names live only in this one's memory.
@@ -70,13 +69,11 @@ impl TerminalHub {
     }
 
     fn with_relay(relay: TerminalRelay) -> Self {
-        let (events, _) = broadcast::channel(TERMINAL_EVENT_BUFFER);
         let (metadata, _) = broadcast::channel(TERMINAL_EVENT_BUFFER);
         Self {
             inner: Arc::new(Mutex::new(HubInner {
                 summaries: HashMap::new(),
             })),
-            events,
             metadata,
             epoch: Arc::from(uuid::Uuid::new_v4().to_string()),
             relay,
@@ -89,10 +86,6 @@ impl TerminalHub {
 
     pub(crate) fn relay(&self) -> &TerminalRelay {
         &self.relay
-    }
-
-    pub fn subscribe_events(&self) -> broadcast::Receiver<Value> {
-        self.events.subscribe()
     }
 
     pub async fn metadata_snapshot(&self) -> Value {
@@ -209,28 +202,12 @@ impl TerminalHub {
             }
             ProtoEvent::Output(_) | ProtoEvent::Cleared(_) | ProtoEvent::Activity(_) => {}
         }
-        if !matches!(event.event.as_ref(), Some(ProtoEvent::Snapshot(_))) {
-            let _ = self.events.send(value.clone());
-        }
         Some(value)
-    }
-
-    pub async fn publish_clear(&self, thread_id: &str, terminal_id: &str) {
-        let _ = self.events.send(json!({
-            "type": "cleared",
-            "threadId": thread_id,
-            "terminalId": terminal_id
-        }));
     }
 
     pub async fn close(&self, thread_id: &str, terminal_id: Option<&str>) {
         if let Some(terminal_id) = terminal_id {
             self.remove(thread_id, terminal_id).await;
-            let _ = self.events.send(json!({
-                "type": "closed",
-                "threadId": thread_id,
-                "terminalId": terminal_id
-            }));
             return;
         }
 
@@ -250,11 +227,6 @@ impl TerminalHub {
         for key in removed {
             let _ = self.metadata.send(json!({
                 "type": "remove",
-                "threadId": key.thread_id,
-                "terminalId": key.terminal_id
-            }));
-            let _ = self.events.send(json!({
-                "type": "closed",
                 "threadId": key.thread_id,
                 "terminalId": key.terminal_id
             }));
@@ -378,16 +350,6 @@ async fn open_session(
     let is_new_process = snapshot
         .started_new_process
         .unwrap_or_else(|| snapshot_is_new_process(previous.as_ref(), &snapshot));
-    if is_new_process {
-        let event = json!({
-            "type": "started",
-            "threadId": snapshot.thread_id,
-            "terminalId": snapshot.terminal_id,
-            "sequence": snapshot.sequence,
-            "snapshot": terminal_snapshot(&snapshot)
-        });
-        let _ = hub.events.send(event);
-    }
     Ok((snapshot, is_new_process))
 }
 
@@ -493,7 +455,6 @@ pub async fn resize(
 pub async fn clear(
     conversations: &dyn ConversationDao,
     sandboxes: &dyn SandboxConnector,
-    hub: &TerminalHub,
     viewer: &ScopeContext,
     input: &TerminalInput,
 ) -> Result<(), TerminalError> {
@@ -511,46 +472,7 @@ pub async fn clear(
         })
         .await
         .map_err(|error| TerminalError::sandbox(classify_grpc_error(error, "terminal_clear")))?;
-    hub.publish_clear(&thread_id, &terminal_id).await;
     Ok(())
-}
-
-pub async fn restart(
-    conversations: &dyn ConversationDao,
-    sandboxes: &dyn SandboxConnector,
-    hub: &TerminalHub,
-    viewer: &ScopeContext,
-    input: &TerminalInput,
-) -> Result<Value, TerminalError> {
-    let mut request = TerminalRestartRequest {
-        thread_id: required_string(&input.thread_id, "threadId")?.to_string(),
-        terminal_id: required_string(&input.terminal_id, "terminalId")?.to_string(),
-        cwd: required_string(&input.cwd, "cwd")?.to_string(),
-        worktree_path: optional_string(&input.worktree_path, "worktreePath")?,
-        cols: required_u32(input.cols, "cols")?,
-        rows: required_u32(input.rows, "rows")?,
-        env: input.env.clone().unwrap_or_default(),
-    };
-    let task_id = workspace::owned_conversation(conversations, viewer, &request.cwd).await?;
-    stamp_task_id(&mut request.env, &task_id);
-    let client = sandboxes
-        .sandbox_client(&task_id)
-        .await
-        .map_err(as_not_running)?;
-    let snapshot = client
-        .terminal_restart(request)
-        .await
-        .map_err(|error| TerminalError::sandbox(classify_grpc_error(error, "terminal_restart")))?;
-    hub.observe_snapshot(&snapshot).await;
-    let event = json!({
-        "type": "restarted",
-        "threadId": snapshot.thread_id,
-        "terminalId": snapshot.terminal_id,
-        "sequence": snapshot.sequence,
-        "snapshot": terminal_snapshot(&snapshot)
-    });
-    let _ = hub.events.send(event);
-    Ok(terminal_snapshot(&snapshot))
 }
 
 pub async fn close(

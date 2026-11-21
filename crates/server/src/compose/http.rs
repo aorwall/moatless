@@ -65,7 +65,6 @@ pub(crate) struct UiRpcInputs {
     pub connector: Arc<dyn sandbox_proto::client::SandboxConnector>,
     pub snapshots: Option<Arc<dyn moatless_ports::sandbox::WorkspaceSnapshotSource>>,
     pub observer: Arc<dyn sandbox::status_reader::SandboxStatusReader>,
-    pub diagnostics: Arc<dyn moatless_ports::sandbox::ClusterDiagnostics>,
     pub ports: Arc<dyn moatless_ports::sandbox::SandboxPortPublisher>,
 }
 
@@ -94,7 +93,6 @@ pub(crate) async fn ui_rpc(
                 inputs.observer,
                 Some(ports.turn_counter.clone()),
             ),
-            diagnostics: inputs.diagnostics,
             ports: inputs.ports,
             intent: app_state.sandbox.clone(),
             starter: app_state.sandbox.clone(),

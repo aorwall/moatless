@@ -180,6 +180,65 @@ async fn an_ordered_transition_waits_for_the_one_before_it() {
     );
 }
 
+/// The whole point of detaching: a slow read holds only itself, where an inline
+/// one would leave every request behind it unread on the socket.
+// Paused time, so the deadline below costs nothing to reach: an inline read
+// would wait on `released` forever, and a hung test says less than a failed one.
+#[tokio::test(start_paused = true)]
+async fn a_slow_read_does_not_hold_the_next_request_behind_it() {
+    let released = Arc::new(tokio::sync::Notify::new());
+    let gate = released.clone();
+    let table = Box::leak(Box::new(
+        MethodTable::new()
+            .detached(
+                "test.slowRead",
+                Scope::OrchestrationRead,
+                move |request: Request<IgnoredAny>| {
+                    let gate = gate.clone();
+                    async move {
+                        gate.notified().await;
+                        vec![crate::rpc::envelope::success_exit(&request.id, Value::Null)]
+                    }
+                },
+            )
+            .detached(
+                "test.fastRead",
+                Scope::OrchestrationRead,
+                |_: Request<IgnoredAny>| async { Vec::new() },
+            ),
+    ));
+    let state = state();
+    let mut connection = connection_over(table);
+
+    let slow = tokio::time::timeout(
+        Duration::from_secs(5),
+        connection.session.handle_json(
+            &request("1", "test.slowRead", json!({})),
+            &state,
+            &viewer(),
+        ),
+    )
+    .await
+    .expect("the frame loop is not waiting on the read");
+    assert!(
+        slow.frames.is_empty(),
+        "the read has not answered, and the loop did not wait for it"
+    );
+
+    connection
+        .session
+        .handle_json(&request("2", "test.fastRead", json!({})), &state, &viewer())
+        .await;
+
+    released.notify_one();
+    connection.session.detached.wait_until_idle().await;
+    let answered = connection
+        .next_pushed()
+        .expect("the read answers in the end");
+    assert_eq!(answered["requestId"], "1");
+    assert_eq!(answered["exit"]["_tag"], "Success");
+}
+
 /// The `Die` a payload answers when its method's declared type does not decode
 /// it, from the frame loop or a detached request alike.
 fn decode_defect(output: &ProtocolOutput) -> &str {

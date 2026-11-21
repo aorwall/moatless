@@ -1,7 +1,6 @@
 use crate::change_watch::ThreadSignal;
 use crate::change_watch::next_change;
 use crate::config::AgentModelDefaults;
-use crate::config::OrchestrationProtocol;
 use crate::dao::ConversationDao;
 use crate::feed;
 use crate::poll_gate::first_tick;
@@ -11,7 +10,6 @@ use crate::review;
 use crate::rpc::metrics::THREAD_SUBSCRIPTIONS;
 use crate::snapshots::SnapshotShape;
 use crate::snapshots::ThreadDetailV2;
-use crate::snapshots::archived_shell_page;
 use crate::snapshots::thread_detail_v2_under;
 use crate::state::Deployment;
 use crate::subscription;
@@ -274,64 +272,6 @@ pub(crate) async fn watch_thread_v2(
     }
 }
 
-/// How often an open archive listing asks whether the listing moved. Longer
-/// than the shell's: a hit re-reads a whole page, and the archive changes only
-/// when a conversation is closed or reopened.
-const ARCHIVED_SHELL_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
-
-/// Re-sends the newest archived page whenever the listing head moves, starting
-/// from `initial`, the page the client was already sent. Its `snapshotSequence`
-/// is the listing position read before its rows, so no change is missed.
-pub(crate) async fn watch_archived_shell(
-    sink: subscription::StreamSink,
-    reads: T3Reads,
-    model_defaults: Arc<AgentModelDefaults>,
-    viewer: ScopeContext,
-    initial: Value,
-    listing: watch::Receiver<Option<ListingHead>>,
-) -> StreamResult {
-    let mut last = initial["snapshotSequence"].as_i64();
-    let mut sent = Some(initial["threads"].clone());
-    let mut pause = first_tick(ARCHIVED_SHELL_POLL_INTERVAL);
-    loop {
-        tokio::time::sleep(pause).await;
-        pause = ARCHIVED_SHELL_POLL_INTERVAL;
-        let Some(position) = listing.borrow().as_ref().map(|head| head.position) else {
-            continue;
-        };
-        if last == Some(position) {
-            continue;
-        }
-        let page = archived_shell_page(
-            &reads,
-            &model_defaults,
-            &viewer,
-            None,
-            OrchestrationProtocol::V2,
-        );
-        let snapshot = match reads.poll_gate().run(page).await {
-            Ok(snapshot) => snapshot,
-            Err(error) => {
-                warn!(%error, user_id = %viewer.user_id, "Failed to read the T3 UI archive");
-                continue;
-            }
-        };
-        last = Some(position);
-        // The sequence moves with every listing change; only the rows decide
-        // whether the client has anything new to render.
-        if sent.as_ref() == Some(&snapshot["threads"]) {
-            continue;
-        }
-        sent = Some(snapshot["threads"].clone());
-        if !sink
-            .send(json!({ "kind": "snapshot", "snapshot": snapshot }))
-            .await
-        {
-            return Ok(());
-        }
-    }
-}
-
 /// One open thread subscription on [`THREAD_SUBSCRIPTIONS`], released on drop
 /// so a stream aborted mid-poll is uncounted too.
 struct OpenThreadSubscription;
@@ -454,38 +394,6 @@ pub(crate) async fn watch_preview_events(
             // against `preview.list` on the next event it does see.
             Err(tokio::sync::broadcast::error::RecvError::Lagged(missed)) => {
                 warn!(missed, user_id = %viewer.user_id, "A preview event subscriber lagged");
-                continue;
-            }
-            Err(tokio::sync::broadcast::error::RecvError::Closed) => return Ok(()),
-        };
-        let Some(task_id) = event.get("threadId").and_then(Value::as_str) else {
-            continue;
-        };
-        if readable.allows(task_id).await != Some(true) {
-            continue;
-        }
-        if !sink.send(event).await {
-            return Ok(());
-        }
-    }
-}
-
-/// Every terminal event the viewer is allowed to see, until the socket closes.
-///
-/// A `started` or `restarted` event carries the session's `history`, so this
-/// gate is what keeps another viewer's terminal output off the socket.
-pub(crate) async fn watch_terminal_events(
-    sink: subscription::StreamSink,
-    mut events: tokio::sync::broadcast::Receiver<Value>,
-    tasks: Arc<dyn moatless_ports::task::TaskReader>,
-    viewer: ScopeContext,
-) -> StreamResult {
-    let mut readable = ReadableTasks::new(tasks, viewer.clone());
-    loop {
-        let event = match events.recv().await {
-            Ok(event) => event,
-            Err(tokio::sync::broadcast::error::RecvError::Lagged(missed)) => {
-                warn!(missed, user_id = %viewer.user_id, "A terminal event subscriber lagged");
                 continue;
             }
             Err(tokio::sync::broadcast::error::RecvError::Closed) => return Ok(()),

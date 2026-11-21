@@ -202,11 +202,11 @@ authenticated Moatless user id for session, shell, and socket bootstrap.
 
 | Behavior | Methods |
 |---|---|
-| handshake/config | `server.probe`, `server.getConfig`, `server.getSettings`, `server.refreshProviders` |
-| empty reads | `server.discoverSourceControl`, `preview.list`, `orchestration.replayEvents`, `cloud.getRelayClientStatus` |
+| handshake/config | `server.probe`, `server.getConfig`, `server.refreshProviders` |
+| empty reads | `server.discoverSourceControl`, `preview.list`, `cloud.getRelayClientStatus` |
 | projected reads | `orchestration.getArchivedShellSnapshot` (projects only) |
 | initialized streams | `orchestration.subscribeShell`, `subscribeServerConfig`, `subscribeServerLifecycle`, `subscribeAuthAccess` |
-| intentionally idle streams | `subscribeVcsStatus`, `subscribeTerminalEvents`, `subscribeTerminalMetadata`, `subscribePreviewEvents`, `subscribeDiscoveredLocalServers` |
+| intentionally idle streams | `subscribeVcsStatus`, `subscribeTerminalMetadata`, `subscribePreviewEvents`, `subscribeDiscoveredLocalServers` |
 | visible failure | every other RPC receives a request-local unsupported defect |
 
 The protocol accepts one envelope or an array per WebSocket message, reads the

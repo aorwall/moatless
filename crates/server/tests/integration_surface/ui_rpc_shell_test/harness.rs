@@ -8,10 +8,8 @@ use chrono::DateTime;
 use chrono::Utc;
 use moatless_backend::t3code::backend as t3code_backend;
 use moatless_core::change_feed::listing::ListingHead;
-use moatless_ports::sandbox::ClusterDiagnostics;
 use moatless_ports::sandbox::ContractSandboxStatus;
 use moatless_ports::sandbox::LiveStatus;
-use moatless_ports::sandbox::SandboxDiagnosticsEntry;
 use moatless_ports::sandbox::SandboxError;
 use moatless_ports::sandbox::SandboxPortPublisher;
 use moatless_t3code::AgentModelDefaults;
@@ -87,13 +85,6 @@ impl SandboxConnector for NoSandboxes {
         task_id: &str,
     ) -> Result<sandbox_proto::client::SandboxClient, SandboxError> {
         Err(SandboxError::NotReady(task_id.to_string()))
-    }
-}
-
-#[async_trait::async_trait]
-impl ClusterDiagnostics for NoSandboxes {
-    async fn list_sandbox_diagnostics(&self) -> Result<Vec<SandboxDiagnosticsEntry>, SandboxError> {
-        Ok(Vec::new())
     }
 }
 
@@ -219,7 +210,6 @@ fn mounted_dependencies(pool: &PgPool) -> UiRpcDependencies {
         // This suite drives no snapshot reads; a stopped Task answers as before.
         snapshots: None,
         observer: Arc::new(NoSandboxes),
-        diagnostics: Arc::new(NoSandboxes),
         // Nothing this suite drives publishes a Script's port.
         ports: Arc::new(NoSandboxes),
         intent: Arc::new(NoSandboxes),

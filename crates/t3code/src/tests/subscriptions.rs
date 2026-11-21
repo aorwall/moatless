@@ -255,32 +255,6 @@ async fn terminal_metadata_carries_only_the_threads_the_viewer_owns() {
     assert_eq!(event["values"][0]["terminal"]["terminalId"], "term-6");
 }
 
-/// A terminal event for a Task this viewer cannot read never reaches the
-/// socket, while one for a Task it can read still does.
-#[tokio::test]
-async fn terminal_events_carry_only_the_threads_the_viewer_can_read() {
-    let mut state = state();
-    state.reads = state.reads.with_tasks(tasks_readable("mine"));
-
-    let mut connection = connection();
-    connection
-        .session
-        .handle_json(
-            &request("7", "subscribeTerminalEvents", json!({})),
-            &state,
-            &viewer(),
-        )
-        .await;
-    // Published in this order, so the readable one arriving first proves the
-    // unreadable one was dropped rather than merely delayed.
-    state.terminal.publish_clear("theirs", "term-1").await;
-    state.terminal.publish_clear("mine", "term-2").await;
-
-    let event = connection.next_streamed().await;
-    assert_eq!(event["values"][0]["threadId"], "mine");
-    assert_eq!(event["values"][0]["terminalId"], "term-2");
-}
-
 #[tokio::test]
 async fn interrupt_terminates_active_stream() {
     let mut session = session();
