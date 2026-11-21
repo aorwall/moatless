@@ -10,7 +10,7 @@ use super::rules::RecordRules;
 use super::schemas::ArtifactResponse;
 use crate::collection::keys::valid_name;
 use crate::collection::service::find;
-use crate::scope_reach::{ScopeError, check_scope_write, scope_ref};
+use crate::scope_reach::{ScopeError, check_record_write, scope_ref};
 use crate::task::models::Task;
 use crate::task::operations::TaskCommands;
 use moatless_types::access_control::ScopeContext;
@@ -155,7 +155,7 @@ async fn attach(
         let records = artifacts.records();
         // Only a caller who may write the scope creates a collection in it; a
         // reader-only publisher attaches one that already exists.
-        let row = match check_scope_write(records.owners(), ctx, task, &reached, "records").await {
+        let row = match check_record_write(records.owners(), ctx, task, &reached, "records").await {
             Ok(()) => {
                 records
                     .store

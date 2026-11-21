@@ -9,7 +9,7 @@ use super::error::CollectionError;
 use super::keys::{MAX_RECORDS, checked, item_key, valid_name};
 use super::models::{CollectionRow, Record};
 use super::operations::Records;
-use crate::scope_reach::{ScopeRef, check_scope_write, scope_ref};
+use crate::scope_reach::{ScopeRef, check_record_write, scope_ref};
 use crate::task::models::Task;
 use crate::task::operations::TaskCommands;
 
@@ -44,7 +44,7 @@ pub async fn write(
         )));
     }
     let scope = scope_ref(ctx, &task, scope, WHAT)?;
-    check_scope_write(records.owners(), ctx, &task, &scope, WHAT).await?;
+    check_record_write(records.owners(), ctx, &task, &scope, WHAT).await?;
     let (key, data) = match req {
         WriteArtifactRecordRequest::Save { key, data } => (key, data),
         WriteArtifactRecordRequest::Append { list, data } => (item_key(&list), data),

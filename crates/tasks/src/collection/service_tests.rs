@@ -26,6 +26,13 @@ fn tasks() -> TaskCommands {
                 task.visibility = moatless_types::task::Visibility::Public;
                 Ok(Some(task))
             }
+            // A gate review: a Loop's Task running as an admin-approved bot.
+            "task-review" | "task-bot-manual" => {
+                let mut task = make_task_row(task_id, "bot");
+                task.run_as_user_id = Some("bot".to_string());
+                task.loop_id = (task_id == "task-review").then(|| "loop-review".to_string());
+                Ok((ctx.user_id == "bot").then_some(task))
+            }
             // Reads to everyone and writes for admins only.
             "task-shared" => {
                 let mut task = make_task_row(task_id, "user-2");
@@ -323,4 +330,36 @@ async fn a_delete_from_a_collection_never_written_creates_nothing() {
     .await
     .unwrap_err();
     assert!(matches!(err, CollectionError::NotFound(_)), "{err:?}");
+}
+
+#[tokio::test]
+async fn a_loop_task_writes_records_in_its_own_workspace_as_its_run_as_bot() {
+    let written = write(
+        &tasks(),
+        &records(writable(0)),
+        &ctx("bot"),
+        "task-review",
+        "pr-review-state",
+        Some(MemoryScope::Workspace),
+        save("soaplabs/widget/1"),
+    )
+    .await
+    .unwrap();
+    assert_eq!(written.scope, MemoryScope::Workspace);
+}
+
+#[tokio::test]
+async fn a_task_no_loop_opened_cannot_write_a_workspace_it_cannot_write() {
+    let err = write(
+        &tasks(),
+        &records(MockRecordDao::new()),
+        &ctx("bot"),
+        "task-bot-manual",
+        "pr-review-state",
+        Some(MemoryScope::Workspace),
+        save("soaplabs/widget/1"),
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(err, CollectionError::Forbidden(_)), "{err:?}");
 }

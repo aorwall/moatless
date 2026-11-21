@@ -140,6 +140,34 @@ pub async fn check_scope_write(
     }
 }
 
+/// [`check_scope_write`] for records, which also lets a Loop's Task write its
+/// own Workspace as the run-as identity an admin approved for that Loop.
+///
+/// Memory keeps the plain check deliberately: an entry is preloaded into
+/// prompts, so a Loop would plant text in every Task of the Workspace.
+pub async fn check_record_write(
+    owners: ScopeOwners<'_>,
+    ctx: &ScopeContext,
+    task: &Task,
+    scope: &ScopeRef,
+    what: &str,
+) -> Result<(), ScopeError> {
+    if loop_writes_own_workspace(ctx, task, scope) {
+        return Ok(());
+    }
+    check_scope_write(owners, ctx, task, scope, what).await
+}
+
+/// Whether `scope` is `task`'s own Workspace and `ctx` the run-as identity
+/// its Loop opened it under. Only an admin sets a Loop's run-as; a manual
+/// Task's `run_as_user_id` has no `loop_id` beside it.
+fn loop_writes_own_workspace(ctx: &ScopeContext, task: &Task, scope: &ScopeRef) -> bool {
+    scope.scope == MemoryScope::Workspace
+        && task.loop_id.as_deref().is_some_and(|id| !id.is_empty())
+        && task.workspace_id.as_deref() == Some(scope.id.as_str())
+        && task.run_as_user_id.as_deref() == Some(ctx.user_id.as_str())
+}
+
 /// Whether `ctx`, a reader rather than the Task's agent, may read what
 /// `scope` holds.
 ///

@@ -498,28 +498,38 @@ async fn an_unknown_id_owes_nothing() {
 #[tokio::test]
 async fn kill_reaches_the_whole_process_group() {
     let reg = registry(Duration::from_mins(1));
-    // The wrapper exits immediately; the grandchild is what must die.
     let cmd = reg
         .run(CommandSpec {
             command: "sleep 60 & echo $!; wait".into(),
             cwd: None,
-            timeout: Some(Duration::from_millis(200)),
+            timeout: None,
             label: None,
             queue: false,
         })
         .await
         .expect("spawn");
-    let done = wait_terminal(&reg, &cmd.id).await;
-    let grandchild: u32 = std::fs::read_to_string(&done.log_path)
-        .expect("log")
-        .trim()
-        .parse()
-        .expect("pid line");
+    // Kill only once the pid is logged: a timer started at spawn fires before
+    // a loaded pod runs `echo`, leaving an empty log to parse.
+    let grandchild = wait_for_pid_line(&cmd.log_path).await;
+    reg.kill(&cmd.id).await.expect("kill");
+    wait_terminal(&reg, &cmd.id).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert!(
         !is_live(grandchild),
         "grandchild {grandchild} survived the group kill"
     );
+}
+
+/// The pid the command at `log_path` printed as its first line.
+async fn wait_for_pid_line(log_path: &std::path::Path) -> u32 {
+    for _ in 0..200 {
+        let log = std::fs::read_to_string(log_path).unwrap_or_default();
+        if let Some(pid) = log.lines().next().and_then(|l| l.trim().parse().ok()) {
+            return pid;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("the command never logged its pid");
 }
 
 #[tokio::test]
