@@ -597,30 +597,40 @@ const BODY_FORMS: &str = "Pass the comment body once: as the positional argument
 /// One text value from the inline flag or the file flag, or `None` when the
 /// caller passed neither.
 ///
-/// An empty file is refused: `--description-file` over a path that no longer
-/// holds what it held is the same accident as `--description "$(cat gone)"`,
-/// and Linear reads an empty description as "erase it".
+/// An empty file and a text of exactly `null` (what `jq -r` prints for a
+/// wrong path) are refused: Linear reads either as the new description and
+/// replaces the whole body with it.
 fn one_text(
     field: &str,
     inline: Option<String>,
     file: Option<&std::path::Path>,
 ) -> Result<Option<String>, Box<dyn std::error::Error>> {
-    match (inline, file) {
-        (Some(_), Some(_)) => Err(format!(
-            "Pass the {field} once: `--{field} <text>` or `--{field}-file <path>`"
-        )
-        .into()),
-        (Some(text), None) => Ok(Some(text)),
+    let (text, source) = match (inline, file) {
+        (Some(_), Some(_)) => {
+            return Err(format!(
+                "Pass the {field} once: `--{field} <text>` or `--{field}-file <path>`"
+            )
+            .into());
+        }
+        (Some(text), None) => (text, format!("--{field}")),
         (None, Some(path)) => {
             let text = std::fs::read_to_string(path)
                 .map_err(|e| format!("cannot read --{field}-file {}: {e}", path.display()))?;
             if text.trim().is_empty() {
                 return Err(format!("--{field}-file {} is empty", path.display()).into());
             }
-            Ok(Some(text))
+            (text, format!("--{field}-file {}", path.display()))
         }
-        (None, None) => Ok(None),
+        (None, None) => return Ok(None),
+    };
+    if text.trim() == "null" {
+        return Err(format!(
+            "{source} is the literal `null`, which a jq path that matched nothing prints; \
+             check the path (`moat linear issue get --json` nests the issue under `.data`)"
+        )
+        .into());
     }
+    Ok(Some(text))
 }
 
 /// The comment body, from the positional argument, `--body`, `--body-file`, or
@@ -1046,6 +1056,18 @@ mod tests {
         let err = one_text("description", None, Some(&path)).expect_err("an empty file is refused");
         assert!(err.to_string().contains("is empty"), "{err}");
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_null_description_is_refused_from_either_flag() {
+        let path = temp_file("null", "null\n");
+        let err = one_text("description", None, Some(&path)).expect_err("a null file is refused");
+        assert!(err.to_string().contains("literal `null`"), "{err}");
+        let _ = std::fs::remove_file(&path);
+        let err =
+            one_text("description", Some("null".into()), None).expect_err("a null flag is refused");
+        assert!(err.to_string().contains("--description is"), "{err}");
+        assert!(one_text("description", Some("null pointer fix".into()), None).is_ok());
     }
 
     #[test]

@@ -12,7 +12,7 @@ against a live backend, from inside a sandbox, without a browser.
 
 | | `MOATLESS_BASE` | Sees | Setup |
 | --- | --- | --- | --- |
-| Deployed cluster backend | `$BACKEND_API_URL` | Whatever's currently released | None — `$MOATLESS_API_KEY` is already in every sandbox's env |
+| Deployed cluster backend | `$BACKEND_API_URL` | Whatever's currently released | None — the sandbox's own user token authenticates |
 | Local shadow backend | `http://localhost:8080` | Your uncommitted/unmerged changes | [`shadow-dev`](../shadow-dev/SKILL.md) or [`t3-development`](../t3-development/SKILL.md) harness running |
 
 Check `server.getConfig`'s `environment.serverVersion` and `.capabilities` before
@@ -23,14 +23,17 @@ to the shadow backend, not to debug the RPC handler.
 
 ## The ticket exchange
 
-Every HTTP route on this surface accepts `Authorization: Bearer $MOATLESS_API_KEY`
-directly. The socket does not: `origin_checked` (`crates/t3code/src/handlers.rs`)
-skips the Origin allow-list only for `UiRpcAuthMethod::WebSocketTicket`, so a bearer-only
-upgrade gets a **403**. Trade the key for a 60-second ticket first:
+Authenticate as the sandbox's user with the token `moat` itself sends: the
+refreshed copy in `/run/moatless/.user_auth_token`, else `$USER_AUTH_TOKEN`,
+as an `X-User-Token` header. A shadow backend syncs the cluster's secrets, so
+it accepts the same token. Every HTTP route on this surface accepts that
+header directly. The socket does not: `origin_checked` (`crates/t3code/src/handlers.rs`)
+skips the Origin allow-list only for `UiRpcAuthMethod::WebSocketTicket`, so a header-only
+upgrade gets a **403**. Trade the token for a 60-second ticket first:
 
 ```bash
 curl -s -X POST "$MOATLESS_BASE/api/auth/websocket-ticket" \
-  -H "Authorization: Bearer $MOATLESS_API_KEY"
+  -H "X-User-Token: $(cat /run/moatless/.user_auth_token 2>/dev/null || echo "$USER_AUTH_TOKEN")"
 ```
 
 then open `${MOATLESS_BASE/http/ws}/ws?wsTicket=<ticket>`. That's what lets a
@@ -43,7 +46,7 @@ Use Node 22 or later (native fetch and WebSocket).
 `.agents/skills/rpc-verification/scripts/rpc.mjs` does the exchange, sends one
 Effect-RPC `Request` envelope, answers `Ping` with `Pong`, acks every `Chunk`,
 and prints each frame's tag and serialized byte size to stderr. It writes the complete collected frame array as JSON to stdout, without truncation. It only needs
-`MOATLESS_BASE` and `MOATLESS_API_KEY` — nothing else from the T3 harness — so
+`MOATLESS_BASE` and the sandbox token above — nothing else from the T3 harness — so
 it works standalone against the deployed backend.
 
 ```bash

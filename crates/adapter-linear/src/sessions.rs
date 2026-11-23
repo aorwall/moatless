@@ -71,9 +71,9 @@ pub(super) async fn decline_session(api: &LinearAgentApi, session_id: &str, mess
 /// a second attempt a no-op rather than a second task.
 #[expect(
     clippy::too_many_arguments,
-    reason = "the eight downward ports the session provisioning path reads \
+    reason = "the nine downward ports the session provisioning path reads \
               (bindings, tasks, config, task-creation, task-relations, \
-              message-send, active-turns, identity) inverted out of the single AppState; \
+              message-send, active-turns, identity, routing) inverted out of the single AppState; \
               there is no narrower grouping that is not itself that \
               AppState-shaped bag"
 )]
@@ -86,6 +86,7 @@ pub(super) async fn provision_selected_session_task(
     message_send: &dyn MessageAcceptor,
     linear_active_turns: &ActiveLinearTurns,
     identity: &dyn ProviderIdentityLink,
+    routing: &RoutingService,
     api: &LinearAgentApi,
     connection: &AdapterConnection,
     rules: &[SubscriptionMatch],
@@ -131,6 +132,7 @@ pub(super) async fn provision_selected_session_task(
         message_send,
         linear_active_turns,
         identity,
+        routing,
         api,
         connection,
         &rule,
@@ -315,9 +317,9 @@ async fn requester(
 
 #[expect(
     clippy::too_many_arguments,
-    reason = "the eight downward ports one session task's creation reads \
+    reason = "the nine downward ports one session task's creation reads \
               (bindings, tasks, config, task-creation, task-relations, \
-              message-send, active-turns, identity) inverted out of the single AppState; \
+              message-send, active-turns, identity, routing) inverted out of the single AppState; \
               there is no narrower grouping that is not itself that \
               AppState-shaped bag"
 )]
@@ -330,6 +332,7 @@ async fn provision_session_task(
     message_send: &dyn MessageAcceptor,
     linear_active_turns: &ActiveLinearTurns,
     identity: &dyn ProviderIdentityLink,
+    routing: &RoutingService,
     api: &LinearAgentApi,
     connection: &AdapterConnection,
     rule: &SubscriptionMatch,
@@ -367,6 +370,26 @@ async fn provision_session_task(
         }
     }
 
+    // The binding guard above is a read, so it cannot stop two concurrent
+    // attempts: the reopen path provisioning the session it opened while
+    // Linear's `created` webhook for that session runs. The insert decides.
+    if !routing
+        .claim_task_creation_once(
+            rule,
+            SESSION_TASK_SUBJECT_KIND,
+            &session.id,
+            ADAPTER_LABEL,
+            Some(&super::external_id::session_created(&session.id)),
+        )
+        .await?
+    {
+        info!(
+            session_id = %session.id,
+            "Linear AgentSession task already being created — skipping duplicate task creation"
+        );
+        return Ok(());
+    }
+
     // Find an earlier task already bound to this Linear issue, if any. The
     // first row by created_at is the peer that touched this issue earlier.
     // The lookup uses destination_config.issue_id so it matches both
@@ -400,7 +423,7 @@ async fn provision_session_task(
     // binding.
     let preview = super::text::build_inbound_text(session);
     let requested_by = requester(identity, session.creator.as_ref()).await;
-    let task_id = match insert_event_task(
+    let created = insert_event_task(
         task_creation,
         rule,
         &issue.identifier,
@@ -408,10 +431,28 @@ async fn provision_session_task(
         &preview,
         requested_by,
     )
-    .await
-    {
+    .await;
+    // Released when no task came of it, so the redelivery retries rather than
+    // finding the claim held and dropping the session.
+    if let Err(e) = &created {
+        if !matches!(e, AdapterError::Shared(SharedAdapterError::AccessDenied(_))) {
+            if let Err(release) = routing
+                .release_task_creation(&rule.id, SESSION_TASK_SUBJECT_KIND, &session.id)
+                .await
+            {
+                warn!(session_id = %session.id, error = %release, "Failed to release Linear session claim");
+            }
+        }
+    }
+    let task_id = match created {
         Ok(id) => {
             info!(task_id = %id, subscription_id = %rule.id, "Created task from Linear AgentSession");
+            if let Err(e) = routing
+                .record_created_task(&rule.id, SESSION_TASK_SUBJECT_KIND, &session.id, &id)
+                .await
+            {
+                warn!(task_id = %id, error = %e, "Failed to record the Linear session's task");
+            }
             id
         }
         // Preflight failed: the task exists but is errored, and no binding/turn
@@ -542,6 +583,10 @@ async fn provision_session_task(
     Ok(())
 }
 
+/// Subject kind of the creation claim on one agent session, keyed by its id.
+/// No Binding carries it.
+const SESSION_TASK_SUBJECT_KIND: &str = "linear_session_task";
+
 /// Subject kind of the creation claim on one reopen of an issue, keyed by the
 /// issue and Linear's clock. No Binding carries it.
 const REOPEN_SUBJECT_KIND: &str = "linear_issue_reopen";
@@ -554,8 +599,8 @@ const REOPEN_SUBJECT_KIND: &str = "linear_issue_reopen";
 /// re-delegation that moves no state never reaches here (`issue_event`).
 #[expect(
     clippy::too_many_arguments,
-    reason = "the session provisioning ports of `provision_selected_session_task` \
-              plus the routing claim; the same AppState-shaped bag"
+    reason = "the session provisioning ports of `provision_selected_session_task`; \
+              the same AppState-shaped bag"
 )]
 pub(super) async fn restart_session_on_reopen(
     task_bindings: &Bindings,
@@ -656,8 +701,8 @@ pub(super) async fn restart_session_on_reopen(
         creator: update.actor.clone(),
         prompt_context: None,
     };
-    // A `created` webhook for this session, if Linear sends one, converges on
-    // the binding guard in `provision_session_task`.
+    // Linear's `created` webhook for this session can run concurrently; the
+    // session claim in `provision_session_task` lets only one create the task.
     provision_selected_session_task(
         task_bindings,
         tasks,
@@ -667,6 +712,7 @@ pub(super) async fn restart_session_on_reopen(
         message_send,
         linear_active_turns,
         identity,
+        routing,
         api,
         connection,
         rules,

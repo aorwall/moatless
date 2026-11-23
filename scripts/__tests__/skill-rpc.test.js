@@ -37,10 +37,16 @@ async function server(onRequest, onMessage) {
   })
   return `http://127.0.0.1:${http.address().port}`
 }
-function run(base, args = ['server.getConfig', '--wait=700']) {
+function run(base, args = ['server.getConfig', '--wait=700'], env = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [script, ...args], {
-      env: { ...process.env, MOATLESS_API_KEY: 'test-only', MOATLESS_BASE: base },
+      env: {
+        ...process.env,
+        RUNTIME_DIR: path.join(import.meta.dirname, 'no-such-runtime-dir'),
+        USER_AUTH_TOKEN: 'test-only',
+        MOATLESS_BASE: base,
+        ...env,
+      },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     let stdout = '',
@@ -119,6 +125,26 @@ describe('RPC probe process contract', () => {
     const result = await run(base)
     expect(result.code).toBe(1)
     expect(JSON.parse(result.stdout)).toEqual([frame])
+  })
+
+  it('exchanges the sandbox token for the ticket', async () => {
+    let token
+    const base = await server(
+      (request, response) => {
+        token = request.headers['x-user-token']
+        response.end('{"ticket":"test-ticket"}')
+      },
+      (socket) => socket.send(JSON.stringify(exit('ok'))),
+    )
+    const result = await run(base)
+    expect(result.code).toBe(0)
+    expect(token).toBe('test-only')
+  })
+
+  it('fails without a sandbox token', async () => {
+    const result = await run('http://127.0.0.1:1', undefined, { USER_AUTH_TOKEN: '' })
+    expect(result.code).toBe(1)
+    expect(result.stderr).toContain('No sandbox token')
   })
 
   it('bounds ticket acquisition', async () => {

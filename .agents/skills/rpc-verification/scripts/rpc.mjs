@@ -1,4 +1,15 @@
+import { readFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
+
+/** The sandbox user token: the refreshed copy on disk, else the pod's `USER_AUTH_TOKEN`. */
+function sandboxToken(env) {
+  try {
+    const dir = (env.RUNTIME_DIR ?? '/run/moatless').replace(/\/+$/, '')
+    const token = readFileSync(`${dir}/.user_auth_token`, 'utf8').trim()
+    if (token) return token
+  } catch {}
+  return env.USER_AUTH_TOKEN?.trim() || undefined
+}
 
 /** Probe one UI-RPC call; stdout contains the complete collected frame array. */
 export async function probe(args, env = process.env) {
@@ -22,7 +33,8 @@ export async function probe(args, env = process.env) {
   if (!Number.isSafeInteger(waitMs) || waitMs <= 0 || waitMs > 2_147_483_647) {
     throw new Error('--wait must be a positive integer within the Node timer range')
   }
-  if (!env.MOATLESS_API_KEY) throw new Error('MOATLESS_API_KEY is not set')
+  const token = sandboxToken(env)
+  if (!token) throw new Error('No sandbox token: neither $RUNTIME_DIR/.user_auth_token nor USER_AUTH_TOKEN')
   const base = new URL(env.MOATLESS_BASE ?? 'http://localhost:8080')
   if (!['http:', 'https:'].includes(base.protocol))
     throw new Error('MOATLESS_BASE must use HTTP(S)')
@@ -52,7 +64,7 @@ export async function probe(args, env = process.env) {
   try {
     const response = await fetch(new URL('/api/auth/websocket-ticket', base), {
       method: 'POST',
-      headers: { authorization: `Bearer ${env.MOATLESS_API_KEY}` },
+      headers: { 'x-user-token': token },
       signal: controller.signal,
     })
     if (!response.ok) throw new Error(`Ticket request failed: HTTP ${response.status}`)

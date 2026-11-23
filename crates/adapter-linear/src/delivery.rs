@@ -564,6 +564,7 @@ impl LinearInboundRouter {
             self.message_send.as_ref(),
             &self.linear_active_turns,
             self.identity.as_ref(),
+            &self.routing,
             &api,
             &connection,
             &rules,

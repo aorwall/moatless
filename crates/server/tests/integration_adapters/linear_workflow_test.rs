@@ -784,6 +784,43 @@ async fn a_second_provisioning_attempt_creates_no_second_task(pool: PgPool) {
     assert_eq!(tasks, 1, "the binding guard makes the retry a no-op");
 }
 
+/// A session whose task another attempt is creating gets no second task.
+///
+/// The binding guard is a read, so the reopen path and Linear's `created`
+/// webhook for the session it opened both passed it; the creation claim the
+/// first attempt holds is what stops the second.
+#[sqlx::test]
+async fn a_session_claimed_by_a_concurrent_attempt_creates_no_task(pool: PgPool) {
+    let stub = linear_stub().await;
+    let state = replica(&pool, &stub);
+    seed_connection(&pool, &stub).await;
+    seed_workspace_token(&pool).await;
+    seed_local_repository(&pool).await;
+    seed_rule(&state, None).await;
+    sqlx::query(
+        "INSERT INTO adapter_task_creation_claims \
+         (loop_id, subject_kind, subject_key, adapter_kind) \
+         VALUES ($1, 'linear_session_task', $2, 'linear')",
+    )
+    .bind(RULE)
+    .bind(SESSION)
+    .execute(&pool)
+    .await
+    .expect("hold the session claim");
+
+    deliver(&state, &session_created()).await;
+    drain(&pool, &stub).await;
+
+    let tasks: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tasks")
+        .fetch_one(&pool)
+        .await
+        .expect("count tasks");
+    assert_eq!(
+        tasks, 0,
+        "the claim holder creates the task, not this attempt"
+    );
+}
+
 // =========================================================================
 // AgentSessionEvent.prompted
 // =========================================================================
