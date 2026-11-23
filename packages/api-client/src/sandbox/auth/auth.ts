@@ -188,7 +188,7 @@ export const prefetchExchangeApiKeyHandlerQuery = async <TData = Awaited<ReturnT
 
   const queryOptions = getExchangeApiKeyHandlerQueryOptions(options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -321,7 +321,7 @@ export const prefetchLogoutHandlerQuery = async <TData = Awaited<ReturnType<type
 
   const queryOptions = getLogoutHandlerQueryOptions(options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -447,7 +447,7 @@ export const prefetchLogoutAllHandlerQuery = async <TData = Awaited<ReturnType<t
 
   const queryOptions = getLogoutAllHandlerQueryOptions(options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -588,8 +588,16 @@ export const updateMeHandler = async (updateUserRequest: UpdateUserRequest, opti
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<updateMeHandlerResponse>(getUpdateMeHandlerUrl(),
   {
@@ -683,7 +691,7 @@ export const prefetchUpdateMeHandlerQuery = async <TData = Awaited<ReturnType<ty
 
   const queryOptions = getUpdateMeHandlerQueryOptions(updateUserRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -816,8 +824,16 @@ export const createPairingCodeHandler = async (createPairingCodeRequest: CreateP
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<createPairingCodeHandlerResponse>(getCreatePairingCodeHandlerUrl(),
   {
@@ -911,7 +927,7 @@ export const prefetchCreatePairingCodeHandlerQuery = async <TData = Awaited<Retu
 
   const queryOptions = getCreatePairingCodeHandlerQueryOptions(createPairingCodeRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -965,8 +981,16 @@ export const changePasswordHandler = async (changePasswordRequest: ChangePasswor
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<changePasswordHandlerResponse>(getChangePasswordHandlerUrl(),
   {
@@ -1060,7 +1084,7 @@ export const prefetchChangePasswordHandlerQuery = async <TData = Awaited<ReturnT
 
   const queryOptions = getChangePasswordHandlerQueryOptions(changePasswordRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -1114,8 +1138,16 @@ export const passwordLoginHandler = async (passwordLoginRequest: PasswordLoginRe
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<passwordLoginHandlerResponse>(getPasswordLoginHandlerUrl(),
   {
@@ -1209,7 +1241,7 @@ export const prefetchPasswordLoginHandlerQuery = async <TData = Awaited<ReturnTy
 
   const queryOptions = getPasswordLoginHandlerQueryOptions(passwordLoginRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -1246,8 +1278,8 @@ export const getExchangeTokenHandlerUrl = () => {
 }
 
 /**
- * Sandbox pods carry a `USER_AUTH_TOKEN` JWT signed with `TASK_TOKEN_SECRET`;
- * verifying it lets the CLI call authenticated `/api/v1/*` endpoints.
+ * Refused under [`SandboxTokenScope::Enforce`]: the session would carry the
+ * driver past `sandbox_scope`. The CLI sends the token itself instead.
  * @summary Exchange a sandbox user auth token (JWT) for a session cookie.
  */
 export const exchangeTokenHandler = async ( options?: Parameters<typeof customInstance>[1]): Promise<exchangeTokenHandlerResponse> => {
@@ -1344,7 +1376,7 @@ export const prefetchExchangeTokenHandlerQuery = async <TData = Awaited<ReturnTy
 
   const queryOptions = getExchangeTokenHandlerQueryOptions(options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }

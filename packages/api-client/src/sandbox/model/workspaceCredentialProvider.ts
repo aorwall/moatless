@@ -9,16 +9,14 @@
 /**
  * A provider whose credential can be pinned to a Workspace.
  *
- * Only providers whose sandbox credential is a single static environment
- * variable are listed here. Codex and the Claude OAuth token are refreshed
- * per-user, so a workspace-level copy would go stale with nothing to
- * rotate it.
+ * Only single static env-var credentials: Codex and Claude OAuth tokens
+ * refresh per user, so a pinned copy goes stale. GitHub is deliberately
+ * absent: a pin would outrank the App connection that authors Task posts.
  */
 export type WorkspaceCredentialProvider = typeof WorkspaceCredentialProvider[keyof typeof WorkspaceCredentialProvider];
 
 
 export const WorkspaceCredentialProvider = {
-  github: 'github',
   gitlab: 'gitlab',
   forgejo: 'forgejo',
   openai: 'openai',

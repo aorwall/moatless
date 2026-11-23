@@ -205,8 +205,16 @@ export const appendMemory = async (taskId: string,
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<appendMemoryResponse>(getAppendMemoryUrl(taskId),
   {
@@ -307,7 +315,7 @@ export const prefetchAppendMemoryQuery = async <TData = Awaited<ReturnType<typeo
 
   const queryOptions = getAppendMemoryQueryOptions(taskId,appendMemoryRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -357,8 +365,16 @@ export const claimMemory = async (taskId: string,
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<claimMemoryResponse>(getClaimMemoryUrl(taskId),
   {
@@ -459,7 +475,7 @@ export const prefetchClaimMemoryQuery = async <TData = Awaited<ReturnType<typeof
 
   const queryOptions = getClaimMemoryQueryOptions(taskId,claimMemoryRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -620,8 +636,16 @@ export const putMemory = async (taskId: string,
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<putMemoryResponse>(getPutMemoryUrl(taskId),
   {
@@ -722,7 +746,7 @@ export const prefetchPutMemoryQuery = async <TData = Awaited<ReturnType<typeof p
 
   const queryOptions = getPutMemoryQueryOptions(taskId,putMemoryRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -876,7 +900,7 @@ export const prefetchDeleteMemoryQuery = async <TData = Awaited<ReturnType<typeo
 
   const queryOptions = getDeleteMemoryQueryOptions(taskId,params,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -1027,8 +1051,16 @@ export const releaseMemory = async (taskId: string,
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<releaseMemoryResponse>(getReleaseMemoryUrl(taskId),
   {
@@ -1129,7 +1161,7 @@ export const prefetchReleaseMemoryQuery = async <TData = Awaited<ReturnType<type
 
   const queryOptions = getReleaseMemoryQueryOptions(taskId,memoryKeyRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -1275,8 +1307,16 @@ export const verifyMemory = async (taskId: string,
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<verifyMemoryResponse>(getVerifyMemoryUrl(taskId),
   {
@@ -1377,7 +1417,7 @@ export const prefetchVerifyMemoryQuery = async <TData = Awaited<ReturnType<typeo
 
   const queryOptions = getVerifyMemoryQueryOptions(taskId,memoryKeyRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }

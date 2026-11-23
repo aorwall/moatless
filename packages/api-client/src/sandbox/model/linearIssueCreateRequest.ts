@@ -73,7 +73,8 @@ export interface LinearIssueCreateRequest {
   /**
      * Real Linear user to record as the issue reporter. Resolved like
      * [`Self::assignee`]. Added as a subscriber and mentioned in the
-     * description (Linear has no reporter field).
+     * description (Linear has no reporter field). Defaults to the associated
+     * Task's reporter when omitted.
      * @nullable
      */
   reporter?: string | null;

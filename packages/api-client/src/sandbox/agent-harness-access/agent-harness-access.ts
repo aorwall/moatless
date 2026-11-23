@@ -102,8 +102,16 @@ export const adminSaveGlobalCodexAuth = async (saveCodexAgentHarnessCredentialRe
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<adminSaveGlobalCodexAuthResponse>(getAdminSaveGlobalCodexAuthUrl(),
   {
@@ -191,7 +199,7 @@ export const prefetchAdminSaveGlobalCodexAuthQuery = async <TData = Awaited<Retu
 
   const queryOptions = getAdminSaveGlobalCodexAuthQueryOptions(saveCodexAgentHarnessCredentialRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -320,7 +328,7 @@ export const prefetchAdminDeleteGlobalCodexConfigQuery = async <TData = Awaited<
 
   const queryOptions = getAdminDeleteGlobalCodexConfigQueryOptions(options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -377,8 +385,16 @@ export const adminSetCodexProviderTokenHandler = async (userId: string,
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<adminSetCodexProviderTokenHandlerResponse>(getAdminSetCodexProviderTokenHandlerUrl(userId),
   {
@@ -473,7 +489,7 @@ export const prefetchAdminSetCodexProviderTokenHandlerQuery = async <TData = Awa
 
   const queryOptions = getAdminSetCodexProviderTokenHandlerQueryOptions(userId,saveCodexAgentHarnessCredentialRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -605,8 +621,16 @@ export const saveCodexAuth = async (saveCodexAgentHarnessCredentialRequest: Save
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<saveCodexAuthResponse>(getSaveCodexAuthUrl(),
   {
@@ -694,7 +718,7 @@ export const prefetchSaveCodexAuthQuery = async <TData = Awaited<ReturnType<type
 
   const queryOptions = getSaveCodexAuthQueryOptions(saveCodexAgentHarnessCredentialRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -818,7 +842,7 @@ export const prefetchDeleteCodexConfigQuery = async <TData = Awaited<ReturnType<
 
   const queryOptions = getDeleteCodexConfigQueryOptions(options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -864,8 +888,16 @@ export const pollCodexDeviceLogin = async (codexDeviceCodePollRequest: CodexDevi
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<pollCodexDeviceLoginResponse>(getPollCodexDeviceLoginUrl(),
   {
@@ -953,7 +985,7 @@ export const prefetchPollCodexDeviceLoginQuery = async <TData = Awaited<ReturnTy
 
   const queryOptions = getPollCodexDeviceLoginQueryOptions(codexDeviceCodePollRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -1082,7 +1114,7 @@ export const prefetchStartCodexDeviceLoginQuery = async <TData = Awaited<ReturnT
 
   const queryOptions = getStartCodexDeviceLoginQueryOptions(options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }

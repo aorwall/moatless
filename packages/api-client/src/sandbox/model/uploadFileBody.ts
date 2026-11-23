@@ -10,5 +10,5 @@
  * Doc-only type for multipart upload body.
  */
 export interface UploadFileBody {
-  file: Blob;
+  file: Blob | File;
 }

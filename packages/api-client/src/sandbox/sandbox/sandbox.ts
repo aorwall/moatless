@@ -197,7 +197,7 @@ export const prefetchRemoveHandlerQuery = async <TData = Awaited<ReturnType<type
 
   const queryOptions = getRemoveHandlerQueryOptions(taskId,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -469,8 +469,16 @@ export const searchByNameHandler = async (taskId: string,
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<searchByNameHandlerResponse>(getSearchByNameHandlerUrl(taskId),
   {
@@ -571,7 +579,7 @@ export const prefetchSearchByNameHandlerQuery = async <TData = Awaited<ReturnTyp
 
   const queryOptions = getSearchByNameHandlerQueryOptions(taskId,searchByNameRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -734,8 +742,16 @@ export const writeFileHandler = async (taskId: string,
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<writeFileHandlerResponse>(getWriteFileHandlerUrl(taskId),
   {
@@ -836,7 +852,7 @@ export const prefetchWriteFileHandlerQuery = async <TData = Awaited<ReturnType<t
 
   const queryOptions = getWriteFileHandlerQueryOptions(taskId,writeFileRequestBody,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -1182,7 +1198,7 @@ export const prefetchProvisionHandlerQuery = async <TData = Awaited<ReturnType<t
 
   const queryOptions = getProvisionHandlerQueryOptions(taskId,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -1329,7 +1345,7 @@ export const prefetchRedeployHandlerQuery = async <TData = Awaited<ReturnType<ty
 
   const queryOptions = getRedeployHandlerQueryOptions(taskId,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -1472,7 +1488,7 @@ export const prefetchRestartHandlerQuery = async <TData = Awaited<ReturnType<typ
 
   const queryOptions = getRestartHandlerQueryOptions(taskId,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -1707,7 +1723,7 @@ export const prefetchStopHandlerQuery = async <TData = Awaited<ReturnType<typeof
 
   const queryOptions = getStopHandlerQueryOptions(taskId,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }

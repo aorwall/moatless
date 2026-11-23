@@ -11,4 +11,9 @@ export type ServeArtifactPageParams = {
  * Any value serves the page as published, as a download.
  */
 download?: string;
+/**
+ * Any value serves the page itself to a browser opening the URL, rather
+ * than the viewer with Moatless's bar above it.
+ */
+raw?: string;
 };

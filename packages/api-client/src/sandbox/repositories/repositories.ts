@@ -179,8 +179,16 @@ export const createRepository = async (createRepositoryRequest: CreateRepository
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<createRepositoryResponse>(getCreateRepositoryUrl(),
   {
@@ -274,7 +282,7 @@ export const prefetchCreateRepositoryQuery = async <TData = Awaited<ReturnType<t
 
   const queryOptions = getCreateRepositoryQueryOptions(createRepositoryRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -416,8 +424,16 @@ export const updateRepository = async (repositoryId: string,
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<updateRepositoryResponse>(getUpdateRepositoryUrl(repositoryId),
   {
@@ -518,7 +534,7 @@ export const prefetchUpdateRepositoryQuery = async <TData = Awaited<ReturnType<t
 
   const queryOptions = getUpdateRepositoryQueryOptions(repositoryId,updateRepositoryRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -651,7 +667,7 @@ export const prefetchDeleteRepositoryQuery = async <TData = Awaited<ReturnType<t
 
   const queryOptions = getDeleteRepositoryQueryOptions(repositoryId,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -780,7 +796,7 @@ export const prefetchSyncConfigQuery = async <TData = Awaited<ReturnType<typeof 
 
   const queryOptions = getSyncConfigQueryOptions(repositoryId,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }

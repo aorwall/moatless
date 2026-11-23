@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AgentProfile } from './agentProfile';
+import type { AgentProperties } from './agentProperties';
 import type { CheckoutMode } from './checkoutMode';
 import type { ForkOrigin } from './forkOrigin';
 import type { SandboxDesiredState } from './sandboxDesiredState';
@@ -18,6 +19,8 @@ import type { Visibility } from './visibility';
 
 export interface TaskResponse {
   agentProfile: AgentProfile;
+  /** See [`moatless_types::task::Task::agent_properties`]. */
+  agentProperties?: AgentProperties;
   /** @nullable */
   appendSystemPrompt?: string | null;
   bindings?: TaskBindingSummary[];
@@ -69,6 +72,11 @@ export interface TaskResponse {
   parentTaskId?: string | null;
   /** Typed relations this task has to other tasks. */
   relations?: TaskRelationDto[];
+  /**
+     * The verified person who requested the Loop's work, when known.
+     * @nullable
+     */
+  reporterUserId?: string | null;
   /**
      * `None` for a task on a Workspace that places no repository.
      * @nullable

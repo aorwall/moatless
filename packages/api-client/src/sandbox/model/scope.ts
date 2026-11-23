@@ -7,10 +7,10 @@
  */
 
 /**
- * Access scope for repositories, tasks, integrations, and credentials.
+ * Access scope for repositories, workspaces, integrations, and credentials.
  *
- * `global` is world-readable and admin-writable; `user` is owner-managed. A
- * public Task additionally grants read and write, never ownership.
+ * `global` is world-readable and admin-writable; `user` is owner-managed.
+ * A Task has no scope; its access is [`ScopedResource::task`].
  */
 export type Scope = typeof Scope[keyof typeof Scope];
 

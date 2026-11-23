@@ -762,3 +762,9 @@ of its own.
 |---|---|---|
 | Two Antigravity prices are due to change | `crates/types/src/model.rs::ANTIGRAVITY_ONLY` holds one price per model, with no start date. Google moves Gemini 4 Argon from $2 / $10 to $4 / $20 on 2026-12-01, and doubles Gemini 3.8 Flash on 2027-01-01 | On each date, update its row, so a run is priced at the rate in force when it ran |
 | A Claude run through Antigravity prices its cache writes at the input rate | `crates/sandbox/src/agent/harness/acp/process.rs::on_response` reads agy's usage, which carries no cache-write count on the OpenAI wire, so the creation tokens arrive inside `inputTokens` | When Claude-through-Antigravity costs are compared against Claude Code's to the cent. Read the hub's Anthropic usage instead |
+
+## Generated API client
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| No CI job checks that the OpenAPI spec is current | `Taskfile.yml` `check:spec` diffs `openapi-specs.json` against `--dump-openapi`, but no workflow runs it. The spec and `packages/api-client` had drifted until #1589 | When a TypeScript consumer depends on a schema the stale client lacks. Run `check:spec` in the Rust job that has already built `moatless-backend`, so it costs no extra build |

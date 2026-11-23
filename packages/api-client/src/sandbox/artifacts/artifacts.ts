@@ -28,12 +28,18 @@ import type {
   ArtifactRecordResponse,
   ArtifactResponse,
   ErrorBody,
+  ForkArtifactRequest,
+  ForkArtifactResponse,
   ListArtifactRecordsResponse,
   ListArtifactsResponse,
+  ListCollectionRecordsResponse,
+  ListPageCollectionRecordsParams,
   ListPageRecordsParams,
   ListRecordsParams,
   PublishArtifactBody,
   ServeArtifactPageParams,
+  ServeLatestArtifactPageParams,
+  SetArtifactVisibilityRequest,
   WriteArtifactRecordRequest
 } from '../model';
 
@@ -64,7 +70,122 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
   return result;
 };
 
-export type listPageRecordsResponse200 = {
+export type listPageCollectionRecordsResponse200 = {
+  data: ListCollectionRecordsResponse
+  status: 200
+}
+
+export type listPageCollectionRecordsResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+
+export type listPageCollectionRecordsResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+
+export type listPageCollectionRecordsResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
+export type listPageCollectionRecordsResponseSuccess = (listPageCollectionRecordsResponse200) & {
+  headers: Headers;
+};
+export type listPageCollectionRecordsResponseError = (listPageCollectionRecordsResponse401 | listPageCollectionRecordsResponse403 | listPageCollectionRecordsResponse404) & {
+  headers: Headers;
+};
+
+export type listPageCollectionRecordsResponse = (listPageCollectionRecordsResponseSuccess | listPageCollectionRecordsResponseError)
+
+export const getListPageCollectionRecordsUrl = (token: string,
+    name: string,
+    params?: ListPageCollectionRecordsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/artifact-data/${token}/collections/${name}/records?${stringifiedParams}` : `/api/artifact-data/${token}/collections/${name}/records`
+}
+
+/**
+ * @summary List the records of a scoped collection attached to the Artifact a page
+token names, oldest change first. A page reads it and never writes it.
+ */
+export const listPageCollectionRecords = async (token: string,
+    name: string,
+    params?: ListPageCollectionRecordsParams, options?: Parameters<typeof customInstance>[1]): Promise<listPageCollectionRecordsResponse> => {
+
+  return customInstance<listPageCollectionRecordsResponse>(getListPageCollectionRecordsUrl(token,name,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListPageCollectionRecordsMutationKey = () => ['listPageCollectionRecords'] as const;
+
+export const getListPageCollectionRecordsMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof listPageCollectionRecords>>, TError,ListPageCollectionRecordsMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof listPageCollectionRecords>>, TError,ListPageCollectionRecordsMutationVariables, TContext> => {
+
+const mutationKey = getListPageCollectionRecordsMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof listPageCollectionRecords>>, ListPageCollectionRecordsMutationVariables> = (props) => {
+          const {token,name,params} = props ?? {};
+
+          return  listPageCollectionRecords(token,name,params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ListPageCollectionRecordsMutationResult = NonNullable<Awaited<ReturnType<typeof listPageCollectionRecords>>>
+
+    export type ListPageCollectionRecordsMutationError = ErrorType<ErrorBody>
+    export type ListPageCollectionRecordsMutationVariables = {token: string;name: string;params?: ListPageCollectionRecordsParams}
+
+    /**
+ * @summary List the records of a scoped collection attached to the Artifact a page
+token names, oldest change first. A page reads it and never writes it.
+ */
+export const useListPageCollectionRecords = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof listPageCollectionRecords>>, TError,ListPageCollectionRecordsMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof listPageCollectionRecords>>,
+        TError,
+        ListPageCollectionRecordsMutationVariables,
+        TContext
+      > => {
+      return useMutation(getListPageCollectionRecordsMutationOptions(options), queryClient);
+    }
+    export type listPageRecordsResponse200 = {
   data: ListArtifactRecordsResponse
   status: 200
 }
@@ -222,8 +343,16 @@ export const writePageRecord = async (token: string,
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<writePageRecordResponse>(getWritePageRecordUrl(token),
   {
@@ -326,7 +455,7 @@ export const prefetchWritePageRecordQuery = async <TData = Awaited<ReturnType<ty
 
   const queryOptions = getWritePageRecordQueryOptions(token,writeArtifactRecordRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -335,37 +464,48 @@ export const prefetchWritePageRecordQuery = async <TData = Awaited<ReturnType<ty
 
 
 
-export type openLatestArtifactResponse302 = {
-  data: void
-  status: 302
+export type serveLatestArtifactPageResponse200 = {
+  data: string
+  status: 200
 }
 
-export type openLatestArtifactResponse404 = {
+export type serveLatestArtifactPageResponse404 = {
   data: ErrorBody
   status: 404
 }
 
-;
-export type openLatestArtifactResponseError = (openLatestArtifactResponse302 | openLatestArtifactResponse404) & {
+export type serveLatestArtifactPageResponseSuccess = (serveLatestArtifactPageResponse200) & {
+  headers: Headers;
+};
+export type serveLatestArtifactPageResponseError = (serveLatestArtifactPageResponse404) & {
   headers: Headers;
 };
 
-export type openLatestArtifactResponse = (openLatestArtifactResponseError)
+export type serveLatestArtifactPageResponse = (serveLatestArtifactPageResponseSuccess | serveLatestArtifactPageResponseError)
 
-export const getOpenLatestArtifactUrl = (artifactId: string,) => {
+export const getServeLatestArtifactPageUrl = (artifactId: string,
+    params?: ServeLatestArtifactPageParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/v1/artifacts/${artifactId}`
+  return stringifiedParams.length > 0 ? `/api/v1/artifacts/${artifactId}?${stringifiedParams}` : `/api/v1/artifacts/${artifactId}`
 }
 
 /**
- * @summary Redirect to the page of the Artifact's latest version.
+ * @summary Serve the page of the Artifact's latest version at its unversioned URL.
  */
-export const openLatestArtifact = async (artifactId: string, options?: Parameters<typeof customInstance>[1]): Promise<openLatestArtifactResponse> => {
+export const serveLatestArtifactPage = async (artifactId: string,
+    params?: ServeLatestArtifactPageParams, options?: Parameters<typeof customInstance>[1]): Promise<serveLatestArtifactPageResponse> => {
 
-  return customInstance<openLatestArtifactResponse>(getOpenLatestArtifactUrl(artifactId),
+  return customInstance<serveLatestArtifactPageResponse>(getServeLatestArtifactPageUrl(artifactId,params),
   {
     ...options,
     method: 'GET'
@@ -378,13 +518,13 @@ export const openLatestArtifact = async (artifactId: string, options?: Parameter
 
 
 
-export const getOpenLatestArtifactMutationKey = () => ['openLatestArtifact'] as const;
+export const getServeLatestArtifactPageMutationKey = () => ['serveLatestArtifactPage'] as const;
 
-export const getOpenLatestArtifactMutationOptions = <TError = ErrorType<void | ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof openLatestArtifact>>, TError,OpenLatestArtifactMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
-): UseMutationOptions<Awaited<ReturnType<typeof openLatestArtifact>>, TError,OpenLatestArtifactMutationVariables, TContext> => {
+export const getServeLatestArtifactPageMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof serveLatestArtifactPage>>, TError,ServeLatestArtifactPageMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof serveLatestArtifactPage>>, TError,ServeLatestArtifactPageMutationVariables, TContext> => {
 
-const mutationKey = getOpenLatestArtifactMutationKey();
+const mutationKey = getServeLatestArtifactPageMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -394,10 +534,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof openLatestArtifact>>, OpenLatestArtifactMutationVariables> = (props) => {
-          const {artifactId} = props ?? {};
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof serveLatestArtifactPage>>, ServeLatestArtifactPageMutationVariables> = (props) => {
+          const {artifactId,params} = props ?? {};
 
-          return  openLatestArtifact(artifactId,requestOptions)
+          return  serveLatestArtifactPage(artifactId,params,requestOptions)
         }
 
 
@@ -407,23 +547,23 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
   return  { mutationFn, ...mutationOptions }}
 
-    export type OpenLatestArtifactMutationResult = NonNullable<Awaited<ReturnType<typeof openLatestArtifact>>>
+    export type ServeLatestArtifactPageMutationResult = NonNullable<Awaited<ReturnType<typeof serveLatestArtifactPage>>>
 
-    export type OpenLatestArtifactMutationError = ErrorType<void | ErrorBody>
-    export type OpenLatestArtifactMutationVariables = {artifactId: string}
+    export type ServeLatestArtifactPageMutationError = ErrorType<ErrorBody>
+    export type ServeLatestArtifactPageMutationVariables = {artifactId: string;params?: ServeLatestArtifactPageParams}
 
     /**
- * @summary Redirect to the page of the Artifact's latest version.
+ * @summary Serve the page of the Artifact's latest version at its unversioned URL.
  */
-export const useOpenLatestArtifact = <TError = ErrorType<void | ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof openLatestArtifact>>, TError,OpenLatestArtifactMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+export const useServeLatestArtifactPage = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof serveLatestArtifactPage>>, TError,ServeLatestArtifactPageMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof openLatestArtifact>>,
+        Awaited<ReturnType<typeof serveLatestArtifactPage>>,
         TError,
-        OpenLatestArtifactMutationVariables,
+        ServeLatestArtifactPageMutationVariables,
         TContext
       > => {
-      return useMutation(getOpenLatestArtifactMutationOptions(options), queryClient);
+      return useMutation(getServeLatestArtifactPageMutationOptions(options), queryClient);
     }
     export type listRecordsResponse200 = {
   data: ListArtifactRecordsResponse
@@ -573,8 +713,16 @@ export const writeRecord = async (artifactId: string,
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<writeRecordResponse>(getWriteRecordUrl(artifactId),
   {
@@ -677,7 +825,170 @@ export const prefetchWriteRecordQuery = async <TData = Awaited<ReturnType<typeof
 
   const queryOptions = getWriteRecordQueryOptions(artifactId,writeArtifactRecordRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
+
+  return queryClient;
+}
+
+
+
+
+
+export type setArtifactVisibilityResponse200 = {
+  data: ArtifactResponse
+  status: 200
+}
+
+export type setArtifactVisibilityResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+
+export type setArtifactVisibilityResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
+export type setArtifactVisibilityResponseSuccess = (setArtifactVisibilityResponse200) & {
+  headers: Headers;
+};
+export type setArtifactVisibilityResponseError = (setArtifactVisibilityResponse403 | setArtifactVisibilityResponse404) & {
+  headers: Headers;
+};
+
+export type setArtifactVisibilityResponse = (setArtifactVisibilityResponseSuccess | setArtifactVisibilityResponseError)
+
+export const getSetArtifactVisibilityUrl = (artifactId: string,) => {
+
+
+
+
+  return `/api/v1/artifacts/${artifactId}/visibility`
+}
+
+/**
+ * @summary Set whether any signed-in user may read an Artifact, as a user who can
+change its Task.
+ */
+export const setArtifactVisibility = async (artifactId: string,
+    setArtifactVisibilityRequest: SetArtifactVisibilityRequest, options?: Parameters<typeof customInstance>[1]): Promise<setArtifactVisibilityResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customInstance<setArtifactVisibilityResponse>(getSetArtifactVisibilityUrl(artifactId),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(setArtifactVisibilityRequest)
+  }
+);}
+
+
+
+
+
+export const getSetArtifactVisibilityQueryKey = (artifactId: string,
+    setArtifactVisibilityRequest?: SetArtifactVisibilityRequest,) => {
+    return [
+    'PUT', `/api/v1/artifacts/${artifactId}/visibility`, setArtifactVisibilityRequest
+    ] as const;
+    }
+
+
+export const getSetArtifactVisibilityQueryOptions = <TData = Awaited<ReturnType<typeof setArtifactVisibility>>, TError = ErrorType<ErrorBody>>(artifactId: string,
+    setArtifactVisibilityRequest: SetArtifactVisibilityRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof setArtifactVisibility>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getSetArtifactVisibilityQueryKey(artifactId,setArtifactVisibilityRequest);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof setArtifactVisibility>>> = ({ signal }) => setArtifactVisibility(artifactId,setArtifactVisibilityRequest, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: artifactId !== null && artifactId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof setArtifactVisibility>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type SetArtifactVisibilityQueryResult = NonNullable<Awaited<ReturnType<typeof setArtifactVisibility>>>
+export type SetArtifactVisibilityQueryError = ErrorType<ErrorBody>
+
+
+export function useSetArtifactVisibility<TData = Awaited<ReturnType<typeof setArtifactVisibility>>, TError = ErrorType<ErrorBody>>(
+ artifactId: string,
+    setArtifactVisibilityRequest: SetArtifactVisibilityRequest, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof setArtifactVisibility>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof setArtifactVisibility>>,
+          TError,
+          Awaited<ReturnType<typeof setArtifactVisibility>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useSetArtifactVisibility<TData = Awaited<ReturnType<typeof setArtifactVisibility>>, TError = ErrorType<ErrorBody>>(
+ artifactId: string,
+    setArtifactVisibilityRequest: SetArtifactVisibilityRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof setArtifactVisibility>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof setArtifactVisibility>>,
+          TError,
+          Awaited<ReturnType<typeof setArtifactVisibility>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useSetArtifactVisibility<TData = Awaited<ReturnType<typeof setArtifactVisibility>>, TError = ErrorType<ErrorBody>>(
+ artifactId: string,
+    setArtifactVisibilityRequest: SetArtifactVisibilityRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof setArtifactVisibility>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Set whether any signed-in user may read an Artifact, as a user who can
+change its Task.
+ */
+
+export function useSetArtifactVisibility<TData = Awaited<ReturnType<typeof setArtifactVisibility>>, TError = ErrorType<ErrorBody>>(
+ artifactId: string,
+    setArtifactVisibilityRequest: SetArtifactVisibilityRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof setArtifactVisibility>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getSetArtifactVisibilityQueryOptions(artifactId,setArtifactVisibilityRequest,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+/**
+ * @summary Set whether any signed-in user may read an Artifact, as a user who can
+change its Task.
+ */
+export const prefetchSetArtifactVisibilityQuery = async <TData = Awaited<ReturnType<typeof setArtifactVisibility>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient, artifactId: string,
+    setArtifactVisibilityRequest: SetArtifactVisibilityRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof setArtifactVisibility>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getSetArtifactVisibilityQueryOptions(artifactId,setArtifactVisibilityRequest,options)
+
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -789,7 +1100,189 @@ export const useServeArtifactPage = <TError = ErrorType<ErrorBody>,
       > => {
       return useMutation(getServeArtifactPageMutationOptions(options), queryClient);
     }
-    export type listTaskArtifactsResponse200 = {
+    export type forkArtifactResponse200 = {
+  data: ForkArtifactResponse
+  status: 200
+}
+
+export type forkArtifactResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type forkArtifactResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
+export type forkArtifactResponse409 = {
+  data: ErrorBody
+  status: 409
+}
+
+export type forkArtifactResponse503 = {
+  data: ErrorBody
+  status: 503
+}
+
+export type forkArtifactResponseSuccess = (forkArtifactResponse200) & {
+  headers: Headers;
+};
+export type forkArtifactResponseError = (forkArtifactResponse400 | forkArtifactResponse404 | forkArtifactResponse409 | forkArtifactResponse503) & {
+  headers: Headers;
+};
+
+export type forkArtifactResponse = (forkArtifactResponseSuccess | forkArtifactResponseError)
+
+export const getForkArtifactUrl = (artifactId: string,
+    version: string,) => {
+
+
+
+
+  return `/api/v1/artifacts/${artifactId}/${version}/fork`
+}
+
+/**
+ * @summary Fork a published Artifact version into a new Task, as a private Artifact
+of its own there.
+ */
+export const forkArtifact = async (artifactId: string,
+    version: string,
+    forkArtifactRequest: ForkArtifactRequest, options?: Parameters<typeof customInstance>[1]): Promise<forkArtifactResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customInstance<forkArtifactResponse>(getForkArtifactUrl(artifactId,version),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(forkArtifactRequest)
+  }
+);}
+
+
+
+
+
+export const getForkArtifactQueryKey = (artifactId: string,
+    version: string,
+    forkArtifactRequest?: ForkArtifactRequest,) => {
+    return [
+    'POST', `/api/v1/artifacts/${artifactId}/${version}/fork`, forkArtifactRequest
+    ] as const;
+    }
+
+
+export const getForkArtifactQueryOptions = <TData = Awaited<ReturnType<typeof forkArtifact>>, TError = ErrorType<ErrorBody>>(artifactId: string,
+    version: string,
+    forkArtifactRequest: ForkArtifactRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof forkArtifact>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getForkArtifactQueryKey(artifactId,version,forkArtifactRequest);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof forkArtifact>>> = ({ signal }) => forkArtifact(artifactId,version,forkArtifactRequest, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: artifactId !== null && artifactId !== undefined && version !== null && version !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof forkArtifact>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ForkArtifactQueryResult = NonNullable<Awaited<ReturnType<typeof forkArtifact>>>
+export type ForkArtifactQueryError = ErrorType<ErrorBody>
+
+
+export function useForkArtifact<TData = Awaited<ReturnType<typeof forkArtifact>>, TError = ErrorType<ErrorBody>>(
+ artifactId: string,
+    version: string,
+    forkArtifactRequest: ForkArtifactRequest, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof forkArtifact>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof forkArtifact>>,
+          TError,
+          Awaited<ReturnType<typeof forkArtifact>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useForkArtifact<TData = Awaited<ReturnType<typeof forkArtifact>>, TError = ErrorType<ErrorBody>>(
+ artifactId: string,
+    version: string,
+    forkArtifactRequest: ForkArtifactRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof forkArtifact>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof forkArtifact>>,
+          TError,
+          Awaited<ReturnType<typeof forkArtifact>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useForkArtifact<TData = Awaited<ReturnType<typeof forkArtifact>>, TError = ErrorType<ErrorBody>>(
+ artifactId: string,
+    version: string,
+    forkArtifactRequest: ForkArtifactRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof forkArtifact>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Fork a published Artifact version into a new Task, as a private Artifact
+of its own there.
+ */
+
+export function useForkArtifact<TData = Awaited<ReturnType<typeof forkArtifact>>, TError = ErrorType<ErrorBody>>(
+ artifactId: string,
+    version: string,
+    forkArtifactRequest: ForkArtifactRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof forkArtifact>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getForkArtifactQueryOptions(artifactId,version,forkArtifactRequest,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+/**
+ * @summary Fork a published Artifact version into a new Task, as a private Artifact
+of its own there.
+ */
+export const prefetchForkArtifactQuery = async <TData = Awaited<ReturnType<typeof forkArtifact>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient, artifactId: string,
+    version: string,
+    forkArtifactRequest: ForkArtifactRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof forkArtifact>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getForkArtifactQueryOptions(artifactId,version,forkArtifactRequest,options)
+
+  await queryClient.query(queryOptions).catch(() => {});
+
+  return queryClient;
+}
+
+
+
+
+
+export type listTaskArtifactsResponse200 = {
   data: ListArtifactsResponse
   status: 200
 }
@@ -934,6 +1427,9 @@ export const getPublishArtifactUrl = (taskId: string,) => {
 export const publishArtifact = async (taskId: string,
     publishArtifactBody: PublishArtifactBody, options?: Parameters<typeof customInstance>[1]): Promise<publishArtifactResponse> => {
     const formData = new FormData();
+if(publishArtifactBody.collection !== undefined && publishArtifactBody.collection !== null) {
+ publishArtifactBody.collection.forEach(value => formData.append(`collection`, value));
+ }
 if(publishArtifactBody.data !== undefined && publishArtifactBody.data !== null) {
  formData.append(`data`, publishArtifactBody.data.toString())
  }
@@ -1057,7 +1553,7 @@ export const prefetchPublishArtifactQuery = async <TData = Awaited<ReturnType<ty
 
   const queryOptions = getPublishArtifactQueryOptions(taskId,publishArtifactBody,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }

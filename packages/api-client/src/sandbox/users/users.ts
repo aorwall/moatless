@@ -121,8 +121,16 @@ export const adminUpdateUserHandler = async (userId: string,
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<adminUpdateUserHandlerResponse>(getAdminUpdateUserHandlerUrl(userId),
   {
@@ -223,7 +231,7 @@ export const prefetchAdminUpdateUserHandlerQuery = async <TData = Awaited<Return
 
   const queryOptions = getAdminUpdateUserHandlerQueryOptions(userId,adminUpdateUserRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -389,8 +397,16 @@ export const createUserHandler = async (createUserRequest: CreateUserRequest, op
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<createUserHandlerResponse>(getCreateUserHandlerUrl(),
   {
@@ -484,7 +500,7 @@ export const prefetchCreateUserHandlerQuery = async <TData = Awaited<ReturnType<
 
   const queryOptions = getCreateUserHandlerQueryOptions(createUserRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -642,8 +658,16 @@ export const setUserProviderIdByIdHandler = async (userId: string,
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<setUserProviderIdByIdHandlerResponse>(getSetUserProviderIdByIdHandlerUrl(userId,provider),
   {
@@ -751,7 +775,7 @@ export const prefetchSetUserProviderIdByIdHandlerQuery = async <TData = Awaited<
 
   const queryOptions = getSetUserProviderIdByIdHandlerQueryOptions(userId,provider,setProviderIdRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -904,7 +928,7 @@ export const prefetchDeleteUserProviderIdByIdHandlerQuery = async <TData = Await
 
   const queryOptions = getDeleteUserProviderIdByIdHandlerQueryOptions(userId,provider,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -962,8 +986,16 @@ export const updateUserHandler = async (login: string,
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<updateUserHandlerResponse>(getUpdateUserHandlerUrl(login),
   {
@@ -1066,7 +1098,7 @@ export const prefetchUpdateUserHandlerQuery = async <TData = Awaited<ReturnType<
 
   const queryOptions = getUpdateUserHandlerQueryOptions(login,adminUpdateUserRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -1113,8 +1145,16 @@ export const sendUserDm = async (login: string,
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<sendUserDmResponse>(getSendUserDmUrl(login),
   {
@@ -1209,7 +1249,7 @@ export const prefetchSendUserDmQuery = async <TData = Awaited<ReturnType<typeof 
 
   const queryOptions = getSendUserDmQueryOptions(login,sendDmRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -1270,8 +1310,16 @@ export const adminResetPasswordHandler = async (login: string,
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<adminResetPasswordHandlerResponse>(getAdminResetPasswordHandlerUrl(login),
   {
@@ -1374,7 +1422,7 @@ export const prefetchAdminResetPasswordHandlerQuery = async <TData = Awaited<Ret
 
   const queryOptions = getAdminResetPasswordHandlerQueryOptions(login,adminResetPasswordRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -1530,8 +1578,16 @@ export const setUserProviderIdHandler = async (login: string,
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<setUserProviderIdHandlerResponse>(getSetUserProviderIdHandlerUrl(login,provider),
   {
@@ -1639,7 +1695,7 @@ export const prefetchSetUserProviderIdHandlerQuery = async <TData = Awaited<Retu
 
   const queryOptions = getSetUserProviderIdHandlerQueryOptions(login,provider,setProviderIdRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -1792,7 +1848,7 @@ export const prefetchDeleteUserProviderIdHandlerQuery = async <TData = Awaited<R
 
   const queryOptions = getDeleteUserProviderIdHandlerQueryOptions(login,provider,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }

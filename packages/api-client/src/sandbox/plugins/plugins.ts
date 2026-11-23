@@ -196,8 +196,16 @@ export const createPlugin = async (createPluginRequest: CreatePluginRequest, opt
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<createPluginResponse>(getCreatePluginUrl(),
   {
@@ -291,7 +299,7 @@ export const prefetchCreatePluginQuery = async <TData = Awaited<ReturnType<typeo
 
   const queryOptions = getCreatePluginQueryOptions(createPluginRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -549,7 +557,7 @@ export const prefetchDeletePluginQuery = async <TData = Awaited<ReturnType<typeo
 
   const queryOptions = getDeletePluginQueryOptions(id,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -613,8 +621,16 @@ export const setPluginActivation = async (id: string,
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<setPluginActivationResponse>(getSetPluginActivationUrl(id),
   {
@@ -715,7 +731,7 @@ export const prefetchSetPluginActivationQuery = async <TData = Awaited<ReturnTyp
 
   const queryOptions = getSetPluginActivationQueryOptions(id,setActivationRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -881,7 +897,7 @@ export const prefetchClearPluginActivationQuery = async <TData = Awaited<ReturnT
 
   const queryOptions = getClearPluginActivationQueryOptions(id,params,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }

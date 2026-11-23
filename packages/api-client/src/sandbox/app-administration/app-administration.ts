@@ -301,8 +301,16 @@ export const adminSaveProviderApp = async (provider: string,
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<adminSaveProviderAppResponse>(getAdminSaveProviderAppUrl(provider,key),
   {
@@ -404,7 +412,7 @@ export const prefetchAdminSaveProviderAppQuery = async <TData = Awaited<ReturnTy
 
   const queryOptions = getAdminSaveProviderAppQueryOptions(provider,key,saveProviderAppRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -547,7 +555,7 @@ export const prefetchAdminRemoveProviderAppQuery = async <TData = Awaited<Return
 
   const queryOptions = getAdminRemoveProviderAppQueryOptions(provider,key,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -694,8 +702,16 @@ export const adminRegisterGithubApp = async (registerGitHubAppRequest: RegisterG
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<adminRegisterGithubAppResponse>(getAdminRegisterGithubAppUrl(),
   {
@@ -783,7 +799,7 @@ export const prefetchAdminRegisterGithubAppQuery = async <TData = Awaited<Return
 
   const queryOptions = getAdminRegisterGithubAppQueryOptions(registerGitHubAppRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -917,7 +933,7 @@ export const prefetchAdminRemoveGithubAppQuery = async <TData = Awaited<ReturnTy
 
   const queryOptions = getAdminRemoveGithubAppQueryOptions(githubAppKey,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -974,8 +990,16 @@ export const adminRotateGithubAppKey = async (githubAppKey: string,
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<adminRotateGithubAppKeyResponse>(getAdminRotateGithubAppKeyUrl(githubAppKey),
   {
@@ -1070,7 +1094,7 @@ export const prefetchAdminRotateGithubAppKeyQuery = async <TData = Awaited<Retur
 
   const queryOptions = getAdminRotateGithubAppKeyQueryOptions(githubAppKey,rotateGitHubAppKeyRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }

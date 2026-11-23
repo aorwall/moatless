@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AgentMode } from './agentMode';
+import type { AgentProperties } from './agentProperties';
 import type { CheckoutMode } from './checkoutMode';
 import type { MessageContextInput } from './messageContextInput';
 
@@ -17,6 +18,8 @@ export interface CreateTaskRequest {
      * @nullable
      */
   agentProfile?: string | null;
+  /** See [`moatless_types::task::Task::agent_properties`]. */
+  agentProperties?: AgentProperties;
   /** @nullable */
   branch?: string | null;
   checkoutMode?: null | CheckoutMode;

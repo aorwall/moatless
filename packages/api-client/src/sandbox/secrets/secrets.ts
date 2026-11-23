@@ -185,8 +185,16 @@ export const putSecret = async (putSecretRequest: PutSecretRequest, options?: Pa
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<putSecretResponse>(getPutSecretUrl(),
   {
@@ -274,7 +282,7 @@ export const prefetchPutSecretQuery = async <TData = Awaited<ReturnType<typeof p
 
   const queryOptions = getPutSecretQueryOptions(putSecretRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -484,7 +492,7 @@ export const prefetchDeleteSecretQuery = async <TData = Awaited<ReturnType<typeo
 
   const queryOptions = getDeleteSecretQueryOptions(id,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -526,8 +534,16 @@ export const patchSecret = async (id: string,
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<patchSecretResponse>(getPatchSecretUrl(id),
   {
@@ -622,7 +638,7 @@ export const prefetchPatchSecretQuery = async <TData = Awaited<ReturnType<typeof
 
   const queryOptions = getPatchSecretQueryOptions(id,patchSecretRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }

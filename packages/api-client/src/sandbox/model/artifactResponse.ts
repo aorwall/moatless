@@ -16,6 +16,11 @@ export interface ArtifactResponse {
   /** Whether the page may save Artifact records; set by the latest publish. */
   acceptsData?: boolean;
   artifactId: string;
+  /**
+     * The scoped collections the latest publish lets the page read, as
+     * `<scope>:<name>`.
+     */
+  collections?: string[];
   createdAt: string;
   /** @nullable */
   createdBy?: string | null;

@@ -2084,6 +2084,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "raw",
+            "in": "query",
+            "description": "Any value serves the page itself to a browser opening the URL, rather\nthan the viewer with Moatless's bar above it.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -2240,6 +2249,68 @@
         }
       }
     },
+    "/api/v1/artifacts/{artifact_id}/visibility": {
+      "put": {
+        "tags": [
+          "artifacts"
+        ],
+        "summary": "Set whether any signed-in user may read an Artifact, as a user who can\nchange its Task.",
+        "operationId": "set_artifact_visibility",
+        "parameters": [
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "description": "Artifact identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetArtifactVisibilityRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Visibility set",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Caller cannot change the Task",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Artifact not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/artifacts/{artifact_id}/{version}": {
       "get": {
         "tags": [
@@ -2274,6 +2345,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "raw",
+            "in": "query",
+            "description": "Any value serves the page itself to a browser opening the URL, rather\nthan the viewer with Moatless's bar above it.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -2289,6 +2369,97 @@
           },
           "404": {
             "description": "Artifact or version not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/artifacts/{artifact_id}/{version}/fork": {
+      "post": {
+        "tags": [
+          "artifacts"
+        ],
+        "summary": "Fork a published Artifact version into a new Task, as a private Artifact\nof its own there.",
+        "operationId": "fork_artifact",
+        "parameters": [
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "description": "Artifact identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "description": "Version, as in `v3`",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForkArtifactRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Fork created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForkArtifactResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Artifact, version or Workspace not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The version's turn is still in flight",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Object storage not configured",
             "content": {
               "application/json": {
                 "schema": {
@@ -2773,7 +2944,7 @@
           "auth"
         ],
         "summary": "Exchange a sandbox user auth token (JWT) for a session cookie.",
-        "description": "Sandbox pods carry a `USER_AUTH_TOKEN` JWT signed with `TASK_TOKEN_SECRET`;\nverifying it lets the CLI call authenticated `/api/v1/*` endpoints.",
+        "description": "Refused under [`SandboxTokenScope::Enforce`]: the session would carry the\ndriver past `sandbox_scope`. The CLI sends the token itself instead.",
         "operationId": "exchange_token_handler",
         "responses": {
           "200": {
@@ -6303,7 +6474,7 @@
             }
           },
           "400": {
-            "description": "Invalid token",
+            "description": "Invalid token, or PATs are disabled on this deployment",
             "content": {
               "application/json": {
                 "schema": {
@@ -8424,6 +8595,67 @@
         }
       }
     },
+    "/api/v1/tasks/{task_id}/room": {
+      "post": {
+        "tags": [
+          "adapters"
+        ],
+        "operationId": "open_task_room",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpenTaskRoomRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Room requested",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenTaskRoomResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task or connection not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tasks/{task_id}/start": {
       "post": {
         "tags": [
@@ -9750,7 +9982,7 @@
           {
             "name": "provider",
             "in": "path",
-            "description": "github | gitlab | forgejo | openai | anthropic",
+            "description": "gitlab | forgejo | openai | anthropic",
             "required": true,
             "schema": {
               "type": "string"
@@ -9838,7 +10070,7 @@
           {
             "name": "provider",
             "in": "path",
-            "description": "github | gitlab | forgejo | openai | anthropic",
+            "description": "gitlab | forgejo | openai | anthropic",
             "required": true,
             "schema": {
               "type": "string"
@@ -10349,8 +10581,28 @@
           "claude-code-tui",
           "claude-code-cli",
           "claude-code-fable",
-          "codex"
+          "codex",
+          "pi",
+          "mini-swe",
+          "antigravity"
         ]
+      },
+      "AgentProperties": {
+        "type": "object",
+        "description": "Harness settings a Loop gives every Task it spawns, and a Task gives every\nagent session it runs. A property a harness does not read is ignored by it.",
+        "properties": {
+          "promptCacheTtl": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PromptCacheTtl",
+                "description": "Claude Code's main-conversation prompt cache TTL. `None` keeps the CLI's\nown choice, which is 5 minutes behind the model gateway."
+              }
+            ]
+          }
+        }
       },
       "AgentStatus": {
         "type": "string",
@@ -10573,6 +10825,14 @@
           }
         }
       },
+      "ArtifactForkMode": {
+        "type": "string",
+        "description": "Which Task a fork of an Artifact version lands in.",
+        "enum": [
+          "task",
+          "new"
+        ]
+      },
       "ArtifactRecordResponse": {
         "type": "object",
         "description": "One Artifact record: JSON saved under a key on an Artifact, kept across\nits versions.",
@@ -10651,7 +10911,7 @@
           },
           "latestUrl": {
             "type": "string",
-            "description": "Absolute URL that redirects to whichever version is latest."
+            "description": "Absolute URL that serves whichever version is latest."
           },
           "notifyOnData": {
             "type": "boolean",
@@ -11614,6 +11874,17 @@
               "null"
             ]
           },
+          "agentProperties": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentProperties",
+                "description": "See [`LoopConfig::agent_properties`]."
+              }
+            ]
+          },
           "closeAfterSettledDays": {
             "type": [
               "integer",
@@ -12008,6 +12279,10 @@
               "null"
             ],
             "description": "An `AgentProfile` id, parsed by the task service so an unknown one is a\n400 listing the options rather than a JSON extraction error."
+          },
+          "agentProperties": {
+            "$ref": "#/components/schemas/AgentProperties",
+            "description": "See [`moatless_types::task::Task::agent_properties`]."
           },
           "branch": {
             "type": [
@@ -12811,6 +13086,54 @@
           }
         }
       },
+      "ForkArtifactRequest": {
+        "type": "object",
+        "description": "Request for `POST /api/v1/artifacts/{artifact_id}/{version}/fork`.",
+        "required": [
+          "mode"
+        ],
+        "properties": {
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What to change, appended to the new Task's first message."
+          },
+          "mode": {
+            "$ref": "#/components/schemas/ArtifactForkMode"
+          },
+          "workspaceId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The new Task's Workspace; required by, and only read for, `new`."
+          }
+        }
+      },
+      "ForkArtifactResponse": {
+        "type": "object",
+        "description": "Response for `POST /api/v1/artifacts/{artifact_id}/{version}/fork`.",
+        "required": [
+          "taskId",
+          "taskUrl",
+          "artifact"
+        ],
+        "properties": {
+          "artifact": {
+            "$ref": "#/components/schemas/ArtifactResponse",
+            "description": "The copy, version 1 of a private Artifact on the new Task."
+          },
+          "taskId": {
+            "type": "string"
+          },
+          "taskUrl": {
+            "type": "string",
+            "description": "The new Task in the web UI."
+          }
+        }
+      },
       "ForkOrigin": {
         "type": "object",
         "description": "Where a forked task was branched from, derived from its `forked_from`\nrelation. `at_turn` is the source task's turn the copy stops after; `None`\nmeans the whole conversation was copied.",
@@ -13106,7 +13429,8 @@
         "required": [
           "connected",
           "hasPatOverride",
-          "appConnectAvailable"
+          "appConnectAvailable",
+          "patConnectAvailable"
         ],
         "properties": {
           "appConnectAvailable": {
@@ -13132,6 +13456,10 @@
               "string",
               "null"
             ]
+          },
+          "patConnectAvailable": {
+            "type": "boolean",
+            "description": "Whether `PUT /settings/github/pat` accepts a token on this deployment."
           },
           "tokenType": {
             "type": [
@@ -13653,7 +13981,7 @@
               "string",
               "null"
             ],
-            "description": "Real Linear user to record as the issue reporter. Resolved like\n[`Self::assignee`]. Added as a subscriber and mentioned in the\ndescription (Linear has no reporter field)."
+            "description": "Real Linear user to record as the issue reporter. Resolved like\n[`Self::assignee`]. Added as a subscriber and mentioned in the\ndescription (Linear has no reporter field). Defaults to the associated\nTask's reporter when omitted."
           },
           "state": {
             "type": [
@@ -14231,6 +14559,10 @@
         "properties": {
           "agentProfile": {
             "type": "string"
+          },
+          "agentProperties": {
+            "$ref": "#/components/schemas/AgentProperties",
+            "description": "Harness settings every task this Loop spawns runs with. A `LOOP.md`\nsets them with `agentProperties`."
           },
           "closeAfterSettledDays": {
             "type": [
@@ -15041,6 +15373,67 @@
           }
         }
       },
+      "OpenTaskRoomRequest": {
+        "type": "object",
+        "description": "Request for `POST /api/v1/tasks/{task_id}/room`.",
+        "required": [
+          "via"
+        ],
+        "properties": {
+          "anchor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Where the room is announced, in `via`'s destination syntax (e.g. Slack\n`channel:C123`). Omit to open it from the Task's own `via` thread."
+          },
+          "connectionId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The `via` connection to open it on. Auto-resolves when the caller sees\nexactly one."
+          },
+          "invite": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "`requester`, `run_as`, or Moatless logins to add when the room opens."
+          },
+          "private": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Force the room's privacy. Omit to follow the anchor."
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The room's name. Defaults to the Task's name."
+          },
+          "via": {
+            "$ref": "#/components/schemas/AdapterKind",
+            "description": "The Adapter that hosts the room."
+          }
+        }
+      },
+      "OpenTaskRoomResponse": {
+        "type": "object",
+        "description": "Response from `POST /api/v1/tasks/{task_id}/room`.",
+        "required": [
+          "requested"
+        ],
+        "properties": {
+          "requested": {
+            "type": "boolean",
+            "description": "`false` when the Task's room was already requested; one Task has one\nroom."
+          }
+        }
+      },
       "OptionProbability": {
         "type": "object",
         "description": "One option's probability.",
@@ -15378,6 +15771,14 @@
             ]
           }
         }
+      },
+      "PromptCacheTtl": {
+        "type": "string",
+        "description": "How long Anthropic keeps a Claude Code session's prompt cache warm\nbetween requests. A 1-hour write costs 2× base input against 1.25× for\n5 minutes; reads cost the same.\n\narch-allow(floor-type-admission): consumers reach it only through\n`AgentProperties`, which is admitted.",
+        "enum": [
+          "5m",
+          "1h"
+        ]
       },
       "ProviderAppField": {
         "type": "object",
@@ -16780,7 +17181,7 @@
       },
       "Scope": {
         "type": "string",
-        "description": "Access scope for repositories, tasks, integrations, and credentials.\n\n`global` is world-readable and admin-writable; `user` is owner-managed. A\npublic Task additionally grants read and write, never ownership.",
+        "description": "Access scope for repositories, workspaces, integrations, and credentials.\n\n`global` is world-readable and admin-writable; `user` is owner-managed.\nA Task has no scope; its access is [`ScopedResource::task`].",
         "enum": [
           "global",
           "user"
@@ -17237,6 +17638,18 @@
               "null"
             ],
             "description": "Which Workspace's record, with `workspace` reach. Required there and\nrejected with any other reach, where it would read as a record scoped to\nthat Workspace and write a broader one instead."
+          }
+        }
+      },
+      "SetArtifactVisibilityRequest": {
+        "type": "object",
+        "description": "Request for `PUT /api/v1/artifacts/{artifact_id}/visibility`.",
+        "required": [
+          "visibility"
+        ],
+        "properties": {
+          "visibility": {
+            "$ref": "#/components/schemas/Visibility"
           }
         }
       },
@@ -18292,6 +18705,10 @@
           "agentProfile": {
             "$ref": "#/components/schemas/AgentProfile"
           },
+          "agentProperties": {
+            "$ref": "#/components/schemas/AgentProperties",
+            "description": "See [`moatless_types::task::Task::agent_properties`]."
+          },
           "appendSystemPrompt": {
             "type": [
               "string",
@@ -18406,6 +18823,13 @@
               "$ref": "#/components/schemas/TaskRelationDto"
             },
             "description": "Typed relations this task has to other tasks."
+          },
+          "reporterUserId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The verified person who requested the Loop's work, when known."
           },
           "repositoryId": {
             "type": [
@@ -18605,7 +19029,9 @@
           "error",
           "binding_reply_sent",
           "agent_switched",
-          "artifact_shown"
+          "artifact_shown",
+          "secret_requested",
+          "secret_request_answered"
         ]
       },
       "TaskTokenTotals": {
@@ -19072,6 +19498,17 @@
             "type": [
               "string",
               "null"
+            ]
+          },
+          "agentProperties": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentProperties",
+                "description": "See [`LoopConfig::agent_properties`]. Replaces the whole set, so `{}`\nclears it."
+              }
             ]
           },
           "closeAfterSettledDays": {
@@ -19735,9 +20172,8 @@
       },
       "WorkspaceCredentialProvider": {
         "type": "string",
-        "description": "A provider whose credential can be pinned to a Workspace.\n\nOnly providers whose sandbox credential is a single static environment\nvariable are listed here. Codex and the Claude OAuth token are refreshed\nper-user, so a workspace-level copy would go stale with nothing to\nrotate it.",
+        "description": "A provider whose credential can be pinned to a Workspace.\n\nOnly single static env-var credentials: Codex and Claude OAuth tokens\nrefresh per user, so a pinned copy goes stale. GitHub is deliberately\nabsent: a pin would outrank the App connection that authors Task posts.",
         "enum": [
-          "github",
           "gitlab",
           "forgejo",
           "openai",

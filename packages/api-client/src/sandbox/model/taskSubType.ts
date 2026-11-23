@@ -22,4 +22,6 @@ export const TaskSubType = {
   binding_reply_sent: 'binding_reply_sent',
   agent_switched: 'agent_switched',
   artifact_shown: 'artifact_shown',
+  secret_requested: 'secret_requested',
+  secret_request_answered: 'secret_request_answered',
 } as const;

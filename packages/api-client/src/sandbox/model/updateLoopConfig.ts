@@ -5,12 +5,14 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
+import type { AgentProperties } from './agentProperties';
 import type { RoutingMode } from './routingMode';
 import type { UpdateLoopConfigNodeSelector } from './updateLoopConfigNodeSelector';
 
 export interface UpdateLoopConfig {
   /** @nullable */
   agentProfile?: string | null;
+  agentProperties?: null | AgentProperties;
   /**
      * See [`LoopConfig::close_after_settled_days`]. `Some(None)` clears the override.
      * @nullable

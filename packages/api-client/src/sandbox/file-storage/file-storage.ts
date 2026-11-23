@@ -188,7 +188,7 @@ export const prefetchUploadFileQuery = async <TData = Awaited<ReturnType<typeof 
 
   const queryOptions = getUploadFileQueryOptions(uploadFileBody,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }

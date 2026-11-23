@@ -208,8 +208,16 @@ export const createTask = async (createTaskRequest: CreateTaskRequest, options?:
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<createTaskResponse>(getCreateTaskUrl(),
   {
@@ -303,7 +311,7 @@ export const prefetchCreateTaskQuery = async <TData = Awaited<ReturnType<typeof 
 
   const queryOptions = getCreateTaskQueryOptions(createTaskRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -528,7 +536,7 @@ export const prefetchDeleteTaskQuery = async <TData = Awaited<ReturnType<typeof 
 
   const queryOptions = getDeleteTaskQueryOptions(taskId,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -583,8 +591,16 @@ export const updateTaskMetadata = async (taskId: string,
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<updateTaskMetadataResponse>(getUpdateTaskMetadataUrl(taskId),
   {
@@ -685,7 +701,7 @@ export const prefetchUpdateTaskMetadataQuery = async <TData = Awaited<ReturnType
 
   const queryOptions = getUpdateTaskMetadataQueryOptions(taskId,updateTaskMetadataRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -821,7 +837,7 @@ export const prefetchCancelTaskQuery = async <TData = Awaited<ReturnType<typeof 
 
   const queryOptions = getCancelTaskQueryOptions(taskId,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -871,8 +887,16 @@ export const closeTask = async (taskId: string,
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<closeTaskResponse>(getCloseTaskUrl(taskId),
   {
@@ -973,7 +997,7 @@ export const prefetchCloseTaskQuery = async <TData = Awaited<ReturnType<typeof c
 
   const queryOptions = getCloseTaskQueryOptions(taskId,nullCloseTaskRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -1033,8 +1057,16 @@ export const forkTask = async (taskId: string,
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<forkTaskResponse>(getForkTaskUrl(taskId),
   {
@@ -1135,7 +1167,7 @@ export const prefetchForkTaskQuery = async <TData = Awaited<ReturnType<typeof fo
 
   const queryOptions = getForkTaskQueryOptions(taskId,forkTaskRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -1279,7 +1311,7 @@ export const prefetchReopenTaskQuery = async <TData = Awaited<ReturnType<typeof 
 
   const queryOptions = getReopenTaskQueryOptions(taskId,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -1421,8 +1453,16 @@ export const addTaskRepository = async (taskId: string,
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<addTaskRepositoryResponse>(getAddTaskRepositoryUrl(taskId),
   {
@@ -1523,7 +1563,7 @@ export const prefetchAddTaskRepositoryQuery = async <TData = Awaited<ReturnType<
 
   const queryOptions = getAddTaskRepositoryQueryOptions(taskId,addTaskRepositoryRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -1661,7 +1701,7 @@ export const prefetchStartTaskQuery = async <TData = Awaited<ReturnType<typeof s
 
   const queryOptions = getStartTaskQueryOptions(taskId,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -1886,7 +1926,7 @@ export const prefetchStopTaskQuery = async <TData = Awaited<ReturnType<typeof st
 
   const queryOptions = getStopTaskQueryOptions(taskId,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -1931,8 +1971,16 @@ export const setTaskTags = async (taskId: string,
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<setTaskTagsResponse>(getSetTaskTagsUrl(taskId),
   {
@@ -2033,7 +2081,7 @@ export const prefetchSetTaskTagsQuery = async <TData = Awaited<ReturnType<typeof
 
   const queryOptions = getSetTaskTagsQueryOptions(taskId,setTagsRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -2085,8 +2133,16 @@ export const updateTtl = async (taskId: string,
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<updateTtlResponse>(getUpdateTtlUrl(taskId),
   {
@@ -2191,7 +2247,7 @@ export const prefetchUpdateTtlQuery = async <TData = Awaited<ReturnType<typeof u
 
   const queryOptions = getUpdateTtlQueryOptions(taskId,updateTaskTtlRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -2241,8 +2297,16 @@ export const updateVisibility = async (taskId: string,
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<updateVisibilityResponse>(getUpdateVisibilityUrl(taskId),
   {
@@ -2343,7 +2407,7 @@ export const prefetchUpdateVisibilityQuery = async <TData = Awaited<ReturnType<t
 
   const queryOptions = getUpdateVisibilityQueryOptions(taskId,updateVisibilityRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }

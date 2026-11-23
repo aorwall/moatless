@@ -278,7 +278,7 @@ export const prefetchDeleteForgejoConfigQuery = async <TData = Awaited<ReturnTyp
 
   const queryOptions = getDeleteForgejoConfigQueryOptions(params,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -413,8 +413,16 @@ export const saveForgejoPat = async (saveForgejoProviderTokenRequest: SaveForgej
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<saveForgejoPatResponse>(getSaveForgejoPatUrl(),
   {
@@ -502,7 +510,7 @@ export const prefetchSaveForgejoPatQuery = async <TData = Awaited<ReturnType<typ
 
   const queryOptions = getSaveForgejoPatQueryOptions(saveForgejoProviderTokenRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -633,7 +641,7 @@ export const prefetchDeleteForgejoPatOverrideQuery = async <TData = Awaited<Retu
 
   const queryOptions = getDeleteForgejoPatOverrideQueryOptions(params,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -843,7 +851,7 @@ export const prefetchDeleteGithubConfigQuery = async <TData = Awaited<ReturnType
 
   const queryOptions = getDeleteGithubConfigQueryOptions(options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -884,8 +892,16 @@ export const saveGithubPat = async (saveGitHubProviderTokenRequest: SaveGitHubPr
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<saveGithubPatResponse>(getSaveGithubPatUrl(),
   {
@@ -973,7 +989,7 @@ export const prefetchSaveGithubPatQuery = async <TData = Awaited<ReturnType<type
 
   const queryOptions = getSaveGithubPatQueryOptions(saveGitHubProviderTokenRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -1102,7 +1118,7 @@ export const prefetchDeleteGithubPatOverrideQuery = async <TData = Awaited<Retur
 
   const queryOptions = getDeleteGithubPatOverrideQueryOptions(options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }

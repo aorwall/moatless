@@ -29,7 +29,9 @@ import type {
   AdapterSendRequest,
   AdapterSendResponse,
   CreateAdapterConnectionRequest,
-  ErrorBody
+  ErrorBody,
+  OpenTaskRoomRequest,
+  OpenTaskRoomResponse
 } from '../model';
 
 import { customInstance } from '../../../custom-instance';
@@ -242,8 +244,16 @@ export const createAdapterConnection = async (createAdapterConnectionRequest: Cr
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<createAdapterConnectionResponse>(getCreateAdapterConnectionUrl(),
   {
@@ -331,7 +341,7 @@ export const prefetchCreateAdapterConnectionQuery = async <TData = Awaited<Retur
 
   const queryOptions = getCreateAdapterConnectionQueryOptions(createAdapterConnectionRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -455,7 +465,7 @@ export const prefetchDeleteAdapterConnectionQuery = async <TData = Awaited<Retur
 
   const queryOptions = getDeleteAdapterConnectionQueryOptions(id,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -489,8 +499,16 @@ export const githubWebhook = async (githubWebhookBody: string, options?: Paramet
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<githubWebhookResponse>(getGithubWebhookUrl(),
   {
@@ -578,7 +596,7 @@ export const prefetchGithubWebhookQuery = async <TData = Awaited<ReturnType<type
 
   const queryOptions = getGithubWebhookQueryOptions(githubWebhookBody,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -612,8 +630,16 @@ export const linearWebhook = async (linearWebhookBody: string, options?: Paramet
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<linearWebhookResponse>(getLinearWebhookUrl(),
   {
@@ -701,7 +727,7 @@ export const prefetchLinearWebhookQuery = async <TData = Awaited<ReturnType<type
 
   const queryOptions = getLinearWebhookQueryOptions(linearWebhookBody,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -747,8 +773,16 @@ export const adapterSend = async (adapterSendRequest: AdapterSendRequest, option
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<adapterSendResponse>(getAdapterSendUrl(),
   {
@@ -836,7 +870,7 @@ export const prefetchAdapterSendQuery = async <TData = Awaited<ReturnType<typeof
 
   const queryOptions = getAdapterSendQueryOptions(adapterSendRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -870,8 +904,16 @@ export const slackWebhook = async (slackWebhookBody: string, options?: Parameter
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<slackWebhookResponse>(getSlackWebhookUrl(),
   {
@@ -959,7 +1001,163 @@ export const prefetchSlackWebhookQuery = async <TData = Awaited<ReturnType<typeo
 
   const queryOptions = getSlackWebhookQueryOptions(slackWebhookBody,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
+
+
+
+
+
+export type openTaskRoomResponse200 = {
+  data: OpenTaskRoomResponse
+  status: 200
+}
+
+export type openTaskRoomResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type openTaskRoomResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
+export type openTaskRoomResponseSuccess = (openTaskRoomResponse200) & {
+  headers: Headers;
+};
+export type openTaskRoomResponseError = (openTaskRoomResponse400 | openTaskRoomResponse404) & {
+  headers: Headers;
+};
+
+export type openTaskRoomResponse = (openTaskRoomResponseSuccess | openTaskRoomResponseError)
+
+export const getOpenTaskRoomUrl = (taskId: string,) => {
+
+
+
+
+  return `/api/v1/tasks/${taskId}/room`
+}
+
+export const openTaskRoom = async (taskId: string,
+    openTaskRoomRequest: OpenTaskRoomRequest, options?: Parameters<typeof customInstance>[1]): Promise<openTaskRoomResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customInstance<openTaskRoomResponse>(getOpenTaskRoomUrl(taskId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(openTaskRoomRequest)
+  }
+);}
+
+
+
+
+
+export const getOpenTaskRoomQueryKey = (taskId: string,
+    openTaskRoomRequest?: OpenTaskRoomRequest,) => {
+    return [
+    'POST', `/api/v1/tasks/${taskId}/room`, openTaskRoomRequest
+    ] as const;
+    }
+
+
+export const getOpenTaskRoomQueryOptions = <TData = Awaited<ReturnType<typeof openTaskRoom>>, TError = ErrorType<ErrorBody>>(taskId: string,
+    openTaskRoomRequest: OpenTaskRoomRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof openTaskRoom>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getOpenTaskRoomQueryKey(taskId,openTaskRoomRequest);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof openTaskRoom>>> = ({ signal }) => openTaskRoom(taskId,openTaskRoomRequest, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: taskId !== null && taskId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof openTaskRoom>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type OpenTaskRoomQueryResult = NonNullable<Awaited<ReturnType<typeof openTaskRoom>>>
+export type OpenTaskRoomQueryError = ErrorType<ErrorBody>
+
+
+export function useOpenTaskRoom<TData = Awaited<ReturnType<typeof openTaskRoom>>, TError = ErrorType<ErrorBody>>(
+ taskId: string,
+    openTaskRoomRequest: OpenTaskRoomRequest, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof openTaskRoom>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof openTaskRoom>>,
+          TError,
+          Awaited<ReturnType<typeof openTaskRoom>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useOpenTaskRoom<TData = Awaited<ReturnType<typeof openTaskRoom>>, TError = ErrorType<ErrorBody>>(
+ taskId: string,
+    openTaskRoomRequest: OpenTaskRoomRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof openTaskRoom>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof openTaskRoom>>,
+          TError,
+          Awaited<ReturnType<typeof openTaskRoom>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useOpenTaskRoom<TData = Awaited<ReturnType<typeof openTaskRoom>>, TError = ErrorType<ErrorBody>>(
+ taskId: string,
+    openTaskRoomRequest: OpenTaskRoomRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof openTaskRoom>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useOpenTaskRoom<TData = Awaited<ReturnType<typeof openTaskRoom>>, TError = ErrorType<ErrorBody>>(
+ taskId: string,
+    openTaskRoomRequest: OpenTaskRoomRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof openTaskRoom>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getOpenTaskRoomQueryOptions(taskId,openTaskRoomRequest,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const prefetchOpenTaskRoomQuery = async <TData = Awaited<ReturnType<typeof openTaskRoom>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient, taskId: string,
+    openTaskRoomRequest: OpenTaskRoomRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof openTaskRoom>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getOpenTaskRoomQueryOptions(taskId,openTaskRoomRequest,options)
+
+  await queryClient.query(queryOptions).catch(() => {});
+
+  return queryClient;
+}
+
+
+
+
+

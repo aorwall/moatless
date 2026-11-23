@@ -18,4 +18,7 @@ export const AgentProfile = {
   'claude-code-cli': 'claude-code-cli',
   'claude-code-fable': 'claude-code-fable',
   codex: 'codex',
+  pi: 'pi',
+  'mini-swe': 'mini-swe',
+  antigravity: 'antigravity',
 } as const;

@@ -13,13 +13,21 @@ import type { Visibility } from './visibility';
  */
 export interface PublishArtifactBody {
   /**
+     * A scoped record collection the page may read, as `<scope>:<name>`,
+     * such as `loop:review-runs`; repeat the field for more. Resolved
+     * against the publishing Task's scopes, and read only by a reader who
+     * reaches that scope.
+     * @nullable
+     */
+  collection?: string[] | null;
+  /**
      * `true` lets the page save Artifact records through the
      * `moatless.artifact` script injected when it is served.
      * @nullable
      */
   data?: boolean | null;
   /** One self-contained page, with a `.html` or `.htm` filename. */
-  file: Blob;
+  file: Blob | File;
   /**
      * The inline frame's height in CSS pixels, clamped to 80..=2000; 1200 when
      * omitted. Ignored without `inline`.

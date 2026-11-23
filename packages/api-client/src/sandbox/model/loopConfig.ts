@@ -5,11 +5,17 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
+import type { AgentProperties } from './agentProperties';
 import type { LoopConfigNodeSelector } from './loopConfigNodeSelector';
 import type { RoutingMode } from './routingMode';
 
 export interface LoopConfig {
   agentProfile: string;
+  /**
+     * Harness settings every task this Loop spawns runs with. A `LOOP.md`
+     * sets them with `agentProperties`.
+     */
+  agentProperties?: AgentProperties;
   /**
      * See [`moatless_types::loops::LoopContext::close_after_settled_days`].
      * @nullable
@@ -29,8 +35,9 @@ export interface LoopConfig {
      */
   memoryPreload?: string[];
   /**
-     * Seconds inbound Adapter events for one Binding are held so those
-     * arriving together reach the Task as a single message. `None` inherits
+     * Longest, in seconds, inbound Adapter events for one Binding are held so
+     * those arriving together reach the Task as a single message; a lone
+     * event leaves after a short quiet period. `None` inherits
      * the deployment default for the Loop's adapter kind (60 for `github_pr`,
      * off elsewhere); `0` delivers every event on its own.
      * @nullable

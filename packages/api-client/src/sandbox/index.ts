@@ -5,6 +5,7 @@ export * from './api-keys/api-keys';
 export * from './app-administration/app-administration';
 export * from './artifacts/artifacts';
 export * from './auth/auth';
+export * from './collections/collections';
 export * from './decisions/decisions';
 export * from './feature-flags/feature-flags';
 export * from './feedback/feedback';

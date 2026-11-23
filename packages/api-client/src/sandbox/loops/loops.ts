@@ -166,8 +166,16 @@ export const createLoop = async (createLoopRequest: CreateLoopRequest, options?:
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<createLoopResponse>(getCreateLoopUrl(),
   {
@@ -255,7 +263,7 @@ export const prefetchCreateLoopQuery = async <TData = Awaited<ReturnType<typeof 
 
   const queryOptions = getCreateLoopQueryOptions(createLoopRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -376,8 +384,16 @@ export const updateLoop = async (id: string,
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<updateLoopResponse>(getUpdateLoopUrl(id),
   {
@@ -472,7 +488,7 @@ export const prefetchUpdateLoopQuery = async <TData = Awaited<ReturnType<typeof 
 
   const queryOptions = getUpdateLoopQueryOptions(id,updateLoopRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -596,7 +612,7 @@ export const prefetchDeleteLoopQuery = async <TData = Awaited<ReturnType<typeof 
 
   const queryOptions = getDeleteLoopQueryOptions(id,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -631,8 +647,16 @@ export const activateLoop = async (id: string,
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
     if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
   };
 return customInstance<activateLoopResponse>(getActivateLoopUrl(id),
   {
@@ -727,7 +751,7 @@ export const prefetchActivateLoopQuery = async <TData = Awaited<ReturnType<typeo
 
   const queryOptions = getActivateLoopQueryOptions(id,activateLoopRequest,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -844,7 +868,7 @@ export const prefetchOverrideLoopQuery = async <TData = Awaited<ReturnType<typeo
 
   const queryOptions = getOverrideLoopQueryOptions(id,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -961,7 +985,7 @@ export const prefetchPauseLoopQuery = async <TData = Awaited<ReturnType<typeof p
 
   const queryOptions = getPauseLoopQueryOptions(id,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -1078,7 +1102,7 @@ export const prefetchResetGitLoopQuery = async <TData = Awaited<ReturnType<typeo
 
   const queryOptions = getResetGitLoopQueryOptions(id,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }
@@ -1195,7 +1219,7 @@ export const prefetchResumeLoopQuery = async <TData = Awaited<ReturnType<typeof 
 
   const queryOptions = getResumeLoopQueryOptions(id,options)
 
-  await queryClient.prefetchQuery(queryOptions);
+  await queryClient.query(queryOptions).catch(() => {});
 
   return queryClient;
 }

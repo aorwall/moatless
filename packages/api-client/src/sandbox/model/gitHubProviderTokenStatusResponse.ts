@@ -28,6 +28,8 @@ export interface GitHubProviderTokenStatusResponse {
   hasPatOverride: boolean;
   /** @nullable */
   login?: string | null;
+  /** Whether `PUT /settings/github/pat` accepts a token on this deployment. */
+  patConnectAvailable: boolean;
   /** @nullable */
   tokenType?: string | null;
 }
