@@ -84,10 +84,9 @@ pub(crate) async fn list(
     let started = Instant::now();
     let result = read(pool, viewer, reach, statuses, None, browse, Some(page)).await;
     let elapsed = started.elapsed();
-    let timed_out = matches!(
-        &result,
-        Err(sqlx::Error::Database(error)) if error.code().as_deref() == Some("57014")
-    );
+    let timed_out = result
+        .as_ref()
+        .is_err_and(moatless_core::db::is_statement_timeout);
     let outcome = match &result {
         Ok(_) => "ok",
         Err(_) if timed_out => {

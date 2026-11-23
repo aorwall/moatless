@@ -219,3 +219,63 @@ async fn an_archive_read_the_pool_could_not_serve_is_still_a_defect() {
     assert_eq!(frame["exit"]["cause"][0]["_tag"], "Die");
     assert_eq!(outcome.as_deref(), Some("die"));
 }
+
+/// The levels of the events `orchestration.searchThreads` logs when its search
+/// fails as `error` builds it.
+async fn thread_search_failure_levels(error: fn() -> sqlx::Error) -> (Value, Vec<tracing::Level>) {
+    use std::sync::Mutex;
+    use tracing_subscriber::layer::{Context, SubscriberExt};
+
+    #[derive(Clone, Default)]
+    struct Levels(Arc<Mutex<Vec<tracing::Level>>>);
+
+    impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for Levels {
+        fn on_event(&self, event: &tracing::Event<'_>, _: Context<'_, S>) {
+            self.0.lock().unwrap().push(*event.metadata().level());
+        }
+    }
+
+    let mut conversations = MockConversationDao::new();
+    conversations
+        .expect_search_conversations()
+        .returning(move |_, _, _| Err(error()));
+    let state = state_reading(conversations, MockWorkspaceListing::new());
+    let levels = Levels::default();
+    let _guard =
+        tracing::subscriber::set_default(tracing_subscriber::registry().with(levels.clone()));
+
+    let output = connection()
+        .exchange(
+            &request(
+                "1",
+                "orchestration.searchThreads",
+                json!({ "query": "slow term" }),
+            ),
+            &state,
+            &viewer(),
+        )
+        .await;
+
+    let levels = levels.0.lock().unwrap().clone();
+    (output.frames[0].clone(), levels)
+}
+
+/// A search its own statement timeout cancelled is load shedding the search
+/// already counts, so it logs at WARN: at ERROR one typeahead session's
+/// keystrokes trip the error-burst alert.
+#[tokio::test]
+async fn a_thread_search_its_statement_timeout_cancelled_logs_at_warn() {
+    let (frame, levels) = thread_search_failure_levels(statement_timeout).await;
+
+    assert_eq!(frame["exit"]["_tag"], "Failure");
+    assert!(levels.contains(&tracing::Level::WARN), "{levels:?}");
+    assert!(!levels.contains(&tracing::Level::ERROR), "{levels:?}");
+}
+
+#[tokio::test]
+async fn a_thread_search_the_pool_could_not_serve_logs_at_error() {
+    let (frame, levels) = thread_search_failure_levels(|| sqlx::Error::PoolTimedOut).await;
+
+    assert_eq!(frame["exit"]["_tag"], "Failure");
+    assert!(levels.contains(&tracing::Level::ERROR), "{levels:?}");
+}

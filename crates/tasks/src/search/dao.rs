@@ -11,7 +11,7 @@ use super::TaskMatch;
 /// How long one search may run. A term matching few Messages still scans
 /// every readable open Task's Messages through an unindexed `ILIKE '%…%'`, so
 /// without a bound a slow search holds a pool connection the other reads
-/// need. A cancelled search fails with Postgres's `57014`.
+/// need. A cancelled search fails as [`moatless_core::db::is_statement_timeout`].
 const SEARCH_STATEMENT_TIMEOUT: &str = "5s";
 pub(crate) const SEARCH_TIMEOUTS: &str = "moatless_task_search_timeouts_total";
 
@@ -128,7 +128,9 @@ pub(crate) async fn search(
         .bind(limit)
         .fetch_all(&mut *tx)
         .await;
-    if matches!(&result, Err(sqlx::Error::Database(error)) if error.code().as_deref() == Some("57014"))
+    if result
+        .as_ref()
+        .is_err_and(moatless_core::db::is_statement_timeout)
     {
         metrics::counter!(SEARCH_TIMEOUTS).increment(1);
     }

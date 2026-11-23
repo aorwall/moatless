@@ -154,7 +154,14 @@ pub(super) async fn orchestration_search_threads(
             json!({ "matches": projection::thread_matches(&matches, query) }),
         )],
         Err(error) => {
-            error!(%error, user_id = %identity.user_id, "T3 UI thread search failed");
+            // A timeout is the search's own bound shedding a slow term, counted
+            // by `moatless_task_search_timeouts_total`; at ERROR one typeahead
+            // session trips the error-burst alert.
+            if moatless_core::db::is_statement_timeout(&error) {
+                warn!(%error, user_id = %identity.user_id, "T3 UI thread search cancelled by its statement timeout");
+            } else {
+                error!(%error, user_id = %identity.user_id, "T3 UI thread search failed");
+            }
             vec![typed_failure_exit(
                 &id,
                 json!({

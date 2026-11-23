@@ -1118,3 +1118,46 @@ pub(super) fn request(id: &str, tag: &str, payload: Value) -> Vec<u8> {
 pub(super) fn request_id(id: &str) -> RequestId {
     serde_json::from_value(json!(id)).expect("a string is a request id")
 }
+
+/// A PostgreSQL error carrying only its SQLSTATE `code`.
+#[derive(Debug)]
+struct CodedDatabaseError(&'static str);
+
+impl std::fmt::Display for CodedDatabaseError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "database error {}", self.0)
+    }
+}
+
+impl std::error::Error for CodedDatabaseError {}
+
+impl sqlx::error::DatabaseError for CodedDatabaseError {
+    fn message(&self) -> &'static str {
+        "canceling statement due to statement timeout"
+    }
+
+    fn code(&self) -> Option<std::borrow::Cow<'_, str>> {
+        Some(self.0.into())
+    }
+
+    fn as_error(&self) -> &(dyn std::error::Error + Send + Sync + 'static) {
+        self
+    }
+
+    fn as_error_mut(&mut self) -> &mut (dyn std::error::Error + Send + Sync + 'static) {
+        self
+    }
+
+    fn into_error(self: Box<Self>) -> Box<dyn std::error::Error + Send + Sync + 'static> {
+        self
+    }
+
+    fn kind(&self) -> sqlx::error::ErrorKind {
+        sqlx::error::ErrorKind::Other
+    }
+}
+
+/// What PostgreSQL answers when a statement's `statement_timeout` runs out.
+pub(super) fn statement_timeout() -> sqlx::Error {
+    sqlx::Error::Database(Box::new(CodedDatabaseError("57014")))
+}

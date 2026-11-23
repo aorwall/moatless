@@ -559,9 +559,7 @@ pub(crate) fn origin_allowed(headers: &HeaderMap, allowed_origins: &[AllowedOrig
 pub(crate) fn shell_failure_status(error: &sqlx::Error) -> StatusCode {
     match error {
         sqlx::Error::PoolTimedOut => StatusCode::SERVICE_UNAVAILABLE,
-        sqlx::Error::Database(error) if error.code().as_deref() == Some("57014") => {
-            StatusCode::SERVICE_UNAVAILABLE
-        }
+        error if moatless_core::db::is_statement_timeout(error) => StatusCode::SERVICE_UNAVAILABLE,
         _ => StatusCode::INTERNAL_SERVER_ERROR,
     }
 }
