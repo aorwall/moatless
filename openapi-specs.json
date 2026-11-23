@@ -14242,7 +14242,7 @@
           },
           "fallbackToOtherAgent": {
             "type": "boolean",
-            "description": "Re-run a spawned Task's failed turn once on the other agent (`codex` or\n`claude-code`), in the same Task, when the turn's error reason is\n`usage_limit`, `rate_limit` or `provider_unavailable`. The sandbox\nreports the last two only once its retries are spent."
+            "description": "Re-run a spawned Task's failed turn once on another agent, in the same\nTask, when its provider will not serve it; see\n`moatless_server::event_handler::agent_fallback`. A Task no Loop\ncreated always falls back."
           },
           "memoryPreload": {
             "type": "array",

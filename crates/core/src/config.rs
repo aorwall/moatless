@@ -21,6 +21,7 @@ use moatless_types::ui_rpc::T3UiRpcConfig;
 use crate::feature_flags::FeatureFlags;
 use crate::sandbox_identities::SandboxIdentities;
 
+pub use crate::agent_fallback_order::AgentFallbackOrder;
 pub use crate::http_config::HttpConfig;
 pub use crate::model_gateway_config::ModelGatewayConfig;
 pub use crate::s3_config::S3Config;
@@ -822,6 +823,7 @@ pub struct Config {
     pub http: HttpConfig,
     pub workspace_sync: WorkspaceSyncConfig,
     pub model_gateway: ModelGatewayConfig,
+    pub agent_fallback_order: AgentFallbackOrder,
 }
 
 /// Configuration validation errors.
@@ -1135,6 +1137,12 @@ impl Config {
             )
             .map_err(ConfigError::Invalid)?,
             model_gateway: model_gateway_from_env(),
+            agent_fallback_order: env_opt("AGENT_FALLBACK_ORDER")
+                .map_or_else(
+                    || Ok(AgentFallbackOrder::default()),
+                    |raw| AgentFallbackOrder::parse(&raw),
+                )
+                .map_err(ConfigError::Invalid)?,
         };
 
         config.validate()?;
@@ -1578,6 +1586,7 @@ impl Config {
             http: HttpConfig::default(),
             workspace_sync: WorkspaceSyncConfig::default(),
             model_gateway: ModelGatewayConfig::default(),
+            agent_fallback_order: AgentFallbackOrder::default(),
         }
     }
 }

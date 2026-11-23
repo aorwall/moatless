@@ -222,6 +222,10 @@ spec:
                   optional: true
             {{- end }}
             {{- end }}
+            {{- with .Values.agentFallbackOrder }}
+            - name: AGENT_FALLBACK_ORDER
+              value: {{ . | quote }}
+            {{- end }}
             # Origins trusted for cookie-authenticated REST writes. The derived
             # T3 origin only — deliberately not t3.extraAllowedOrigins, whose
             # wildcard preview entries admit a socket but must never carry a

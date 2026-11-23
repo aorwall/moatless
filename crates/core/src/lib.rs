@@ -14,6 +14,7 @@
 //! vocabularies every higher band depends on.
 
 pub mod agent_catalog;
+mod agent_fallback_order;
 pub mod config;
 pub mod db;
 mod decision_config;

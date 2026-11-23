@@ -16,10 +16,10 @@ export interface LoopConfig {
      */
   closeAfterSettledDays?: number | null;
   /**
-     * Re-run a spawned Task's failed turn once on the other agent (`codex` or
-     * `claude-code`), in the same Task, when the turn's error reason is
-     * `usage_limit`, `rate_limit` or `provider_unavailable`. The sandbox
-     * reports the last two only once its retries are spent.
+     * Re-run a spawned Task's failed turn once on another agent, in the same
+     * Task, when its provider will not serve it; see
+     * `moatless_server::event_handler::agent_fallback`. A Task no Loop
+     * created always falls back.
      */
   fallbackToOtherAgent: boolean;
   /**

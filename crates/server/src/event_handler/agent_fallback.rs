@@ -1,9 +1,10 @@
-//! Re-running a Loop Task's turn on the other agent when its provider will not
-//! serve it.
+//! Re-running a Task's turn on another agent when its provider will not serve
+//! it, in the order `AGENT_FALLBACK_ORDER` sets.
 //!
 //! The Task switches harness in place and its turn's input is queued again, so
 //! the fallback keeps the Task's workspace, branch, Bindings and conversation.
 
+use moatless_core::config::AgentFallbackOrder;
 use moatless_tasks::agent_event::AgentEvent;
 use moatless_tasks::task::error::TaskError;
 use moatless_tasks::task::models::TaskStatus;
@@ -26,6 +27,7 @@ use moatless_tasks::task::switch::TaskSwitchService;
 /// What a fallback reads and writes, projected out of `AppState`.
 pub struct FallbackPorts {
     pub hub_available: bool,
+    pub order: AgentFallbackOrder,
     pub tasks: Arc<TaskCommands>,
     pub loops: Arc<Loops>,
     pub task_switch: Arc<TaskSwitchService>,
@@ -39,34 +41,33 @@ pub struct FallbackPorts {
 /// The `agent.error` reasons that mean the provider will not serve the turn,
 /// each published only once the sandbox's retries are spent. A safety refusal
 /// is `invalid_input` and must never be here: it is not for the other provider.
-const FALLBACK_REASONS: &[&str] = &["usage_limit", "rate_limit", "provider_unavailable"];
+const FALLBACK_REASONS: &[&str] = &[
+    "usage_limit",
+    "rate_limit",
+    "provider_unavailable",
+    "connectivity",
+];
 
 fn falls_back_on(reason: Option<&str>) -> bool {
     reason.is_some_and(|reason| FALLBACK_REASONS.contains(&reason))
 }
 
-/// Whether a failed turn falls back, and to which harness and model.
+/// Whether a failed turn falls back, and to which harnesses, in order.
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum Fallback {
-    /// `model` is a catalog id; `None` runs the harness's default.
-    To {
-        harness: Harness,
-        model: Option<&'static str>,
-    },
+pub(crate) enum Fallback<'a> {
+    To(&'a [Harness]),
     Skip(&'static str),
 }
 
-/// Every fallback onto Claude Code runs Opus rather than the profile's
-/// unresolved default, so a Loop's fallback turn gets the strongest model.
-const CLAUDE_CODE: Fallback = Fallback::To {
-    harness: Harness::ClaudeCode,
-    model: Some(ClaudeModel::Opus.alias()),
-};
-
-const CODEX: Fallback = Fallback::To {
-    harness: Harness::Codex,
-    model: None,
-};
+/// The catalog model a fallback onto `harness` runs; `None` is the harness's
+/// default. Claude Code runs Opus rather than the profile's unresolved
+/// default, so a fallback turn gets the strongest model.
+fn fallback_model(harness: Harness) -> Option<&'static str> {
+    match harness {
+        Harness::ClaudeCode => Some(ClaudeModel::Opus.alias()),
+        _ => None,
+    }
+}
 
 /// What decides a fallback, read from the event, the Task and its Loop.
 #[derive(Debug)]
@@ -74,21 +75,20 @@ pub(crate) struct FallbackFacts<'a> {
     pub reason: Option<&'a str>,
     /// The profile the failed turn ran; `None` for one the catalog lacks.
     pub failed_profile: Option<AgentProfile>,
-    /// The Task's Loop's setting; `None` for a Task no Loop created.
+    /// The Task's Loop's setting; `None` for a Task no Loop created, which
+    /// falls back.
     pub loop_enabled: Option<bool>,
     /// Whether the failed turn was itself a fallback; `None` when it
     /// delivered no input to re-run.
     pub turn_was_fallback: Option<bool>,
 }
 
-pub(crate) fn decide(facts: &FallbackFacts<'_>) -> Fallback {
+pub(crate) fn decide<'a>(facts: &FallbackFacts<'_>, order: &'a AgentFallbackOrder) -> Fallback<'a> {
     if !falls_back_on(facts.reason) {
         return Fallback::Skip("the provider did not refuse the turn");
     }
-    match facts.loop_enabled {
-        None => return Fallback::Skip("no Loop created the task"),
-        Some(false) => return Fallback::Skip("the Loop turned fallback off"),
-        Some(true) => {}
+    if facts.loop_enabled == Some(false) {
+        return Fallback::Skip("the Loop turned fallback off");
     }
     match facts.turn_was_fallback {
         None => return Fallback::Skip("the turn delivered no input"),
@@ -96,18 +96,20 @@ pub(crate) fn decide(facts: &FallbackFacts<'_>) -> Fallback {
         Some(true) => return Fallback::Skip("the turn was already a fallback"),
         Some(false) => {}
     }
-    match facts.failed_profile.map(AgentProfile::harness) {
-        Some(Harness::MiniSwe) => Fallback::Skip("mini-swe has no automatic fallback"),
-        Some(Harness::Pi) => Fallback::Skip("Pi has no automatic fallback"),
-        Some(Harness::Acp | Harness::Codex) => CLAUDE_CODE,
-        Some(Harness::ClaudeCode) => CODEX,
-        None => Fallback::Skip("the failed profile is not in the catalog"),
+    let Some(failed) = facts.failed_profile.map(AgentProfile::harness) else {
+        return Fallback::Skip("the failed profile is not in the catalog");
+    };
+    match order.targets(failed) {
+        [] => Fallback::Skip("AGENT_FALLBACK_ORDER names no fallback for the harness"),
+        targets => Fallback::To(targets),
     }
 }
 
-/// Handle `agent.error`: when [`decide`] says so, switch the Task to the other
-/// harness and queue its failed turn again. Every failure is logged and left
-/// as the error the turn already reported.
+/// Handle `agent.error`: re-run the turn on another harness when [`decide`] says so.
+///
+/// The Task switches to the first target that accepts it and its failed turn
+/// is queued again. Every failure is logged and left as the error the turn
+/// already reported.
 pub async fn fall_back_to_other_agent(state: &FallbackPorts, event: &AgentEvent) {
     let reason = event.payload.get("reason").and_then(|v| v.as_str());
     if !falls_back_on(reason) {
@@ -156,8 +158,8 @@ pub async fn fall_back_to_other_agent(state: &FallbackPorts, event: &AgentEvent)
         loop_enabled,
         turn_was_fallback: replay.as_ref().map(|replay| replay.was_fallback),
     };
-    let (harness, model) = match decide(&facts) {
-        Fallback::To { harness, model } => (harness, model),
+    let targets = match decide(&facts, &state.order) {
+        Fallback::To(targets) => targets,
         Fallback::Skip(why) => {
             tracing::info!(task_id, turn_number, why, "Agent fallback skipped");
             return;
@@ -168,18 +170,6 @@ pub async fn fall_back_to_other_agent(state: &FallbackPorts, event: &AgentEvent)
     };
     let failed_harness = failed_profile.harness();
 
-    let sandbox_id = task.sandbox_id.as_deref().unwrap_or(task_id);
-    let profile = match state
-        .task_switch
-        .profile_for(Some(sandbox_id), harness)
-        .await
-    {
-        Ok(profile) => profile,
-        Err(error) => {
-            tracing::warn!(task_id, %harness, %error, "Agent fallback found no profile");
-            return;
-        }
-    };
     let Some(run_as) = task
         .run_as_user_id
         .clone()
@@ -194,22 +184,46 @@ pub async fn fall_back_to_other_agent(state: &FallbackPorts, event: &AgentEvent)
     };
     let run_as = ScopeContext::user(run_as);
     let resets_at = event.payload.get("resetsAt").and_then(|v| v.as_str());
-    let summary = format!(
-        "Switched from {} to {}: {}",
-        label(failed_harness),
-        label(harness),
-        why(failed_harness, reason, resets_at),
-    );
-    let note = SwitchNote {
-        summary: &summary,
-        turn_number: Some(turn_number),
-    };
-    // Switched before queueing, rather than after: a sandbox fetching the
-    // queued turn in between would run it on the refusing agent.
-    if let Err(error) = switch(state, task_id, profile, model, &run_as, &note).await {
-        tracing::warn!(task_id, %profile, %error, "Agent fallback could not switch the agent");
-        return;
+    let sandbox_id = task.sandbox_id.as_deref().unwrap_or(task_id);
+    let mut switched = None;
+    for &harness in targets {
+        let profile = match state
+            .task_switch
+            .profile_for(Some(sandbox_id), harness)
+            .await
+        {
+            Ok(profile) => profile,
+            Err(error) => {
+                tracing::warn!(task_id, %harness, %error, "Agent fallback found no profile");
+                continue;
+            }
+        };
+        let summary = format!(
+            "Switched from {} to {}: {}",
+            label(failed_harness),
+            label(harness),
+            why(failed_harness, reason, resets_at),
+        );
+        let note = SwitchNote {
+            summary: &summary,
+            turn_number: Some(turn_number),
+        };
+        // Switched before queueing, rather than after: a sandbox fetching the
+        // queued turn in between would run it on the refusing agent.
+        let model = fallback_model(harness);
+        match switch(state, task_id, profile, model, &run_as, &note).await {
+            Ok(_) => {
+                switched = Some((harness, profile));
+                break;
+            }
+            Err(error) => {
+                tracing::warn!(task_id, %profile, %error, "Agent fallback could not switch the agent");
+            }
+        }
     }
+    let Some((harness, profile)) = switched else {
+        return;
+    };
     match state.message_send.queue_replay(replay).await {
         Ok(true) => {
             tracing::info!(
@@ -276,6 +290,9 @@ fn why(harness: Harness, reason: Option<&str>, resets_at: Option<&str>) -> Strin
         (Some("provider_unavailable"), _) => {
             format!("{name}'s provider had no account available after retries")
         }
+        (Some("connectivity"), _) => {
+            format!("{name} could not reach its model provider after retries")
+        }
         _ => format!("{name} would not serve the turn"),
     }
 }
@@ -313,22 +330,86 @@ mod tests {
         }
     }
 
-    #[test]
-    fn a_refused_loop_turn_moves_to_the_other_agent() {
-        assert_eq!(decide(&facts(AgentProfile::Codex)), CLAUDE_CODE);
-        assert_eq!(decide(&facts(AgentProfile::ClaudeCode)), CODEX);
-        assert_eq!(decide(&facts(AgentProfile::ClaudeCodeTui)), CODEX);
+    fn decide_default(facts: &FallbackFacts<'_>) -> Vec<Harness> {
+        match decide(facts, &AgentFallbackOrder::default()) {
+            Fallback::To(targets) => targets.to_vec(),
+            Fallback::Skip(_) => vec![],
+        }
     }
 
     #[test]
-    fn a_refused_antigravity_turn_moves_to_claude_code_on_opus() {
+    fn a_refused_turn_moves_to_the_other_agent() {
         assert_eq!(
-            decide(&facts(AgentProfile::Antigravity)),
-            Fallback::To {
-                harness: Harness::ClaudeCode,
-                model: Some("opus"),
-            }
+            decide_default(&facts(AgentProfile::Codex)),
+            [Harness::ClaudeCode]
         );
+        assert_eq!(
+            decide_default(&facts(AgentProfile::ClaudeCode)),
+            [Harness::Codex]
+        );
+        assert_eq!(
+            decide_default(&facts(AgentProfile::ClaudeCodeTui)),
+            [Harness::Codex]
+        );
+        assert_eq!(
+            decide_default(&facts(AgentProfile::Antigravity)),
+            [Harness::ClaudeCode, Harness::Codex]
+        );
+    }
+
+    /// Each reason arrives only once the sandbox's retries are spent.
+    #[test]
+    fn a_provider_that_will_not_serve_the_turn_falls_back() {
+        for reason in [
+            "usage_limit",
+            "rate_limit",
+            "provider_unavailable",
+            "connectivity",
+        ] {
+            let facts = FallbackFacts {
+                reason: Some(reason),
+                ..facts(AgentProfile::Antigravity)
+            };
+            assert_eq!(
+                decide_default(&facts),
+                [Harness::ClaudeCode, Harness::Codex],
+                "{reason}"
+            );
+        }
+    }
+
+    /// `invalid_input` covers a safety refusal, which must not reach the other
+    /// provider.
+    #[test]
+    fn any_other_failure_stays_on_its_agent() {
+        for reason in [
+            None,
+            Some("process_exit"),
+            Some("unresponsive_process"),
+            Some("internal"),
+            Some("invalid_configuration"),
+            Some("invalid_input"),
+            Some("authentication"),
+        ] {
+            let facts = FallbackFacts {
+                reason,
+                ..facts(AgentProfile::Codex)
+            };
+            assert!(
+                matches!(
+                    decide(&facts, &AgentFallbackOrder::default()),
+                    Fallback::Skip(_)
+                ),
+                "{reason:?}"
+            );
+        }
+    }
+
+    /// A Task the review gate or a person created has no Loop to ask.
+    #[test]
+    fn a_fallback_onto_claude_code_runs_opus() {
+        assert_eq!(fallback_model(Harness::ClaudeCode), Some("opus"));
+        assert_eq!(fallback_model(Harness::Codex), None);
         assert_eq!(
             ClaudeModel::from_alias("opus").map(ClaudeModel::api_id),
             Some("claude-opus-5-5")
@@ -342,55 +423,51 @@ mod tests {
         );
     }
 
-    /// Each reason arrives only once the sandbox's retries are spent.
+    /// A Task the review gate or a person created has no Loop to ask.
     #[test]
-    fn a_provider_that_will_not_serve_the_turn_falls_back() {
-        for reason in ["usage_limit", "rate_limit", "provider_unavailable"] {
-            let facts = FallbackFacts {
-                reason: Some(reason),
-                ..facts(AgentProfile::Codex)
-            };
-            assert_eq!(decide(&facts), CLAUDE_CODE, "{reason}");
-        }
-    }
-
-    /// `invalid_input` covers a safety refusal, which must not reach the other
-    /// provider.
-    #[test]
-    fn any_other_failure_stays_on_its_agent() {
-        for reason in [
-            None,
-            Some("connectivity"),
-            Some("process_exit"),
-            Some("unresponsive_process"),
-            Some("internal"),
-            Some("invalid_configuration"),
-            Some("invalid_input"),
-            Some("authentication"),
-        ] {
-            let facts = FallbackFacts {
-                reason,
-                ..facts(AgentProfile::Codex)
-            };
-            assert!(matches!(decide(&facts), Fallback::Skip(_)), "{reason:?}");
-        }
+    fn a_task_no_loop_created_falls_back() {
+        let facts = FallbackFacts {
+            reason: Some("connectivity"),
+            loop_enabled: None,
+            ..facts(AgentProfile::Antigravity)
+        };
+        assert_eq!(
+            decide_default(&facts),
+            [Harness::ClaudeCode, Harness::Codex]
+        );
     }
 
     #[test]
-    fn only_a_loop_that_allows_it_falls_back() {
-        for loop_enabled in [None, Some(false)] {
-            let facts = FallbackFacts {
-                loop_enabled,
-                ..facts(AgentProfile::Codex)
-            };
-            assert!(
-                matches!(decide(&facts), Fallback::Skip(_)),
-                "{loop_enabled:?}"
-            );
-        }
+    fn a_loop_that_turned_fallback_off_stays_on_its_agent() {
+        let facts = FallbackFacts {
+            loop_enabled: Some(false),
+            ..facts(AgentProfile::Codex)
+        };
+        assert_eq!(
+            decide(&facts, &AgentFallbackOrder::default()),
+            Fallback::Skip("the Loop turned fallback off")
+        );
     }
 
-    /// Both agents limited: the fallback turn fails too, and stops there.
+    #[test]
+    fn the_configured_order_decides_where_a_turn_goes() {
+        let order = AgentFallbackOrder::parse("acp=codex;codex=").unwrap();
+        assert_eq!(
+            decide(&facts(AgentProfile::Antigravity), &order),
+            Fallback::To(&[Harness::Codex])
+        );
+        assert!(matches!(
+            decide(&facts(AgentProfile::Codex), &order),
+            Fallback::Skip(_)
+        ));
+        assert!(matches!(
+            decide(&facts(AgentProfile::Pi), &AgentFallbackOrder::default()),
+            Fallback::Skip(_)
+        ));
+    }
+
+    /// Every agent failed: the fallback turn fails too, and stops there, so
+    /// its error is the Task's last word.
     #[test]
     fn a_fallback_turn_never_falls_back_again() {
         let facts = FallbackFacts {
@@ -398,7 +475,7 @@ mod tests {
             ..facts(AgentProfile::ClaudeCode)
         };
         assert_eq!(
-            decide(&facts),
+            decide(&facts, &AgentFallbackOrder::default()),
             Fallback::Skip("the turn was already a fallback")
         );
     }
@@ -421,6 +498,10 @@ mod tests {
             why(Harness::Codex, Some("provider_unavailable"), None),
             "Codex's provider had no account available after retries"
         );
+        assert_eq!(
+            why(Harness::Acp, Some("connectivity"), None),
+            "Antigravity could not reach its model provider after retries"
+        );
     }
 
     #[test]
@@ -430,7 +511,7 @@ mod tests {
             ..facts(AgentProfile::Codex)
         };
         assert_eq!(
-            decide(&facts),
+            decide(&facts, &AgentFallbackOrder::default()),
             Fallback::Skip("the failed profile is not in the catalog")
         );
     }
@@ -441,6 +522,9 @@ mod tests {
             turn_was_fallback: None,
             ..facts(AgentProfile::Codex)
         };
-        assert!(matches!(decide(&facts), Fallback::Skip(_)));
+        assert!(matches!(
+            decide(&facts, &AgentFallbackOrder::default()),
+            Fallback::Skip(_)
+        ));
     }
 }

@@ -248,6 +248,13 @@ modelGateway:
   # cliproxy.enabled; an absent key leaves the hub unused.
   hubKeySecretKey: CLIPROXY_GATEWAY_API_KEY
 
+# -- Where a turn goes when its provider will not serve it once the sandbox's
+# retries are spent, per harness: `acp=claude-code,codex;pi=claude-code`. A
+# named harness replaces its default list and an empty one turns it off. Empty
+# keeps the default: acp to claude-code then codex, codex and claude-code to
+# each other.
+agentFallbackOrder: ""
+
 service:
   # -- Service type
   type: ClusterIP

@@ -142,6 +142,7 @@ impl AcpAgent {
 
     /// A model-call failure the agent reported as reply text rather than as
     /// an error: Antigravity ends the turn normally and writes
+    /// its error as a last line `⚠ <message>`, such as
     /// `⚠ request failed … (code N)` or, for a 429 with `Retry-After`,
     /// `⚠ The model provider asked to retry in N seconds`.
     pub(super) fn reported_failure(self, reply: &str) -> Option<HarnessError> {
@@ -160,7 +161,8 @@ impl AcpAgent {
                     return Some(retry_after(seconds, &diagnostic));
                 }
                 if !line.starts_with("⚠ request failed") {
-                    return None;
+                    let message = line.strip_prefix("⚠ ")?;
+                    return warned_failure(message).map(|class| execution_error(class, diagnostic));
                 }
                 let code = line
                     .rsplit_once("(code ")
@@ -176,6 +178,23 @@ impl AcpAgent {
                 Some(execution_error(class, diagnostic))
             }
         }
+    }
+}
+
+/// The class of an Antigravity `⚠` message other than `request failed`, `None`
+/// for a warning that is not a failed model call. Each phrase is one agy
+/// prints; a model's own reply ending on `⚠` matches none of them.
+fn warned_failure(message: &str) -> Option<ErrorClass> {
+    let lower = message.to_ascii_lowercase();
+    if lower.contains("network issue") {
+        Some(ErrorClass::Connectivity)
+    } else if lower.contains("concurrent requests") {
+        Some(ErrorClass::RateLimit)
+    } else if lower.contains("try again") {
+        // "Our servers are experiencing high traffic", an empty model output.
+        Some(ErrorClass::ProviderUnavailable)
+    } else {
+        None
     }
 }
 
@@ -260,5 +279,46 @@ mod tests {
             .expect("a retry request is a failure");
         assert_eq!(short.class, ErrorClass::ProviderThrottle);
         assert_eq!(short.resets_at, None);
+    }
+
+    /// The incident's reply: agy lost its model connection mid-turn.
+    #[test]
+    fn a_transient_failure_in_the_reply_is_classified_as_retryable() {
+        let agent = AcpAgent::Antigravity;
+        assert_eq!(
+            class(
+                agent,
+                "Checking the skill.\n\n⚠ There was a network issue connecting to the server, please try again.\n"
+            ),
+            Some(ErrorClass::Connectivity)
+        );
+        assert_eq!(
+            class(
+                agent,
+                "⚠ Our servers are experiencing high traffic right now, please try again in a minute."
+            ),
+            Some(ErrorClass::ProviderUnavailable)
+        );
+        assert_eq!(
+            class(
+                agent,
+                "⚠ Limit of concurrent requests reached (4), try again later."
+            ),
+            Some(ErrorClass::RateLimit)
+        );
+        assert_eq!(
+            class(agent, "⚠ request failed: reset"),
+            Some(ErrorClass::Connectivity)
+        );
+    }
+
+    #[test]
+    fn a_reply_that_merely_ends_on_a_warning_sign_did_not_fail() {
+        let agent = AcpAgent::Antigravity;
+        assert_eq!(class(agent, "Done.\n⚠ Two tests are still skipped."), None);
+        assert_eq!(
+            class(agent, "⚠ There was a network issue\nRetried; all done."),
+            None
+        );
     }
 }

@@ -79,10 +79,10 @@ pub struct LoopConfig {
     /// the deployment default for the Loop's adapter kind (60 for `github_pr`,
     /// off elsewhere); `0` delivers every event on its own.
     pub message_buffer_seconds: Option<i32>,
-    /// Re-run a spawned Task's failed turn once on the other agent (`codex` or
-    /// `claude-code`), in the same Task, when the turn's error reason is
-    /// `usage_limit`, `rate_limit` or `provider_unavailable`. The sandbox
-    /// reports the last two only once its retries are spent.
+    /// Re-run a spawned Task's failed turn once on another agent, in the same
+    /// Task, when its provider will not serve it; see
+    /// `moatless_server::event_handler::agent_fallback`. A Task no Loop
+    /// created always falls back.
     pub fallback_to_other_agent: bool,
 }
 

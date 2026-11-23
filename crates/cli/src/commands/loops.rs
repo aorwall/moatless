@@ -171,8 +171,8 @@ pub enum LoopsAction {
         /// of holding the pod for the idle TTL.
         #[arg(long)]
         stop_when_done: Option<bool>,
-        /// Re-run a task's turn once on the other agent (codex or claude-code)
-        /// when its provider will not serve it (usage limit, rate limit, outage).
+        /// Re-run a task's turn once on another agent, in the deployment's
+        /// fallback order, when its provider will not serve it.
         #[arg(long)]
         fallback_to_other_agent: Option<bool>,
         /// Most seconds to hold inbound adapter events for one binding so those
@@ -312,8 +312,8 @@ pub struct CreateConfigArgs {
     /// node goes idle in seconds and can scale down.
     #[arg(long)]
     stop_when_done: Option<bool>,
-    /// Re-run a task's turn once on the other agent (codex or claude-code) when
-    /// its provider will not serve it (usage limit, rate limit, outage).
+    /// Re-run a task's turn once on another agent, in the deployment's
+    /// fallback order, when its provider will not serve it.
     /// Omitted is on.
     #[arg(long)]
     fallback_to_other_agent: Option<bool>,
