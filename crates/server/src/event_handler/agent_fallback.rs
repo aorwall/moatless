@@ -10,6 +10,7 @@ use moatless_tasks::task::models::TaskStatus;
 use moatless_tasks::task::switch::{SwitchCredentials, SwitchNote, SwitchOutcome};
 use moatless_types::access_control::ScopeContext;
 use moatless_types::agent::{AgentProfile, Harness};
+use moatless_types::model::ClaudeModel;
 
 use std::sync::Arc;
 
@@ -44,12 +45,28 @@ fn falls_back_on(reason: Option<&str>) -> bool {
     reason.is_some_and(|reason| FALLBACK_REASONS.contains(&reason))
 }
 
-/// Whether a failed turn falls back, and to which harness.
+/// Whether a failed turn falls back, and to which harness and model.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Fallback {
-    To(Harness),
+    /// `model` is a catalog id; `None` runs the harness's default.
+    To {
+        harness: Harness,
+        model: Option<&'static str>,
+    },
     Skip(&'static str),
 }
+
+/// Every fallback onto Claude Code runs Opus rather than the profile's
+/// unresolved default, so a Loop's fallback turn gets the strongest model.
+const CLAUDE_CODE: Fallback = Fallback::To {
+    harness: Harness::ClaudeCode,
+    model: Some(ClaudeModel::Opus.alias()),
+};
+
+const CODEX: Fallback = Fallback::To {
+    harness: Harness::Codex,
+    model: None,
+};
 
 /// What decides a fallback, read from the event, the Task and its Loop.
 #[derive(Debug)]
@@ -81,10 +98,9 @@ pub(crate) fn decide(facts: &FallbackFacts<'_>) -> Fallback {
     }
     match facts.failed_profile.map(AgentProfile::harness) {
         Some(Harness::MiniSwe) => Fallback::Skip("mini-swe has no automatic fallback"),
-        Some(Harness::Acp) => Fallback::Skip("ACP agents have no automatic fallback"),
         Some(Harness::Pi) => Fallback::Skip("Pi has no automatic fallback"),
-        Some(Harness::Codex) => Fallback::To(Harness::ClaudeCode),
-        Some(Harness::ClaudeCode) => Fallback::To(Harness::Codex),
+        Some(Harness::Acp | Harness::Codex) => CLAUDE_CODE,
+        Some(Harness::ClaudeCode) => CODEX,
         None => Fallback::Skip("the failed profile is not in the catalog"),
     }
 }
@@ -140,8 +156,8 @@ pub async fn fall_back_to_other_agent(state: &FallbackPorts, event: &AgentEvent)
         loop_enabled,
         turn_was_fallback: replay.as_ref().map(|replay| replay.was_fallback),
     };
-    let harness = match decide(&facts) {
-        Fallback::To(harness) => harness,
+    let (harness, model) = match decide(&facts) {
+        Fallback::To { harness, model } => (harness, model),
         Fallback::Skip(why) => {
             tracing::info!(task_id, turn_number, why, "Agent fallback skipped");
             return;
@@ -190,7 +206,7 @@ pub async fn fall_back_to_other_agent(state: &FallbackPorts, event: &AgentEvent)
     };
     // Switched before queueing, rather than after: a sandbox fetching the
     // queued turn in between would run it on the refusing agent.
-    if let Err(error) = switch(state, task_id, profile, None, &run_as, &note).await {
+    if let Err(error) = switch(state, task_id, profile, model, &run_as, &note).await {
         tracing::warn!(task_id, %profile, %error, "Agent fallback could not switch the agent");
         return;
     }
@@ -299,17 +315,30 @@ mod tests {
 
     #[test]
     fn a_refused_loop_turn_moves_to_the_other_agent() {
+        assert_eq!(decide(&facts(AgentProfile::Codex)), CLAUDE_CODE);
+        assert_eq!(decide(&facts(AgentProfile::ClaudeCode)), CODEX);
+        assert_eq!(decide(&facts(AgentProfile::ClaudeCodeTui)), CODEX);
+    }
+
+    #[test]
+    fn a_refused_antigravity_turn_moves_to_claude_code_on_opus() {
         assert_eq!(
-            decide(&facts(AgentProfile::Codex)),
-            Fallback::To(Harness::ClaudeCode)
+            decide(&facts(AgentProfile::Antigravity)),
+            Fallback::To {
+                harness: Harness::ClaudeCode,
+                model: Some("opus"),
+            }
         );
         assert_eq!(
-            decide(&facts(AgentProfile::ClaudeCode)),
-            Fallback::To(Harness::Codex)
+            ClaudeModel::from_alias("opus").map(ClaudeModel::api_id),
+            Some("claude-opus-5-5")
         );
         assert_eq!(
-            decide(&facts(AgentProfile::ClaudeCodeTui)),
-            Fallback::To(Harness::Codex)
+            moatless_core::agent_catalog::validate_agent_model(
+                AgentProfile::ClaudeCode,
+                Some("opus")
+            ),
+            Ok(())
         );
     }
 
@@ -321,11 +350,7 @@ mod tests {
                 reason: Some(reason),
                 ..facts(AgentProfile::Codex)
             };
-            assert_eq!(
-                decide(&facts),
-                Fallback::To(Harness::ClaudeCode),
-                "{reason}"
-            );
+            assert_eq!(decide(&facts), CLAUDE_CODE, "{reason}");
         }
     }
 

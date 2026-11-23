@@ -461,14 +461,9 @@ impl AcpProcess {
                 &mut self.pending,
             );
         }
-        let failure = failure.or(exec.failure.take()).or_else(|| {
-            self.agent.reported_failure(&exec.replied).map(|class| {
-                error(
-                    class,
-                    format!("The model call failed: {}", exec.replied.trim()),
-                )
-            })
-        });
+        let failure = failure
+            .or(exec.failure.take())
+            .or_else(|| self.agent.reported_failure(&exec.replied));
         let t = &exec.totals;
         if let Some(live) = &mut self.live {
             live.journal.append(&json!({

@@ -6,7 +6,9 @@ use moatless_types::agent::AgentProfile;
 use serde_json::{Value, json};
 use tokio::process::Command;
 
-use crate::agent::harness::ErrorClass;
+use chrono::Utc;
+
+use crate::agent::harness::{ErrorClass, FailureStage, HarnessError, SessionImpact};
 use crate::config::Config;
 
 /// Credentials an ACP agent must never inherit: it reaches models only through
@@ -138,33 +140,70 @@ impl AcpAgent {
         }
     }
 
-    /// The class of a model-call failure the agent reported as reply text
-    /// rather than as an error: Antigravity ends the turn normally and writes
-    /// `⚠ request failed … (code N)`.
-    pub(super) fn reported_failure(self, reply: &str) -> Option<ErrorClass> {
+    /// A model-call failure the agent reported as reply text rather than as
+    /// an error: Antigravity ends the turn normally and writes
+    /// `⚠ request failed … (code N)` or, for a 429 with `Retry-After`,
+    /// `⚠ The model provider asked to retry in N seconds`.
+    pub(super) fn reported_failure(self, reply: &str) -> Option<HarnessError> {
         match self {
             Self::Antigravity => {
                 // Only a reply that ends on the warning failed: one the agent
                 // retried past carries it mid-text.
-                let line = reply
-                    .lines()
-                    .rev()
-                    .find(|l| !l.trim().is_empty())
-                    .filter(|l| l.trim_start().starts_with("⚠ request failed"))?;
+                let line = reply.lines().rev().find(|l| !l.trim().is_empty())?;
+                let line = line.trim();
+                let diagnostic = format!("The model call failed: {line}");
+                if let Some(rest) = line.strip_prefix("⚠ The model provider asked to retry in ") {
+                    let seconds = rest
+                        .split_whitespace()
+                        .next()
+                        .and_then(|n| n.parse::<i64>().ok());
+                    return Some(retry_after(seconds, &diagnostic));
+                }
+                if !line.starts_with("⚠ request failed") {
+                    return None;
+                }
                 let code = line
                     .rsplit_once("(code ")
                     .and_then(|(_, rest)| rest.split(')').next())
                     .and_then(|code| code.trim().parse::<u16>().ok());
-                Some(match code {
+                let class = match code {
                     Some(401 | 403) => ErrorClass::Authentication,
                     Some(429) => ErrorClass::RateLimit,
                     Some(500..) => ErrorClass::ProviderUnavailable,
                     Some(_) => ErrorClass::InvalidInput,
                     None => ErrorClass::Connectivity,
-                })
+                };
+                Some(execution_error(class, diagnostic))
             }
         }
     }
+}
+
+/// A wait longer than the coordinator's longest backoff, which its retries
+/// would only repeat: a usage limit, so a Loop falls back at once rather than
+/// after five refused retries.
+const USAGE_LIMIT_AFTER_SECS: i64 = 60;
+
+/// The failure for a provider asking to be retried in `seconds`.
+fn retry_after(seconds: Option<i64>, diagnostic: &str) -> HarnessError {
+    match seconds {
+        Some(seconds) if seconds > USAGE_LIMIT_AFTER_SECS => HarnessError::usage_limit(
+            FailureStage::Execution,
+            SessionImpact::Intact,
+            diagnostic,
+            Some(Utc::now() + chrono::Duration::seconds(seconds)),
+        ),
+        _ => execution_error(ErrorClass::ProviderThrottle, diagnostic),
+    }
+}
+
+fn execution_error(class: ErrorClass, diagnostic: impl Into<String>) -> HarnessError {
+    HarnessError::new(
+        FailureStage::Execution,
+        class,
+        SessionImpact::Intact,
+        diagnostic,
+    )
 }
 
 /// The task token the gateway authenticates, re-read per call so a rotated
@@ -180,21 +219,46 @@ pub(super) async fn task_token(config: &Config) -> Option<String> {
 mod tests {
     use super::*;
 
+    fn class(agent: AcpAgent, reply: &str) -> Option<ErrorClass> {
+        agent.reported_failure(reply).map(|failure| failure.class)
+    }
+
     #[test]
     fn a_failed_model_call_in_the_reply_is_classified_by_its_status() {
         let agent = AcpAgent::Antigravity;
         assert_eq!(
-            agent.reported_failure("\n⚠ request failed with empty body (code 401)\n"),
+            class(agent, "\n⚠ request failed with empty body (code 401)\n"),
             Some(ErrorClass::Authentication)
         );
         assert_eq!(
-            agent.reported_failure("⚠ request failed: slow down (code 429)"),
+            class(agent, "⚠ request failed: slow down (code 429)"),
             Some(ErrorClass::RateLimit)
         );
-        assert_eq!(agent.reported_failure("All done."), None);
+        assert_eq!(class(agent, "All done."), None);
         assert_eq!(
-            agent.reported_failure("⚠ request failed (code 503)\nRetried; all done."),
+            class(agent, "⚠ request failed (code 503)\nRetried; all done."),
             None
         );
+    }
+
+    /// agy's words for a 429 carrying `Retry-After`, such as a hub credential
+    /// in a quota cooldown.
+    #[test]
+    fn a_provider_asking_to_retry_is_a_usage_limit_with_its_reset_time() {
+        let agent = AcpAgent::Antigravity;
+        let before = chrono::Utc::now();
+        let failure =
+            agent.reported_failure("⚠ The model provider asked to retry in 5440 seconds\n");
+        let failure = failure.expect("a retry request is a failure");
+        assert_eq!(failure.class, ErrorClass::UsageLimit);
+        let resets_at = failure.resets_at.expect("the seconds are a reset time");
+        assert!(resets_at >= before + chrono::Duration::seconds(5440));
+        assert!(resets_at <= chrono::Utc::now() + chrono::Duration::seconds(5440));
+
+        let short = agent
+            .reported_failure("⚠ The model provider asked to retry in 20 seconds")
+            .expect("a retry request is a failure");
+        assert_eq!(short.class, ErrorClass::ProviderThrottle);
+        assert_eq!(short.resets_at, None);
     }
 }
