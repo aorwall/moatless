@@ -68,6 +68,30 @@ pub enum UserAction {
         #[arg(long)]
         provider: String,
     },
+    /// Set the provider token a bot user acts with (admin-only). Tasks run as
+    /// the bot present it through the backend's proxies. Pipe the token on
+    /// stdin.
+    SetToken {
+        /// The bot's login (e.g. `soap-agentops[bot]`) or user id
+        user: String,
+        /// The provider the token is for (e.g. `forgejo`)
+        #[arg(long)]
+        provider: String,
+        /// The instance, for a provider kept per instance such as Forgejo
+        #[arg(long)]
+        host: Option<String>,
+    },
+    /// Remove the provider token a bot user acts with (admin-only)
+    RemoveToken {
+        /// The bot's login or user id
+        user: String,
+        /// The provider the token is for (e.g. `forgejo`)
+        #[arg(long)]
+        provider: String,
+        /// The instance, for a provider kept per instance such as Forgejo
+        #[arg(long)]
+        host: Option<String>,
+    },
 }
 
 pub async fn run(moat: &MoatClient, action: UserAction, json: bool) -> Result<(), ClientError> {
@@ -170,6 +194,44 @@ pub async fn run(moat: &MoatClient, action: UserAction, json: bool) -> Result<()
                 println!("Provider ID for '{provider}' deleted.");
             });
         }
+
+        UserAction::SetToken {
+            user,
+            provider,
+            host,
+        } => {
+            let token = crate::commands::input::read_text_or_stdin(None, "Pipe the token")
+                .map_err(|e| ClientError::Other(e.to_string()))?;
+            if token.is_empty() {
+                return Err(ClientError::Other("The token on stdin is empty".into()));
+            }
+            let body = serde_json::json!({ "token": token, "host": host });
+            let resp = moat
+                .raw_put(&bot_token_path(&user, &provider, None), &body)
+                .await?;
+            output::emit(json, &resp, || {
+                println!(
+                    "'{user}' now acts on {} with the token.",
+                    target(&resp, &provider)
+                );
+            });
+        }
+
+        UserAction::RemoveToken {
+            user,
+            provider,
+            host,
+        } => {
+            let resp = moat
+                .raw_delete(&bot_token_path(&user, &provider, host.as_deref()))
+                .await?;
+            output::emit(json, &resp, || {
+                println!(
+                    "'{user}' no longer holds a {} token.",
+                    target(&resp, &provider)
+                );
+            });
+        }
     }
 
     Ok(())
@@ -222,6 +284,27 @@ fn provider_ids_path(target: &str, provider: Option<&str>) -> String {
     }
 }
 
+/// The admin path for a bot's credential with `provider`.
+fn bot_token_path(target: &str, provider: &str, host: Option<&str>) -> String {
+    let path = format!(
+        "/api/v1/admin/users/{}/provider-tokens/{}",
+        urlencoding::encode(target),
+        urlencoding::encode(provider)
+    );
+    match host {
+        Some(host) => format!("{path}?host={}", urlencoding::encode(host)),
+        None => path,
+    }
+}
+
+/// The provider a token response names, with its host when it has one.
+fn target(resp: &serde_json::Value, provider: &str) -> String {
+    match resp["host"].as_str() {
+        Some(host) => format!("{provider} at {host}"),
+        None => provider.to_string(),
+    }
+}
+
 /// Name the account a PATCH landed on, as `'login' (id)`.
 ///
 /// A login alone is ambiguous in exactly the case the id-keyed path exists for.
@@ -235,7 +318,20 @@ fn describe(resp: &serde_json::Value, target: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::provider_ids_path;
+    use super::{bot_token_path, provider_ids_path};
+
+    /// A bot login carries `[` and `]`, which a path segment must escape.
+    #[test]
+    fn a_bot_login_is_escaped_in_the_token_path() {
+        assert_eq!(
+            bot_token_path("soap-agentops[bot]", "forgejo", None),
+            "/api/v1/admin/users/soap-agentops%5Bbot%5D/provider-tokens/forgejo"
+        );
+        assert_eq!(
+            bot_token_path("bot", "forgejo", Some("git.acme.dev")),
+            "/api/v1/admin/users/bot/provider-tokens/forgejo?host=git.acme.dev"
+        );
+    }
 
     /// A login is not unique, and the login route always resolves the oldest
     /// row of a shared one — so a duplicate's mappings are only reachable by id.

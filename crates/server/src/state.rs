@@ -553,6 +553,12 @@ impl axum::extract::FromRef<AppState> for Arc<ForgejoAccess> {
     }
 }
 
+impl axum::extract::FromRef<AppState> for crate::access_settings::bot_credentials::BotCredentials {
+    fn from_ref(state: &AppState) -> Self {
+        Self::new(state.user_directory.clone(), state.forgejo_access.clone())
+    }
+}
+
 impl axum::extract::FromRef<AppState> for Arc<ForgejoInstances> {
     fn from_ref(state: &AppState) -> Self {
         state.forgejo_instances.clone()

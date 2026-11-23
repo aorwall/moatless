@@ -1,5 +1,6 @@
 //! Access-settings HTTP adapter.
 
+pub mod bot_credentials;
 pub mod error;
 pub mod handlers;
 pub mod provider_apps;

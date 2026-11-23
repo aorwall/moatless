@@ -31,6 +31,9 @@ use crate::state::AppState;
         handlers::save_forgejo_pat,
         handlers::delete_forgejo_pat_override,
         handlers::delete_forgejo_config,
+        handlers::admin_get_bot_provider_token,
+        handlers::admin_save_bot_provider_token,
+        handlers::admin_delete_bot_provider_token,
         handlers::get_codex_config,
         handlers::save_codex_auth,
         handlers::delete_codex_config,
@@ -75,6 +78,11 @@ pub fn access_settings_router(state: AppState) -> (axum::Router, utoipa::openapi
             handlers::delete_forgejo_pat_override
         ))
         .routes(routes!(
+            handlers::admin_get_bot_provider_token,
+            handlers::admin_save_bot_provider_token,
+            handlers::admin_delete_bot_provider_token
+        ))
+        .routes(routes!(
             handlers::get_codex_config,
             handlers::delete_codex_config
         ))
@@ -89,4 +97,25 @@ pub fn access_settings_router(state: AppState) -> (axum::Router, utoipa::openapi
         .with_state(state)
         .split_for_parts();
     (router, api)
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::routing::{post, put};
+
+    /// Building the router panics on a path conflict. The Codex seed route is a
+    /// static `codex` segment where the bot route takes `{provider}`, which
+    /// matchit accepts only while both name the user segment `{user_id}`.
+    #[test]
+    fn the_codex_seed_route_coexists_with_the_bot_token_route() {
+        let _router: axum::Router = axum::Router::new()
+            .route(
+                "/api/v1/admin/users/{user_id}/provider-tokens/codex",
+                post(|| async {}),
+            )
+            .route(
+                "/api/v1/admin/users/{user_id}/provider-tokens/{provider}",
+                put(|| async {}),
+            );
+    }
 }

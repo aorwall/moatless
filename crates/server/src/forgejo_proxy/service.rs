@@ -141,7 +141,8 @@ impl ForgejoProxy {
 fn credential_error(error: &GitHostTokenError, host: &str) -> ForgejoProxyError {
     match error {
         GitHostTokenError::NoCredential { .. } => ForgejoProxyError::NoCredential(format!(
-            "{error}. Connect Forgejo at {host} under Settings → Version control"
+            "{error}. Connect Forgejo at {host} under Settings → Version control; \
+             for a bot user an admin runs `moat users set-token <bot> --provider forgejo --host {host}`"
         )),
         GitHostTokenError::Forbidden { .. } | GitHostTokenError::Broken { .. } => {
             ForgejoProxyError::NoCredential(error.to_string())

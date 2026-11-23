@@ -5,6 +5,7 @@ use std::sync::Arc;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 
+use crate::access_settings::bot_credentials::BotCredentials;
 use crate::access_settings::error::{AccessSettingsError, auth_error};
 use crate::access_settings::provider_apps::{self, ProviderApps};
 use crate::access_settings::schemas::*;
@@ -225,6 +226,91 @@ pub async fn delete_forgejo_config(
             .disconnect(&auth.user_id.to_string(), &query.host)
             .await?,
     )))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/users/{user_id}/provider-tokens/{provider}",
+    tag = "git-host-access",
+    params(
+        ("user_id" = String, Path, description = "The bot user's id or login"),
+        ("provider" = BotCredentialProvider, Path, description = "The provider the credential is for"),
+        BotProviderTokenQuery
+    ),
+    responses(
+        (status = 200, description = "The bot's credential for the provider", body = BotProviderTokenStatusResponse),
+        (status = 400, description = "The user is not a bot, or the provider needs a host", body = moatless_api_schemas::error::ErrorBody),
+        (status = 403, description = "Admin only", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "No such user", body = moatless_api_schemas::error::ErrorBody)
+    )
+)]
+pub async fn admin_get_bot_provider_token(
+    State(credentials): State<BotCredentials>,
+    auth: AuthUser,
+    Path((user, provider)): Path<(String, BotCredentialProvider)>,
+    Query(query): Query<BotProviderTokenQuery>,
+) -> Result<Json<BotProviderTokenStatusResponse>, AccessSettingsError> {
+    Ok(Json(
+        credentials
+            .status(&auth, &user, provider, query.host.as_deref())
+            .await?,
+    ))
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/v1/admin/users/{user_id}/provider-tokens/{provider}",
+    tag = "git-host-access",
+    params(
+        ("user_id" = String, Path, description = "The bot user's id or login"),
+        ("provider" = BotCredentialProvider, Path, description = "The provider the credential is for")
+    ),
+    request_body = SaveBotProviderTokenRequest,
+    responses(
+        (status = 200, description = "Token saved as the bot's credential", body = BotProviderTokenStatusResponse),
+        (status = 400, description = "The user is not a bot, the provider needs a host, or the provider rejected the token", body = moatless_api_schemas::error::ErrorBody),
+        (status = 403, description = "Admin only", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "No such user", body = moatless_api_schemas::error::ErrorBody)
+    )
+)]
+pub async fn admin_save_bot_provider_token(
+    State(credentials): State<BotCredentials>,
+    auth: AuthUser,
+    Path((user, provider)): Path<(String, BotCredentialProvider)>,
+    Json(request): Json<SaveBotProviderTokenRequest>,
+) -> Result<Json<BotProviderTokenStatusResponse>, AccessSettingsError> {
+    Ok(Json(
+        credentials.save(&auth, &user, provider, request).await?,
+    ))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/admin/users/{user_id}/provider-tokens/{provider}",
+    tag = "git-host-access",
+    params(
+        ("user_id" = String, Path, description = "The bot user's id or login"),
+        ("provider" = BotCredentialProvider, Path, description = "The provider the credential is for"),
+        BotProviderTokenQuery
+    ),
+    responses(
+        (status = 200, description = "The bot's credential removed", body = BotProviderTokenStatusResponse),
+        (status = 400, description = "The user is not a bot, or the provider needs a host", body = moatless_api_schemas::error::ErrorBody),
+        (status = 403, description = "Admin only", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "No such user", body = moatless_api_schemas::error::ErrorBody)
+    )
+)]
+pub async fn admin_delete_bot_provider_token(
+    State(credentials): State<BotCredentials>,
+    auth: AuthUser,
+    Path((user, provider)): Path<(String, BotCredentialProvider)>,
+    Query(query): Query<BotProviderTokenQuery>,
+) -> Result<Json<BotProviderTokenStatusResponse>, AccessSettingsError> {
+    Ok(Json(
+        credentials
+            .remove(&auth, &user, provider, query.host.as_deref())
+            .await?,
+    ))
 }
 
 #[utoipa::path(
@@ -745,18 +831,21 @@ fn github_registration(app: GitHubAppRegistration) -> GitHubAppRegistrationRespo
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn non_admin_is_refused_before_an_administration_call_can_be_made() {
-        let auth = AuthUser {
+    fn caller(role: &str) -> AuthUser {
+        AuthUser {
             user_id: uuid::Uuid::new_v4(),
-            login: "reader".to_string(),
+            login: "caller".to_string(),
             provider: Some("local".to_string()),
-            role: Some("user".to_string()),
+            role: Some(role.to_string()),
             group_id: None,
             task_id: None,
             is_agent_context: false,
-        };
+        }
+    }
+
+    #[test]
+    fn non_admin_is_refused_before_an_administration_call_can_be_made() {
+        let auth = caller("user");
         assert!(matches!(
             moatless_identity::adapter_apps::administration::require_admin(
                 &auth.scope_context(),

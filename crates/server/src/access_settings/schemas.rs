@@ -261,6 +261,63 @@ impl std::fmt::Debug for SaveForgejoProviderTokenRequest {
     }
 }
 
+/// A provider an admin may set a bot user's credential for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum BotCredentialProvider {
+    /// Kept per instance, so every request names a `host`.
+    Forgejo,
+}
+
+impl BotCredentialProvider {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Forgejo => "forgejo",
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveBotProviderTokenRequest {
+    pub token: String,
+    /// The instance, as a host or a URL, for a provider kept per instance.
+    #[serde(default)]
+    pub host: Option<String>,
+}
+
+impl std::fmt::Debug for SaveBotProviderTokenRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SaveBotProviderTokenRequest")
+            .field("host", &self.host)
+            .field("token", &"[REDACTED]")
+            .finish()
+    }
+}
+
+/// Which instance a bot credential request is about, when the provider keeps
+/// one per instance.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema, utoipa::IntoParams)]
+#[serde(rename_all = "camelCase")]
+#[into_params(parameter_in = Query)]
+pub struct BotProviderTokenQuery {
+    #[serde(default)]
+    pub host: Option<String>,
+}
+
+/// A bot user's credential for one provider.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BotProviderTokenStatusResponse {
+    pub provider: BotCredentialProvider,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    pub connected: bool,
+    /// `provider_tokens.auth_method`; `secret_ref` for a token set here.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth_method: Option<String>,
+}
+
 /// Which instance a Forgejo settings request is about.
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema, utoipa::IntoParams)]
 #[serde(rename_all = "camelCase")]
