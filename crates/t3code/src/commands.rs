@@ -1154,7 +1154,9 @@ fn translate_model(
     else {
         return Ok(None);
     };
-    if instance == providers::ANTIGRAVITY_INSTANCE && slug == providers::ANTIGRAVITY_DEFAULT_ALIAS {
+    let default_alias = providers::harness_for(instance)
+        .and_then(|harness| providers::presentation(harness).default_alias);
+    if default_alias == Some(slug) {
         return Ok(None);
     }
     providers::catalog_model_for(agents, instance, slug)
@@ -1194,7 +1196,7 @@ fn selected_instance(command: &Value) -> Option<String> {
 /// published is ignored rather than forwarded to an agent with no such setting.
 fn selected_effort(command: &Value) -> Option<String> {
     let instance = selected_instance(command)?;
-    let wanted = providers::effort_option_id(&instance);
+    let wanted = providers::effort_option_id(&instance)?;
     command
         .get("modelSelection")
         .and_then(|m| m.get("options"))

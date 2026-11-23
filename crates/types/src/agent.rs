@@ -231,19 +231,44 @@ mod tests {
     }
 }
 
-/// The executable family that runs an Agent. The only harness type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "kebab-case")]
-pub enum Harness {
-    ClaudeCode,
-    Codex,
-    /// Pi over the JSONL RPC transport.
-    Pi,
-    /// mini-swe-agent over the Python JSONL bridge.
-    MiniSwe,
-    /// An Agent Client Protocol agent over JSON-RPC on stdio.
-    Acp,
+/// Declares a fieldless enum with an `ALL` constant listing every variant in
+/// declaration order, built from the same variant list so none can be left out.
+macro_rules! enum_with_all {
+    (
+        $(#[$meta:meta])*
+        $vis:vis enum $name:ident {
+            $($(#[$variant_meta:meta])* $variant:ident,)*
+        }
+    ) => {
+        $(#[$meta])*
+        $vis enum $name {
+            $($(#[$variant_meta])* $variant,)*
+        }
+
+        impl $name {
+            /// Every variant, in declaration order.
+            pub const ALL: &'static [Self] = &[$(Self::$variant),*];
+        }
+    };
+}
+
+enum_with_all! {
+    /// The executable family that runs an Agent. The only harness type.
+    ///
+    /// Declaration order is the order T3 lists their providers.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+    #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+    #[serde(rename_all = "kebab-case")]
+    pub enum Harness {
+        ClaudeCode,
+        Codex,
+        /// Pi over the JSONL RPC transport.
+        Pi,
+        /// mini-swe-agent over the Python JSONL bridge.
+        MiniSwe,
+        /// An Agent Client Protocol agent over JSON-RPC on stdio.
+        Acp,
+    }
 }
 
 /// The vendors a Pi model id may name, as `vendor/model`.
@@ -281,6 +306,24 @@ impl Harness {
             Self::Pi => "pi",
             Self::MiniSwe => "mini-swe",
             Self::Acp => "acp",
+        }
+    }
+
+    /// Whether the CLI resumes its last session without being given an id, as
+    /// Claude Code's `--continue` does.
+    pub fn resumes_last_session(self) -> bool {
+        match self {
+            Self::ClaudeCode => true,
+            Self::Codex | Self::Pi | Self::MiniSwe | Self::Acp => false,
+        }
+    }
+
+    /// Whether a session stopped mid-turn can be resumed by its id: the CLI
+    /// repairs the orphaned tool calls a stop leaves when it loads the session.
+    pub fn resumes_a_stopped_session(self) -> bool {
+        match self {
+            Self::Pi | Self::MiniSwe | Self::Acp => true,
+            Self::ClaudeCode | Self::Codex => false,
         }
     }
 

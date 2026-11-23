@@ -6,10 +6,13 @@
 //! what they report instead.
 
 use moatless_types::model::{ClaudeModel, CodexModel, ModelPrice, price_for};
+use std::collections::{BTreeMap, BTreeSet};
+
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::ports::{UsageBucket, UsageWindow};
+use crate::providers;
 
 /// Bumped by T3 whenever [`UsageSummary`]'s shape changes incompatibly.
 /// `packages/contracts/src/usage.ts` is the authority; a client merging an
@@ -47,10 +50,49 @@ fn cost_source(row: &UsageBucket) -> &'static str {
     }
 }
 
-fn bucket(row: &UsageBucket) -> Value {
+/// One bucket per `(day, hour, usage kind, model)`, in that order.
+///
+/// The Claude Code transports share the `claude` kind, so their rows merge;
+/// their Tasks are disjoint, so their session counts add. A profile with no
+/// [`providers::usage_kind`] is left out.
+fn by_usage_kind(rows: &[UsageBucket]) -> Vec<(&'static str, UsageBucket)> {
+    let mut merged: BTreeMap<(String, Option<String>, &'static str, String), UsageBucket> =
+        BTreeMap::new();
+    for row in rows {
+        let Some(kind) = providers::usage_kind(row.agent_profile) else {
+            continue;
+        };
+        let key = (
+            row.day.clone(),
+            row.hour_start.clone(),
+            kind,
+            row.model.clone(),
+        );
+        merged
+            .entry(key)
+            .and_modify(|cell| {
+                cell.uncached_input_tokens += row.uncached_input_tokens;
+                cell.cached_input_tokens += row.cached_input_tokens;
+                cell.cache_creation_tokens += row.cache_creation_tokens;
+                cell.output_tokens += row.output_tokens;
+                cell.reasoning_tokens += row.reasoning_tokens;
+                cell.cost_usd += row.cost_usd;
+                cell.records += row.records;
+                cell.unpriced_records += row.unpriced_records;
+                cell.sessions += row.sessions;
+            })
+            .or_insert_with(|| row.clone());
+    }
+    merged
+        .into_iter()
+        .map(|((_, _, kind, _), cell)| (kind, cell))
+        .collect()
+}
+
+fn bucket(provider: &str, row: &UsageBucket) -> Value {
     let mut out = json!({
         "day": row.day,
-        "provider": row.provider,
+        "provider": provider,
         "model": row.model,
         "totals": {
             "uncachedInputTokens": row.uncached_input_tokens.max(0),
@@ -106,20 +148,21 @@ pub(crate) fn summary(
     read_at: &str,
     scan_duration_ms: u64,
 ) -> Value {
+    let rows = by_usage_kind(rows);
+    let kinds: BTreeSet<&str> = rows.iter().map(|(kind, _)| *kind).collect();
     let mut sources: Vec<Value> = Vec::new();
-    for provider in ["claude", "codex"] {
-        // Sessions are summed per provider from the provider's own rows. A
-        // Task spans models, so its bucket-level session counts overlap and
+    for kind in kinds {
+        // A Task spans models, so its bucket-level session counts overlap and
         // this reports the distinct-Task count the rows carry rather than a
         // sum across models.
-        let provider_rows: Vec<&UsageBucket> =
-            rows.iter().filter(|r| r.provider == provider).collect();
-        if provider_rows.is_empty() {
-            continue;
-        }
-        let sessions = provider_rows.iter().map(|r| r.sessions).max().unwrap_or(0);
-        let records = provider_rows.iter().map(|r| r.records).sum();
-        sources.push(source_for(provider, sessions, records));
+        let kind_rows: Vec<&UsageBucket> = rows
+            .iter()
+            .filter(|(k, _)| *k == kind)
+            .map(|(_, row)| row)
+            .collect();
+        let sessions = kind_rows.iter().map(|r| r.sessions).max().unwrap_or(0);
+        let records = kind_rows.iter().map(|r| r.records).sum();
+        sources.push(source_for(kind, sessions, records));
     }
 
     json!({
@@ -128,7 +171,7 @@ pub(crate) fn summary(
         "timeZone": window.time_zone,
         "sinceDay": window.since_day,
         "untilDay": window.until_day,
-        "buckets": rows.iter().map(bucket).collect::<Vec<_>>(),
+        "buckets": rows.iter().map(|(kind, row)| bucket(kind, row)).collect::<Vec<_>>(),
         "sources": sources,
         "pricing": {
             // The rates behind `cacheSavingsUsd` are compiled in, not fetched,
@@ -196,12 +239,13 @@ pub(crate) fn window_from(input: &UsageSummaryInput) -> Result<UsageWindow, Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+    use moatless_types::agent::AgentProfile;
 
     fn row(model: &str, cached: i64) -> UsageBucket {
         UsageBucket {
             day: "2026-09-04".to_string(),
             hour_start: None,
-            provider: "claude".to_string(),
+            agent_profile: AgentProfile::ClaudeCode,
             model: model.to_string(),
             uncached_input_tokens: 30,
             cached_input_tokens: cached,
@@ -230,7 +274,7 @@ mod tests {
 
     #[test]
     fn a_daily_bucket_carries_no_hour_start_key_at_all() {
-        let value = bucket(&row("claude-opus-4-8", 1_000));
+        let value = bucket("claude", &row("claude-opus-4-8", 1_000));
         assert!(
             value.get("hourStart").is_none(),
             "an explicit null fails the contract's Schema.optional"
@@ -241,7 +285,10 @@ mod tests {
     fn an_hourly_bucket_carries_the_hour_it_covers() {
         let mut source = row("claude-opus-4-8", 1_000);
         source.hour_start = Some("2026-09-04T11:00:00Z".to_string());
-        assert_eq!(bucket(&source)["hourStart"], "2026-09-04T11:00:00Z");
+        assert_eq!(
+            bucket("claude", &source)["hourStart"],
+            "2026-09-04T11:00:00Z"
+        );
     }
 
     /// Cache reads bill at a tenth of fresh input across the table, so the
@@ -270,20 +317,20 @@ mod tests {
     fn a_bucket_no_run_priced_reports_unpriced() {
         let mut source = row("claude-opus-4-8", 1_000);
         source.unpriced_records = source.records;
-        assert_eq!(bucket(&source)["costSource"], "unpriced");
+        assert_eq!(bucket("claude", &source)["costSource"], "unpriced");
     }
 
     #[test]
     fn a_bucket_any_run_priced_reports_the_provider() {
         let mut source = row("claude-opus-4-8", 1_000);
         source.unpriced_records = source.records - 1;
-        assert_eq!(bucket(&source)["costSource"], "providerReported");
+        assert_eq!(bucket("claude", &source)["costSource"], "providerReported");
     }
 
     #[test]
     fn a_summary_reports_one_source_per_provider_present() {
         let mut codex = row("gpt-5-codex", 500);
-        codex.provider = "codex".to_string();
+        codex.agent_profile = AgentProfile::Codex;
         let value = summary(&window(), &[row("claude-opus-4-8", 1_000), codex], "now", 7);
         let sources = value["sources"].as_array().expect("sources");
         assert_eq!(sources.len(), 2);
@@ -291,6 +338,39 @@ mod tests {
         assert_eq!(sources[1]["fingerprint"]["provider"], "codex");
         assert_eq!(value["contractVersion"], CONTRACT_VERSION);
         assert_eq!(value["scanDurationMs"], 7);
+    }
+
+    #[test]
+    fn an_antigravity_task_reports_under_the_antigravity_kind() {
+        let mut neon = row("gemini-4-neon-xhigh", 500);
+        neon.agent_profile = AgentProfile::Antigravity;
+        let value = summary(&window(), &[neon], "now", 1);
+        assert_eq!(value["buckets"][0]["provider"], "antigravity");
+        assert_eq!(
+            value["sources"][0]["fingerprint"]["provider"],
+            "antigravity"
+        );
+    }
+
+    #[test]
+    fn a_profile_with_no_usage_kind_is_left_out() {
+        let mut swe = row("gemini-3-flash", 0);
+        swe.agent_profile = AgentProfile::MiniSwe;
+        let value = summary(&window(), &[swe], "now", 1);
+        assert_eq!(value["buckets"].as_array().expect("buckets").len(), 0);
+        assert_eq!(value["sources"].as_array().expect("sources").len(), 0);
+    }
+
+    #[test]
+    fn claude_transports_merge_into_one_claude_bucket() {
+        let mut tui = row("claude-opus-4-8", 1_000);
+        tui.agent_profile = AgentProfile::ClaudeCodeTui;
+        let value = summary(&window(), &[row("claude-opus-4-8", 1_000), tui], "now", 1);
+        let buckets = value["buckets"].as_array().expect("buckets");
+        assert_eq!(buckets.len(), 1);
+        assert_eq!(buckets[0]["records"], 6);
+        assert_eq!(buckets[0]["sessions"], 4);
+        assert_eq!(buckets[0]["totals"]["cachedInputTokens"], 2_000);
     }
 
     #[test]

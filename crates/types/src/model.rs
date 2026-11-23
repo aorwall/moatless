@@ -5,6 +5,12 @@
 /// warns about and ignores anything else, and does not vary them per model.
 pub const CLAUDE_EFFORT_LEVELS: &[&str] = &["low", "medium", "high", "xhigh", "max"];
 
+/// The thinking levels Pi's `--thinking` accepts, weakest first.
+pub const PI_THINKING_LEVELS: &[&str] = &["off", "minimal", "low", "medium", "high"];
+
+/// The effort levels an Antigravity model offers, weakest first.
+pub const ANTIGRAVITY_EFFORT_LEVELS: &[&str] = &["low", "medium", "high"];
+
 /// The effort suffixes the Antigravity hub's catalog puts on a model id, as in
 /// `gemini-4-neon-xhigh`. `agy` may drop one before it calls the gateway.
 pub const HUB_EFFORT_SUFFIXES: &[&str] = &["-low", "-medium", "-high", "-xhigh"];

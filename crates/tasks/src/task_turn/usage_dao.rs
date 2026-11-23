@@ -2,6 +2,7 @@
 
 use moatless_core::db::DbPool;
 use moatless_types::access_control::{ScopeContext, ScopedEntity};
+use moatless_types::agent::AgentProfile;
 
 use super::usage::{UsageBucket, UsageWindow};
 
@@ -29,17 +30,14 @@ pub(crate) async fn buckets(
     let sql = format!(
         r#"
         WITH turns AS (
-            SELECT t.task_id, t.started_at, t.metrics,
-                   CASE WHEN k.agent_profile LIKE 'claude%' THEN 'claude'
-                        WHEN k.agent_profile LIKE 'codex%'  THEN 'codex'
-                        ELSE NULL END AS provider
+            SELECT t.task_id, t.started_at, t.metrics, k.agent_profile
             FROM task_turns t
             JOIN tasks k ON k.task_id = t.task_id
             WHERE (t.started_at AT TIME ZONE $3)::date BETWEEN $1::date AND $2::date
               AND {access}
         ),
         cells AS (
-            SELECT provider,
+            SELECT agent_profile,
                    to_char(started_at AT TIME ZONE $3, 'YYYY-MM-DD') AS day,
                    {bucket_expr} AS hour_start,
                    m.key AS model,
@@ -52,9 +50,9 @@ pub(crate) async fn buckets(
                    COALESCE((m.value->>'costUSD')::float8, 0)     AS cost,
                    ((m.value->>'costUSD') IS NULL)::int           AS unpriced
             FROM turns, jsonb_each(metrics->'modelUsage') m
-            WHERE provider IS NOT NULL AND jsonb_typeof(metrics->'modelUsage') = 'object'
+            WHERE jsonb_typeof(metrics->'modelUsage') = 'object'
             UNION ALL
-            SELECT provider,
+            SELECT agent_profile,
                    to_char(started_at AT TIME ZONE $3, 'YYYY-MM-DD') AS day,
                    {bucket_expr} AS hour_start,
                    COALESCE(metrics->>'model', 'unknown') AS model,
@@ -67,11 +65,10 @@ pub(crate) async fn buckets(
                    COALESCE((metrics->>'totalCostUsd')::float8, 0)          AS cost,
                    ((metrics->>'totalCostUsd') IS NULL)::int                AS unpriced
             FROM turns
-            WHERE provider IS NOT NULL
-              AND jsonb_typeof(metrics->'modelUsage') IS DISTINCT FROM 'object'
+            WHERE jsonb_typeof(metrics->'modelUsage') IS DISTINCT FROM 'object'
               AND jsonb_typeof(metrics->'usage') = 'object'
         )
-        SELECT day, hour_start, provider, model,
+        SELECT day, hour_start, agent_profile, model,
                COALESCE(SUM(uncached_input), 0)::bigint AS uncached_input,
                COALESCE(SUM(cached_input), 0)::bigint   AS cached_input,
                COALESCE(SUM(cache_creation), 0)::bigint AS cache_creation,
@@ -82,8 +79,8 @@ pub(crate) async fn buckets(
                COALESCE(SUM(unpriced), 0)::bigint       AS unpriced_records,
                COUNT(DISTINCT task_id)::bigint          AS sessions
         FROM cells
-        GROUP BY day, hour_start, provider, model
-        ORDER BY day, provider, model
+        GROUP BY day, hour_start, agent_profile, model
+        ORDER BY day, agent_profile, model
         "#,
         access = access.sql(),
     );
@@ -97,14 +94,14 @@ pub(crate) async fn buckets(
         .fetch_all(pool)
         .await?;
 
-    Ok(rows.into_iter().map(UsageRow::into_bucket).collect())
+    Ok(rows.into_iter().filter_map(UsageRow::into_bucket).collect())
 }
 
 #[derive(sqlx::FromRow)]
 struct UsageRow {
     day: String,
     hour_start: Option<String>,
-    provider: String,
+    agent_profile: String,
     model: String,
     uncached_input: i64,
     cached_input: i64,
@@ -118,11 +115,12 @@ struct UsageRow {
 }
 
 impl UsageRow {
-    fn into_bucket(self) -> UsageBucket {
-        UsageBucket {
+    /// `None` for a profile this build no longer knows.
+    fn into_bucket(self) -> Option<UsageBucket> {
+        Some(UsageBucket {
             day: self.day,
             hour_start: self.hour_start,
-            provider: self.provider,
+            agent_profile: AgentProfile::parse(&self.agent_profile)?,
             model: self.model,
             uncached_input_tokens: self.uncached_input,
             cached_input_tokens: self.cached_input,
@@ -133,6 +131,6 @@ impl UsageRow {
             records: self.records,
             unpriced_records: self.unpriced_records,
             sessions: self.sessions,
-        }
+        })
     }
 }

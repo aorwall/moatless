@@ -2,6 +2,7 @@
 
 use moatless_core::db::DbPool;
 use moatless_types::access_control::ScopeContext;
+use moatless_types::agent::AgentProfile;
 
 /// The days a usage read covers, already validated.
 #[derive(Debug, Clone, PartialEq)]
@@ -15,7 +16,7 @@ pub struct UsageWindow {
     pub hourly: bool,
 }
 
-/// One `(day, provider, model)` cell of usage, already aggregated.
+/// One `(day, agent profile, model)` cell of usage, already aggregated.
 ///
 /// Token fields are disjoint: `uncached_input_tokens`, `cached_input_tokens`
 /// and `cache_creation_tokens` sum to the total input; `reasoning_tokens` is a
@@ -26,8 +27,8 @@ pub struct UsageBucket {
     pub day: String,
     /// RFC3339 start of the hour, present only for an hourly window.
     pub hour_start: Option<String>,
-    /// `claude` or `codex`, from the Task's agent profile.
-    pub provider: String,
+    /// The Task's agent profile.
+    pub agent_profile: AgentProfile,
     pub model: String,
     pub uncached_input_tokens: i64,
     pub cached_input_tokens: i64,
@@ -58,7 +59,7 @@ impl TurnUsage {
         Self { pool }
     }
 
-    /// The buckets for `window`, ordered by day, provider and model.
+    /// The buckets for `window`, ordered by day, agent profile and model.
     pub async fn buckets(
         &self,
         viewer: &ScopeContext,

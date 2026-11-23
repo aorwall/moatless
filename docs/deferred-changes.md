@@ -762,6 +762,7 @@ of its own.
 |---|---|---|
 | Two Antigravity prices are due to change | `crates/types/src/model.rs::ANTIGRAVITY_ONLY` holds one price per model, with no start date. Google moves Gemini 4 Argon from $2 / $10 to $4 / $20 on 2026-12-01, and doubles Gemini 3.8 Flash on 2027-01-01 | On each date, update its row, so a run is priced at the rate in force when it ran |
 | A Claude run through Antigravity prices its cache writes at the input rate | `crates/sandbox/src/agent/harness/acp/process.rs::on_response` reads agy's usage, which carries no cache-write count on the OpenAI wire, so the creation tokens arrive inside `inputTokens` | When Claude-through-Antigravity costs are compared against Claude Code's to the cent. Read the hub's Anthropic usage instead |
+| Mini-SWE runs are missing from T3's usage page | `crates/t3code/src/providers.rs::presentation` gives `Harness::MiniSwe` no `usage_kind`, since T3's `UsageProviderKind` has none for it, so its turns are left out | When Mini-SWE runs often enough for their cost to matter. Add a kind to T3's contract first, then set it here |
 
 ## Generated API client
 

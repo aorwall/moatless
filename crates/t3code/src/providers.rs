@@ -5,13 +5,16 @@
 //! Publishes T3's canonical slugs and names (its alias table maps only towards
 //! them); the `default` sentinel, naming no model, is never published.
 
-use moatless_types::model::{CLAUDE_EFFORT_LEVELS, claude_model_id, codex_effort_levels};
+use moatless_types::model::{
+    ANTIGRAVITY_EFFORT_LEVELS, CLAUDE_EFFORT_LEVELS, PI_THINKING_LEVELS, claude_model_id,
+    codex_effort_levels,
+};
 use serde_json::{Value, json};
 
 use crate::AgentModelDefaults;
 use crate::agent::catalog::{UNRESOLVED_MODEL_CHOICE, catalog};
 use crate::agent::schemas::AgentDescriptor;
-use moatless_types::agent::{Harness, split_pi_model};
+use moatless_types::agent::{AgentProfile, Harness, split_pi_model};
 
 /// The Claude provider instance id.
 pub const CLAUDE_INSTANCE: &str = "claudeAgent";
@@ -26,42 +29,128 @@ const LEGACY_ACP_INSTANCE: &str = "acp";
 /// T3's `ANTIGRAVITY_DEFAULT_MODEL`: "whichever model the session runs".
 pub const ANTIGRAVITY_DEFAULT_ALIAS: &str = "antigravity-default";
 
+/// Everything T3 shows for one harness. [`presentation`] is the only place a
+/// harness maps to T3's names, so a new harness does not build until it is
+/// given every field here.
+pub struct Presentation {
+    pub instance: &'static str,
+    pub display_name: &'static str,
+    /// T3's `UsageProviderKind`, or `None` for a harness the usage page has no
+    /// kind for, whose turns it leaves out.
+    pub usage_kind: Option<&'static str>,
+    /// `None` publishes no effort picker.
+    pub effort: Option<EffortPicker>,
+    pub interaction_mode_toggle: bool,
+    /// The client reserves the context meter's space only where this is true.
+    pub reports_context_window: bool,
+    /// The slug T3's driver starts a draft on, published on the default model
+    /// and read back as "no model chosen".
+    pub default_alias: Option<&'static str>,
+}
+
+/// The effort choice a harness's models publish.
+pub struct EffortPicker {
+    /// The option-descriptor id T3 reads the choice from. Publishing under any
+    /// other id leaves a carried-over selection unread and silently runs the
+    /// default.
+    pub option_id: &'static str,
+    /// The levels a catalog model offers, weakest first.
+    pub levels: fn(&str) -> &'static [&'static str],
+}
+
+/// How T3 shows `harness`.
+pub fn presentation(harness: Harness) -> Presentation {
+    match harness {
+        Harness::ClaudeCode => Presentation {
+            instance: CLAUDE_INSTANCE,
+            display_name: "Claude Code",
+            usage_kind: Some("claude"),
+            effort: Some(EffortPicker {
+                option_id: "effort",
+                levels: |_| CLAUDE_EFFORT_LEVELS,
+            }),
+            interaction_mode_toggle: true,
+            reports_context_window: true,
+            default_alias: None,
+        },
+        Harness::Codex => Presentation {
+            instance: CODEX_INSTANCE,
+            display_name: "Codex",
+            usage_kind: Some("codex"),
+            effort: Some(EffortPicker {
+                option_id: "reasoningEffort",
+                levels: codex_effort_levels,
+            }),
+            interaction_mode_toggle: true,
+            reports_context_window: true,
+            default_alias: None,
+        },
+        Harness::Pi => Presentation {
+            instance: PI_INSTANCE,
+            display_name: "Pi",
+            usage_kind: Some("pi"),
+            effort: Some(EffortPicker {
+                option_id: "thinking",
+                levels: |_| PI_THINKING_LEVELS,
+            }),
+            interaction_mode_toggle: true,
+            reports_context_window: true,
+            default_alias: None,
+        },
+        // mini-swe-agent's harness sends no `context-window.updated`.
+        Harness::MiniSwe => Presentation {
+            instance: MINI_SWE_INSTANCE,
+            display_name: "mini-swe-agent",
+            usage_kind: None,
+            effort: None,
+            interaction_mode_toggle: false,
+            reports_context_window: false,
+            default_alias: None,
+        },
+        Harness::Acp => Presentation {
+            instance: ANTIGRAVITY_INSTANCE,
+            display_name: "Antigravity",
+            usage_kind: Some("antigravity"),
+            effort: Some(EffortPicker {
+                option_id: "effort",
+                levels: |_| ANTIGRAVITY_EFFORT_LEVELS,
+            }),
+            interaction_mode_toggle: true,
+            reports_context_window: true,
+            default_alias: Some(ANTIGRAVITY_DEFAULT_ALIAS),
+        },
+    }
+}
+
 /// Which instance a catalog agent belongs to.
 pub fn instance_for(harness: Harness) -> &'static str {
-    match harness {
-        Harness::ClaudeCode => CLAUDE_INSTANCE,
-        Harness::Codex => CODEX_INSTANCE,
-        Harness::Pi => PI_INSTANCE,
-        Harness::MiniSwe => MINI_SWE_INSTANCE,
-        Harness::Acp => ANTIGRAVITY_INSTANCE,
-    }
+    presentation(harness).instance
 }
 
 /// The harness an instance names; `None` for one this surface does not publish.
 pub fn harness_for(instance: &str) -> Option<Harness> {
-    match instance {
-        CLAUDE_INSTANCE => Some(Harness::ClaudeCode),
-        CODEX_INSTANCE => Some(Harness::Codex),
-        PI_INSTANCE => Some(Harness::Pi),
-        MINI_SWE_INSTANCE => Some(Harness::MiniSwe),
-        ANTIGRAVITY_INSTANCE | LEGACY_ACP_INSTANCE => Some(Harness::Acp),
-        _ => None,
+    if instance == LEGACY_ACP_INSTANCE {
+        return Some(Harness::Acp);
     }
+    Harness::ALL
+        .iter()
+        .copied()
+        .find(|harness| presentation(*harness).instance == instance)
 }
 
-/// The option-descriptor id an instance publishes its effort choice under.
-///
-/// T3's own ids — `effort` for Claude, `reasoningEffort` for Codex — publishing
-/// under any other id leaves a carried-over selection unread and silently runs
-/// the default.
-pub fn effort_option_id(instance: &str) -> &'static str {
-    if instance == PI_INSTANCE {
-        "thinking"
-    } else if instance == CODEX_INSTANCE {
-        "reasoningEffort"
-    } else {
-        "effort"
-    }
+/// T3's usage kind for a Task's agent profile; see [`Presentation::usage_kind`].
+pub fn usage_kind(profile: AgentProfile) -> Option<&'static str> {
+    presentation(profile.harness()).usage_kind
+}
+
+fn effort_picker(instance: &str) -> Option<EffortPicker> {
+    harness_for(instance).and_then(|harness| presentation(harness).effort)
+}
+
+/// The option-descriptor id an instance publishes its effort choice under; see
+/// [`EffortPicker::option_id`]. `None` for an instance with no effort picker.
+pub fn effort_option_id(instance: &str) -> Option<&'static str> {
+    effort_picker(instance).map(|picker| picker.option_id)
 }
 
 /// The level that runs when nobody chooses one — what the Sandbox sends for
@@ -71,19 +160,7 @@ const DEFAULT_EFFORT: &str = "high";
 
 /// The effort levels a published model row offers, weakest first.
 fn effort_levels(instance: &str, catalog_model: &str) -> &'static [&'static str] {
-    if instance == MINI_SWE_INSTANCE {
-        return &[];
-    }
-    if instance == ANTIGRAVITY_INSTANCE {
-        return &["low", "medium", "high"];
-    }
-    if instance == PI_INSTANCE {
-        return &["off", "minimal", "low", "medium", "high"];
-    }
-    if instance != CODEX_INSTANCE {
-        return CLAUDE_EFFORT_LEVELS;
-    }
-    codex_effort_levels(catalog_model)
+    effort_picker(instance).map_or(&[], |picker| (picker.levels)(catalog_model))
 }
 
 /// Whether a published model row offers `level`.
@@ -110,9 +187,9 @@ fn effort_label(level: &str) -> &str {
 ///
 /// T3 sends the chosen value back on `modelSelection.options`.
 fn capabilities(instance: &str, catalog_model: &str) -> Value {
-    if instance == MINI_SWE_INSTANCE {
+    let Some(option_id) = effort_option_id(instance) else {
         return json!({"optionDescriptors": []});
-    }
+    };
     let options: Vec<Value> = effort_levels(instance, catalog_model)
         .iter()
         .map(|level| {
@@ -126,7 +203,7 @@ fn capabilities(instance: &str, catalog_model: &str) -> Value {
 
     json!({
         "optionDescriptors": [{
-            "id": effort_option_id(instance),
+            "id": option_id,
             "label": "Reasoning",
             "type": "select",
             "options": options,
@@ -188,7 +265,7 @@ pub fn publish_model(catalog_model: &str) -> Option<(&'static str, String)> {
 /// The `default` sentinel is left out: it names no model.
 fn models_for(agents: &[AgentDescriptor], instance: &str) -> Vec<(String, String)> {
     let mut models: Vec<(String, String)> = Vec::new();
-    for agent in agents.iter().filter(|a| kind_of(a) == instance) {
+    for agent in agents.iter().filter(|a| kind_of(a) == Some(instance)) {
         for model in &agent.models {
             if model.id == UNRESOLVED_MODEL_CHOICE {
                 continue;
@@ -201,10 +278,10 @@ fn models_for(agents: &[AgentDescriptor], instance: &str) -> Vec<(String, String
     models
 }
 
-/// The instance a descriptor belongs to, looked up through the catalog.
-pub(crate) fn kind_of(agent: &AgentDescriptor) -> &'static str {
-    crate::agent::catalog::find(&agent.id)
-        .map_or(CLAUDE_INSTANCE, |entry| instance_for(entry.harness()))
+/// The instance a descriptor belongs to, looked up through the catalog; `None`
+/// for an id the catalog does not know.
+pub(crate) fn kind_of(agent: &AgentDescriptor) -> Option<&'static str> {
+    crate::agent::catalog::find(&agent.id).map(|entry| instance_for(entry.harness()))
 }
 
 /// The catalog id of the model to mark `isDefault` for an instance.
@@ -233,7 +310,7 @@ fn default_model_for(
 fn installed(agents: &[AgentDescriptor], instance: &str) -> bool {
     agents
         .iter()
-        .filter(|a| kind_of(a) == instance)
+        .filter(|a| kind_of(a) == Some(instance))
         .any(|a| a.installed)
 }
 
@@ -241,7 +318,7 @@ fn installed(agents: &[AgentDescriptor], instance: &str) -> bool {
 fn missing_hint(agents: &[AgentDescriptor], instance: &str) -> Option<String> {
     agents
         .iter()
-        .filter(|a| kind_of(a) == instance)
+        .filter(|a| kind_of(a) == Some(instance))
         .find_map(|a| a.missing_credential_hint.clone())
 }
 
@@ -256,78 +333,78 @@ pub fn providers(
     checked_at: &str,
     workspace_snapshots: &[Value],
 ) -> Vec<Value> {
-    [
-        (CLAUDE_INSTANCE, "Claude Code", Harness::ClaudeCode),
-        (CODEX_INSTANCE, "Codex", Harness::Codex),
-        (PI_INSTANCE, "Pi", Harness::Pi),
-        (MINI_SWE_INSTANCE, "mini-swe-agent", Harness::MiniSwe),
-        (ANTIGRAVITY_INSTANCE, "Antigravity", Harness::Acp),
-    ]
-    .into_iter()
-    .map(|(instance, display_name, harness)| {
-        let is_installed = installed(agents, instance);
-        let default_model = default_model_for(agents, instance, defaults.for_harness(harness));
-        let models: Vec<Value> = models_for(agents, instance)
-            .into_iter()
-            .map(|(id, label)| {
-                let is_default = Some(&id) == default_model.as_ref();
-                let mut row = json!({
-                    "slug": published_slug(instance, &id),
-                    // T3 renders this verbatim and matches a stored selection against it.
-                    "name": label,
-                    "isCustom": false,
-                    "isDefault": is_default,
-                    "capabilities": capabilities(instance, &id),
-                });
-                // T3's `antigravity` driver starts a draft on the alias.
-                if is_default && instance == ANTIGRAVITY_INSTANCE {
-                    row["aliases"] = json!([ANTIGRAVITY_DEFAULT_ALIAS]);
-                }
-                row
-            })
-            .collect();
+    Harness::ALL
+        .iter()
+        .copied()
+        .map(|harness| {
+            let Presentation {
+                instance,
+                display_name,
+                interaction_mode_toggle,
+                reports_context_window,
+                default_alias,
+                ..
+            } = presentation(harness);
+            let is_installed = installed(agents, instance);
+            let default_model = default_model_for(agents, instance, defaults.for_harness(harness));
+            let models: Vec<Value> = models_for(agents, instance)
+                .into_iter()
+                .map(|(id, label)| {
+                    let is_default = Some(&id) == default_model.as_ref();
+                    let mut row = json!({
+                        "slug": published_slug(instance, &id),
+                        // T3 renders this verbatim and matches a stored selection against it.
+                        "name": label,
+                        "isCustom": false,
+                        "isDefault": is_default,
+                        "capabilities": capabilities(instance, &id),
+                    });
+                    if let Some(alias) = default_alias.filter(|_| is_default) {
+                        row["aliases"] = json!([alias]);
+                    }
+                    row
+                })
+                .collect();
 
-        let mut provider = json!({
-            "instanceId": instance,
-            "driver": instance,
-            "displayName": display_name,
-            "enabled": true,
-            "installed": is_installed,
-            "version": Value::Null,
-            "status": if is_installed { "ready" } else { "disabled" },
-            "auth": {
-                "status": if is_installed { "authenticated" } else { "unauthenticated" },
-            },
-            "checkedAt": checked_at,
-            "showInteractionModeToggle": instance != MINI_SWE_INSTANCE,
-            // Both harnesses resume a branched transcript, which is the whole of
-            // what a history-only rewind needs. The file-restoring half is
-            // refused in `commands::dispatch` rather than turned off here: this
-            // flag is per provider and would take both with it.
-            "supportsConversationRollback": true,
-            // The client reserves the meter's space only where this is true;
-            // mini-swe-agent's harness sends no `context-window.updated`.
-            "reportsContextWindow": instance != MINI_SWE_INSTANCE,
-            "availability": "available",
-            "models": models,
-            "slashCommands": [],
-            "skills": [],
-        });
+            let mut provider = json!({
+                "instanceId": instance,
+                "driver": instance,
+                "displayName": display_name,
+                "enabled": true,
+                "installed": is_installed,
+                "version": Value::Null,
+                "status": if is_installed { "ready" } else { "disabled" },
+                "auth": {
+                    "status": if is_installed { "authenticated" } else { "unauthenticated" },
+                },
+                "checkedAt": checked_at,
+                "showInteractionModeToggle": interaction_mode_toggle,
+                // Both harnesses resume a branched transcript, which is the whole of
+                // what a history-only rewind needs. The file-restoring half is
+                // refused in `commands::dispatch` rather than turned off here: this
+                // flag is per provider and would take both with it.
+                "supportsConversationRollback": true,
+                "reportsContextWindow": reports_context_window,
+                "availability": "available",
+                "models": models,
+                "slashCommands": [],
+                "skills": [],
+            });
 
-        // `workspaceSnapshots` is `optionalKey` in the contract, so a
-        // connection that has resolved no `cwd` yet leaves it out.
-        if !workspace_snapshots.is_empty() {
-            provider["workspaceSnapshots"] = json!(workspace_snapshots);
-        }
-
-        if !is_installed {
-            if let Some(hint) = missing_hint(agents, instance) {
-                provider["message"] = json!(hint);
+            // `workspaceSnapshots` is `optionalKey` in the contract, so a
+            // connection that has resolved no `cwd` yet leaves it out.
+            if !workspace_snapshots.is_empty() {
+                provider["workspaceSnapshots"] = json!(workspace_snapshots);
             }
-        }
-        provider
-    })
-    .collect()
+
+            if !is_installed {
+                if let Some(hint) = missing_hint(agents, instance) {
+                    provider["message"] = json!(hint);
+                }
+            }
+            provider
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -403,6 +480,16 @@ mod tests {
         );
         assert_eq!(publish_model("openai/"), None);
         assert_eq!(publish_model("claude-opus-4-8-unknown"), None);
+    }
+
+    #[test]
+    fn every_harness_is_published_under_an_instance_that_maps_back_to_it() {
+        let list = published();
+        assert_eq!(list.len(), Harness::ALL.len());
+        for (provider, harness) in list.iter().zip(Harness::ALL) {
+            let instance = provider["instanceId"].as_str().unwrap();
+            assert_eq!(harness_for(instance), Some(*harness), "{instance}");
+        }
     }
 
     #[test]

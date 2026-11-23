@@ -168,11 +168,8 @@ pub(super) fn turn_model_selections(transcript: &Transcript) -> HashMap<i32, Val
             .and_then(|(_, effort)| effort);
         let effort = asked.get(&turn).copied().or(inherited);
         let mut selection = json!({ "instanceId": instance, "model": model });
-        if let Some(effort) = effort {
-            selection["options"] = json!([{
-                "id": providers::effort_option_id(instance),
-                "value": effort,
-            }]);
+        if let (Some(effort), Some(option_id)) = (effort, providers::effort_option_id(instance)) {
+            selection["options"] = json!([{ "id": option_id, "value": effort }]);
         }
         selections.insert(turn, selection);
         previous = Some((instance, effort));
@@ -194,16 +191,15 @@ pub(super) fn default_model_selection(workspace: &Workspace) -> Value {
         return Value::Null;
     };
     let mut selection = json!({ "instanceId": instance, "model": slug });
-    if let Some(effort) = workspace
-        .default_effort
-        .as_deref()
-        .map(str::trim)
-        .filter(|level| providers::publishes_effort(instance, catalog_model, level))
-    {
-        selection["options"] = json!([{
-            "id": providers::effort_option_id(instance),
-            "value": effort,
-        }]);
+    if let (Some(effort), Some(option_id)) = (
+        workspace
+            .default_effort
+            .as_deref()
+            .map(str::trim)
+            .filter(|level| providers::publishes_effort(instance, catalog_model, level)),
+        providers::effort_option_id(instance),
+    ) {
+        selection["options"] = json!([{ "id": option_id, "value": effort }]);
     }
     selection
 }

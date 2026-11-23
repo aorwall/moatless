@@ -13,6 +13,7 @@ use tracing::{debug, info, warn};
 use crate::agent::harness::trajectory::ClaudeSessionFormat;
 use crate::config::Config;
 use crate::state::SandboxState;
+use moatless_types::agent::Harness;
 
 /// Bound on the sync-on-shutdown flush, one of the steps `crate::shutdown`
 /// fits inside the pod's termination grace period.
@@ -56,32 +57,44 @@ pub(crate) fn mini_swe_sessions_dir(config: &Config) -> PathBuf {
     config.mini_swe_home_dir().join("sessions")
 }
 
-/// Every archived session dir. Claude's comes first: a flat archive from
-/// before prefixes existed restores into it.
+/// Every archived session dir, by harness in [`Harness::ALL`] order. Claude's
+/// comes first: a flat archive from before prefixes existed restores into it.
+fn archived_dirs(config: &Config) -> Vec<ArchivedDir> {
+    Harness::ALL
+        .iter()
+        .flat_map(|harness| harness_dirs(config, *harness))
+        .collect()
+}
+
+/// The session dirs one harness resumes from.
 ///
 /// Antigravity keeps each conversation as `conversations/<id>.db` plus
 /// `brain/<id>/` under its `--gemini-dir`; the rest of that dir is caches and
 /// logs, which stay out.
-fn archived_dirs(config: &Config) -> Vec<ArchivedDir> {
-    let antigravity = config.antigravity_dir().join("antigravity-cli");
-    vec![
-        (CLAUDE_ARCHIVE_PREFIX, transcript_dir(config)),
-        (CODEX_SESSIONS_ARCHIVE_PREFIX, codex_sessions_dir(config)),
-        (PI_SESSIONS_ARCHIVE_PREFIX, pi_sessions_dir(config)),
-        (
+fn harness_dirs(config: &Config, harness: Harness) -> Vec<ArchivedDir> {
+    match harness {
+        Harness::ClaudeCode => vec![(CLAUDE_ARCHIVE_PREFIX, transcript_dir(config))],
+        Harness::Codex => vec![(CODEX_SESSIONS_ARCHIVE_PREFIX, codex_sessions_dir(config))],
+        Harness::Pi => vec![(PI_SESSIONS_ARCHIVE_PREFIX, pi_sessions_dir(config))],
+        Harness::MiniSwe => vec![(
             MINI_SWE_SESSIONS_ARCHIVE_PREFIX,
             mini_swe_sessions_dir(config),
-        ),
-        (
-            ACP_SESSIONS_ARCHIVE_PREFIX,
-            config.acp_home_dir().join("sessions"),
-        ),
-        (
-            ANTIGRAVITY_CONVERSATIONS_ARCHIVE_PREFIX,
-            antigravity.join("conversations"),
-        ),
-        (ANTIGRAVITY_BRAIN_ARCHIVE_PREFIX, antigravity.join("brain")),
-    ]
+        )],
+        Harness::Acp => {
+            let antigravity = config.antigravity_dir().join("antigravity-cli");
+            vec![
+                (
+                    ACP_SESSIONS_ARCHIVE_PREFIX,
+                    config.acp_home_dir().join("sessions"),
+                ),
+                (
+                    ANTIGRAVITY_CONVERSATIONS_ARCHIVE_PREFIX,
+                    antigravity.join("conversations"),
+                ),
+                (ANTIGRAVITY_BRAIN_ARCHIVE_PREFIX, antigravity.join("brain")),
+            ]
+        }
+    }
 }
 
 /// Download the stored session-state archive and restore it.

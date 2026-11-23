@@ -177,18 +177,15 @@ pub(super) async fn get_pending_messages(
         _ => latest_agent_session_id,
     };
 
-    // Pi repairs orphaned tool calls when loading a stopped session. Keep its
-    // explicit id deliberately: a replacement sandbox cannot recover the
-    // conversation through Claude's implicit `--continue` fallback.
+    // Keep the explicit id of a harness that `resumes_a_stopped_session`
+    // deliberately: a replacement sandbox cannot recover the conversation
+    // through Claude's implicit `--continue` fallback.
     let cut_off = match service.ingress.as_ref().map(|i| &i.task_turns) {
         Some(turns) => match turns.latest_closed_turn_status(&req.task_id).await {
             Ok(status) => status.is_some_and(|status| {
                 status.cut_off_session()
                     && !(status == TurnStatus::Stopped
-                        && matches!(
-                            task_agent_profile,
-                            AgentProfile::Pi | AgentProfile::MiniSwe | AgentProfile::Antigravity
-                        ))
+                        && task_agent_profile.harness().resumes_a_stopped_session())
             }),
             Err(e) => {
                 warn!(error = %e, task_id = %req.task_id, "Failed to read last closed turn; assuming resumable");

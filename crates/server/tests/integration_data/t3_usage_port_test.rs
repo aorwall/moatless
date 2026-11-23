@@ -15,6 +15,7 @@ use crate::common;
 
 use moatless_t3code::ports::UsageWindow;
 use moatless_tasks::task::test_support as task_fixtures;
+use moatless_types::agent::AgentProfile;
 use moatless_workspaces::compose;
 use serde_json::json;
 use sqlx::PgPool;
@@ -161,7 +162,7 @@ async fn claude_turn_fans_out_one_bucket_per_model(pool: PgPool) {
         .expect("opus bucket");
     assert_eq!(opus.day, "2026-09-02");
     assert_eq!(opus.hour_start, None);
-    assert_eq!(opus.provider, "claude");
+    assert_eq!(opus.agent_profile, AgentProfile::ClaudeCode);
     assert_eq!(opus.uncached_input_tokens, 100);
     assert_eq!(opus.cached_input_tokens, 900);
     assert_eq!(opus.cache_creation_tokens, 40);
@@ -201,10 +202,46 @@ async fn codex_turn_groups_by_its_single_model(pool: PgPool) {
         .expect("read usage buckets");
 
     assert_eq!(rows.len(), 1, "{rows:?}");
-    assert_eq!(rows[0].provider, "codex");
+    assert_eq!(rows[0].agent_profile, AgentProfile::Codex);
     assert_eq!(rows[0].model, "gpt-5-codex");
     assert_eq!(rows[0].reasoning_tokens, 120);
     assert!((rows[0].cost_usd - 0.5).abs() < 1e-9);
+}
+
+/// An agent the query once had no name for, whose turns it dropped.
+#[sqlx::test]
+async fn an_antigravity_turn_is_read_under_its_own_profile(pool: PgPool) {
+    seed_task(&pool, "task-agy", USER_1).await;
+    seed_turn(
+        &pool,
+        "task-agy",
+        1,
+        "antigravity",
+        json!({
+            "model": "gemini-4-neon-xhigh",
+            "totalCostUsd": 0.17,
+            "usage": {
+                "input_tokens": 4639,
+                "cache_read_input_tokens": 30000,
+                "cache_creation_input_tokens": 0,
+                "output_tokens": 900,
+                "reasoning_output_tokens": 400,
+            }
+        }),
+    )
+    .await;
+
+    let reporter = moatless_backend::t3code::t3_graph_over(&pool).usage();
+    let rows = reporter
+        .buckets(&user_scope(USER_1), &window())
+        .await
+        .expect("read usage buckets");
+
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0].agent_profile, AgentProfile::Antigravity);
+    assert_eq!(rows[0].model, "gemini-4-neon-xhigh");
+    assert_eq!(rows[0].cached_input_tokens, 30000);
+    assert!((rows[0].cost_usd - 0.17).abs() < 1e-9);
 }
 
 #[sqlx::test]

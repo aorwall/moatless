@@ -1103,11 +1103,9 @@ pub(super) fn build_resume(
     if let Some(session_id) = resume_session_id.filter(|s| !s.is_empty()) {
         return Some(ResumeSession::WithId(session_id.to_string()));
     }
-    if harness == moatless_types::agent::Harness::ClaudeCode {
-        Some(ResumeSession::Last)
-    } else {
-        None
-    }
+    harness
+        .resumes_last_session()
+        .then_some(ResumeSession::Last)
 }
 
 /// A human-readable provider name for a set of flagged credential keys, for the

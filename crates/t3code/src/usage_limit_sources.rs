@@ -13,6 +13,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{DateTime, SecondsFormat, TimeZone, Utc};
+use moatless_types::agent::Harness;
 use moatless_types::http::HttpTimeouts;
 use moatless_types::ui_rpc::T3UiRpcConfig;
 use serde::Deserialize;
@@ -277,6 +278,32 @@ fn accounts(files: &[AuthFile], checked_at: DateTime<Utc>) -> Vec<Value> {
     accounts
 }
 
+/// A hub auth file's provider that reports quota headers.
+#[derive(Clone, Copy)]
+enum QuotaProvider {
+    Claude,
+    Codex,
+}
+
+impl QuotaProvider {
+    /// `None` for every other pooled provider: it reports no quota headers at
+    /// all, so a row for one would be a heading with nothing under it.
+    fn parse(provider: &str) -> Option<Self> {
+        match provider {
+            "claude" => Some(Self::Claude),
+            "codex" => Some(Self::Codex),
+            _ => None,
+        }
+    }
+
+    fn harness(self) -> Harness {
+        match self {
+            Self::Claude => Harness::ClaudeCode,
+            Self::Codex => Harness::Codex,
+        }
+    }
+}
+
 fn account(file: &AuthFile, checked_at: DateTime<Utc>) -> Option<Value> {
     let id = file
         .name
@@ -284,17 +311,12 @@ fn account(file: &AuthFile, checked_at: DateTime<Utc>) -> Option<Value> {
         .map(str::trim)
         .filter(|id| !id.is_empty())?;
     let provider = file.provider.as_deref().unwrap_or_default().to_lowercase();
-    let driver = match provider.as_str() {
-        "claude" => "claudeAgent",
-        "codex" => "codex",
-        // Every other pooled provider reports no quota headers at all, so a row
-        // for one would be a heading with nothing under it.
-        _ => return None,
+    let provider = QuotaProvider::parse(&provider)?;
+    let windows = match provider {
+        QuotaProvider::Claude => claude_windows(&file.quota.signals),
+        QuotaProvider::Codex => codex_windows(&file.quota.signals),
     };
-    let windows = match provider.as_str() {
-        "claude" => claude_windows(&file.quota.signals),
-        _ => codex_windows(&file.quota.signals),
-    };
+    let driver = crate::providers::instance_for(provider.harness());
     let mut account = json!({
         "id": id,
         "driver": driver,
@@ -306,7 +328,7 @@ fn account(file: &AuthFile, checked_at: DateTime<Utc>) -> Option<Value> {
     if let Some(email) = non_empty(file.email.clone()) {
         account["email"] = json!(email);
     }
-    if let Some(plan) = plan_label(&provider, &file.quota.signals) {
+    if let Some(plan) = plan_label(provider, &file.quota.signals) {
         account["plan"] = json!(plan);
     }
     Some(account)
@@ -314,10 +336,10 @@ fn account(file: &AuthFile, checked_at: DateTime<Utc>) -> Option<Value> {
 
 /// Codex names its plan on every response; Claude reports no tier at all, so
 /// the row says what it is rather than guessing a plan.
-fn plan_label(provider: &str, signals: &BTreeMap<String, String>) -> Option<String> {
+fn plan_label(provider: QuotaProvider, signals: &BTreeMap<String, String>) -> Option<String> {
     match provider {
-        "claude" => Some("Claude Subscription".to_string()),
-        "codex" => {
+        QuotaProvider::Claude => Some("Claude Subscription".to_string()),
+        QuotaProvider::Codex => {
             signal(signals, "X-Codex-Plan-Type").map(|plan| match plan.to_lowercase().as_str() {
                 "plus" => "ChatGPT Plus Subscription".to_string(),
                 "pro" => "ChatGPT Pro 20x Subscription".to_string(),
@@ -326,7 +348,6 @@ fn plan_label(provider: &str, signals: &BTreeMap<String, String>) -> Option<Stri
                 _ => format!("ChatGPT {plan} Subscription"),
             })
         }
-        _ => None,
     }
 }
 

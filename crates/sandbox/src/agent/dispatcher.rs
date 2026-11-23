@@ -474,7 +474,7 @@ async fn continued_session_text(
         WriteTarget::Fork
     } else if switch_harness {
         WriteTarget::Switch
-    } else if !start_fresh && harness == moatless_types::agent::Harness::ClaudeCode {
+    } else if !start_fresh && harness.resumes_last_session() {
         return crate::agent::harness::claude_continued_transcript(&state.config).await;
     } else {
         return None;

@@ -16,6 +16,7 @@ use tracing::{debug, warn};
 
 use crate::agent::handle::resolve_agent_harness;
 use crate::config::Config;
+use moatless_types::agent::Harness;
 use moatless_workspace_types::plugin::REPO_SKILL_ROOTS;
 
 /// One place a skill can live, plus how the preamble names it.
@@ -271,15 +272,15 @@ fn catalog_from_roots(roots: &[SkillRoot]) -> String {
 
 /// `<home>/skills` for the harness this Member is fixed to.
 fn home_skills_dir(config: &Config) -> PathBuf {
-    let is_codex = config
+    let harness = config
         .agent_profile
         .as_deref()
-        .and_then(|raw| resolve_agent_harness(raw).ok())
-        == Some(moatless_types::agent::Harness::Codex);
-    let home = if is_codex {
-        &config.codex_home_dir
-    } else {
-        &config.claude_config_dir
+        .and_then(|raw| resolve_agent_harness(raw).ok());
+    let home = match harness {
+        Some(Harness::Codex) => &config.codex_home_dir,
+        Some(Harness::ClaudeCode | Harness::Pi | Harness::MiniSwe | Harness::Acp) | None => {
+            &config.claude_config_dir
+        }
     };
     Path::new(home).join("skills")
 }

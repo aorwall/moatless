@@ -1,4 +1,5 @@
 use crate::agent::handle::AgentHandle;
+use moatless_types::agent::Harness;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -54,55 +55,52 @@ pub fn build_harness(
         )
     })?;
 
-    if harness == moatless_types::agent::Harness::Acp {
-        let profile = agent_profile.parse().map_err(|diagnostic: String| {
-            HarnessError::new(
-                FailureStage::Startup,
-                ErrorClass::InvalidConfiguration,
-                SessionImpact::Intact,
-                diagnostic,
-            )
-        })?;
-        return Ok(HarnessRuntime::acp(crate::agent::harness::AcpConfig {
-            config: Arc::clone(config),
-            trajectory,
-            profile,
-        }));
-    }
-    if harness == moatless_types::agent::Harness::MiniSwe {
-        return Ok(HarnessRuntime::mini_swe(
+    match harness {
+        Harness::Acp => {
+            let profile = agent_profile.parse().map_err(|diagnostic: String| {
+                HarnessError::new(
+                    FailureStage::Startup,
+                    ErrorClass::InvalidConfiguration,
+                    SessionImpact::Intact,
+                    diagnostic,
+                )
+            })?;
+            Ok(HarnessRuntime::acp(crate::agent::harness::AcpConfig {
+                config: Arc::clone(config),
+                trajectory,
+                profile,
+            }))
+        }
+        Harness::MiniSwe => Ok(HarnessRuntime::mini_swe(
             crate::agent::harness::MiniSweConfig {
                 config: Arc::clone(config),
                 trajectory,
             },
-        ));
-    }
-    if harness == moatless_types::agent::Harness::Pi {
-        return Ok(HarnessRuntime::pi(crate::agent::harness::PiConfig {
+        )),
+        Harness::Pi => Ok(HarnessRuntime::pi(crate::agent::harness::PiConfig {
             config: Arc::clone(config),
             trajectory,
-        }));
-    }
-    if harness == moatless_types::agent::Harness::Codex {
-        return Ok(HarnessRuntime::codex(CodexConfig {
+        })),
+        Harness::Codex => Ok(HarnessRuntime::codex(CodexConfig {
             config: Arc::clone(config),
             credential_failures: credential_failures.clone(),
             trajectory,
-        }));
+        })),
+        Harness::ClaudeCode => {
+            let claude = ClaudeConfig {
+                config: Arc::clone(config),
+                agent_state: Arc::clone(agent_state),
+                agent_profile: Some(agent_profile.to_string()),
+                events,
+                trajectory,
+            };
+            Ok(if config.use_tmux {
+                HarnessRuntime::claude_persistent(claude)
+            } else {
+                HarnessRuntime::claude(claude)
+            })
+        }
     }
-
-    let claude = ClaudeConfig {
-        config: Arc::clone(config),
-        agent_state: Arc::clone(agent_state),
-        agent_profile: Some(agent_profile.to_string()),
-        events,
-        trajectory,
-    };
-    Ok(if config.use_tmux {
-        HarnessRuntime::claude_persistent(claude)
-    } else {
-        HarnessRuntime::claude(claude)
-    })
 }
 
 /// Spawn the coordinator-backed agent lifecycle owner and return a handle.
