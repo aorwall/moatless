@@ -3,7 +3,9 @@
 use crate::secret_keys::{
     ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, CODEX_AUTH_JSON, OPENAI_API_KEY,
 };
-use moatless_types::agent::{AgentProfile, Harness, split_pi_model};
+use moatless_types::agent::{
+    AgentProfile, Harness, MINI_SWE_VENDORS, PI_VENDORS, split_vendored_model,
+};
 use moatless_types::model::{ClaudeModel, CodexModel};
 
 /// A catalog model choice that names no model: the sandbox runs the CLI's own
@@ -25,6 +27,19 @@ pub struct AgentParams {
     pub use_tmux: bool,
 }
 
+/// Which model ids an agent runs beyond its static `models`, and where the
+/// hub's listing of them comes from.
+#[derive(Clone, Copy)]
+pub enum ModelSource {
+    /// Only its static `models`.
+    Catalog,
+    /// Any `vendor/model` id of these vendors, through the model gateway; the
+    /// hub lists the chat models its rows of these vendors serve.
+    Vendored(&'static [&'static str]),
+    /// The hub's own bare ids, from the rows this owner serves.
+    HubOwner(&'static str),
+}
+
 /// Static agent definition.
 pub struct AgentProfileEntry {
     pub profile: AgentProfile,
@@ -38,6 +53,7 @@ pub struct AgentProfileEntry {
     pub provider_token_providers: &'static [&'static str],
     pub default_model: &'static str,
     pub models: &'static [ModelEntry],
+    pub model_source: ModelSource,
     /// Hint shown when no credential is available.
     pub missing_credential_hint: &'static str,
 }
@@ -97,6 +113,7 @@ const fn claude_code(
         provider_token_providers: &["claude"],
         default_model: UNRESOLVED_MODEL_CHOICE,
         models: CLAUDE_MODELS,
+        model_source: ModelSource::Catalog,
         missing_credential_hint: CLAUDE_MISSING_CREDENTIAL_HINT,
     }
 }
@@ -139,6 +156,7 @@ pub const CODEX: AgentProfileEntry = AgentProfileEntry {
         codex_model(CodexModel::Gpt56Luna),
         codex_model(CodexModel::Gpt55),
     ],
+    model_source: ModelSource::Catalog,
     missing_credential_hint: "Add CODEX_AUTH_JSON or OPENAI_API_KEY in Settings \u{2192} Secrets",
 };
 
@@ -168,6 +186,7 @@ pub const PI: AgentProfileEntry = AgentProfileEntry {
             label: "GPT 6.1 Sol",
         },
     ],
+    model_source: ModelSource::Vendored(PI_VENDORS),
     missing_credential_hint: "Add ANTHROPIC_API_KEY or OPENAI_API_KEY in Settings → Secrets",
 };
 
@@ -180,6 +199,7 @@ pub const MINI_SWE: AgentProfileEntry = AgentProfileEntry {
     provider_token_providers: &[],
     default_model: "openai/gpt-6.1-sol",
     models: PI.models,
+    model_source: ModelSource::Vendored(MINI_SWE_VENDORS),
     missing_credential_hint: "Add ANTHROPIC_API_KEY or OPENAI_API_KEY, or configure the model hub",
 };
 
@@ -196,6 +216,7 @@ pub const ANTIGRAVITY: AgentProfileEntry = AgentProfileEntry {
         id: "gemini-3-flash",
         label: "Gemini 3 Flash",
     }],
+    model_source: ModelSource::HubOwner("antigravity"),
     missing_credential_hint: "Configure the model hub, or add OPENAI_API_KEY in Settings \u{2192} Secrets",
 };
 
@@ -236,10 +257,7 @@ pub fn offers_model(agent_profile: AgentProfile, model: &str) -> bool {
 /// Whether the model hub supplies this agent's models, so its `models` list
 /// is only the part known without asking the hub.
 pub fn lists_hub_models(agent_profile: AgentProfile) -> bool {
-    matches!(
-        agent_profile,
-        AgentProfile::Pi | AgentProfile::MiniSwe | AgentProfile::Antigravity
-    )
+    !matches!(entry(agent_profile).model_source, ModelSource::Catalog)
 }
 
 /// Whether a requested `model` may run under `agent_profile`: one it lists, or,
@@ -269,28 +287,36 @@ pub fn validate_agent_model(
     let Some(model) = model else {
         return Ok(());
     };
-    if agent_profile == AgentProfile::MiniSwe
-        && !model
-            .split_once('/')
-            .is_some_and(|(p, n)| ["anthropic", "openai"].contains(&p) && !n.is_empty())
-    {
-        return Err(
-            "mini-swe requires anthropic/model or openai/model using an API key or hub".into(),
-        );
-    }
-    if agent_profile == AgentProfile::Antigravity && model.contains('/') {
-        return Err("Antigravity takes the hub's own model id, such as gemini-3-flash".into());
-    }
-    if agent_profile == AgentProfile::Pi && split_pi_model(model).is_none() {
-        return Err(
-            "Pi requires anthropic/model, openai/model or openrouter/model using an API key or hub"
-                .to_string(),
-        );
+    let agent = entry(agent_profile);
+    match agent.model_source {
+        ModelSource::Catalog => {}
+        ModelSource::Vendored(vendors) => {
+            if split_vendored_model(vendors, model).is_none() {
+                let forms: Vec<String> = vendors.iter().map(|v| format!("{v}/model")).collect();
+                let forms = match forms.split_last() {
+                    Some((last, [])) => last.clone(),
+                    Some((last, rest)) => format!("{} or {last}", rest.join(", ")),
+                    None => String::new(),
+                };
+                return Err(format!(
+                    "{} requires {forms} using an API key or hub",
+                    agent.label
+                ));
+            }
+        }
+        ModelSource::HubOwner(_) => {
+            if model.contains('/') {
+                return Err(format!(
+                    "{} takes the hub's own model id, such as {}",
+                    agent.label, agent.default_model
+                ));
+            }
+        }
     }
     if !model_conflicts(agent_profile, model) {
         return Ok(());
     }
-    let options = entry(agent_profile)
+    let options = agent
         .models
         .iter()
         .map(|m| m.id)
@@ -399,5 +425,21 @@ mod tests {
         let fable = AgentProfile::ClaudeCodeFable;
         assert!(validate_agent_model(fable, Some("fable")).is_ok());
         assert!(validate_agent_model(fable, Some("opus")).is_err());
+    }
+
+    /// Every hub-listed agent's refusal names its own vendors, from its
+    /// `model_source`.
+    #[test]
+    fn a_vendored_agent_names_its_vendors_when_it_refuses_a_model() {
+        let pi = validate_agent_model(AgentProfile::Pi, Some("gemini-3-flash")).unwrap_err();
+        assert_eq!(
+            pi,
+            "Pi requires anthropic/model, openai/model or openrouter/model using an API key or hub"
+        );
+        let swe = validate_agent_model(AgentProfile::MiniSwe, Some("openrouter/x")).unwrap_err();
+        assert_eq!(
+            swe,
+            "mini-swe-agent requires anthropic/model or openai/model using an API key or hub"
+        );
     }
 }

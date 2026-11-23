@@ -5,6 +5,18 @@
 /// warns about and ignores anything else, and does not vary them per model.
 pub const CLAUDE_EFFORT_LEVELS: &[&str] = &["low", "medium", "high", "xhigh", "max"];
 
+/// The effort suffixes the Antigravity hub's catalog puts on a model id, as in
+/// `gemini-4-neon-xhigh`. `agy` may drop one before it calls the gateway.
+pub const HUB_EFFORT_SUFFIXES: &[&str] = &["-low", "-medium", "-high", "-xhigh"];
+
+/// `id` without its [`HUB_EFFORT_SUFFIXES`] suffix, or `id` when it has none.
+pub fn strip_hub_effort_suffix(id: &str) -> &str {
+    HUB_EFFORT_SUFFIXES
+        .iter()
+        .find_map(|suffix| id.strip_suffix(suffix))
+        .unwrap_or(id)
+}
+
 /// A Claude model the catalog offers, named by its catalog alias.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ClaudeModel {
@@ -341,6 +353,19 @@ mod tests {
             price_for("claude-opus-5-5-high"),
             Some(ClaudeModel::Opus.price())
         );
+    }
+
+    #[test]
+    fn a_hub_id_loses_only_its_trailing_effort_suffix() {
+        assert_eq!(
+            strip_hub_effort_suffix("gemini-4-neon-xhigh"),
+            "gemini-4-neon"
+        );
+        assert_eq!(
+            strip_hub_effort_suffix("claude-opus-5-5-high"),
+            "claude-opus-5-5"
+        );
+        assert_eq!(strip_hub_effort_suffix("gemini-3-flash"), "gemini-3-flash");
     }
 
     #[test]

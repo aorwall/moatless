@@ -251,16 +251,25 @@ pub enum Harness {
 /// The backend's model gateway reaches each through the deployment's hub or the
 /// task's own API key; `openai-codex/…` and the like are refused rather than
 /// run against a subscription login.
-pub const PI_VENDORS: [&str; 3] = ["anthropic", "openai", "openrouter"];
+pub const PI_VENDORS: &[&str] = &["anthropic", "openai", "openrouter"];
 
-/// A Pi model id split into its vendor and the model name the gateway is sent,
-/// or `None` for a vendor outside [`PI_VENDORS`] or an empty name.
+/// The vendors a mini-swe-agent model id may name, as `vendor/model`: the two
+/// whose wire protocol its bridge speaks.
+pub const MINI_SWE_VENDORS: &[&str] = &["anthropic", "openai"];
+
+/// A `vendor/model` id split into its vendor and the model name the gateway is
+/// sent, or `None` for a vendor outside `vendors` or an empty name.
 ///
 /// The name keeps any further `/`: an `openrouter` id is itself `maker/model`.
-pub fn split_pi_model(model: &str) -> Option<(&str, &str)> {
+pub fn split_vendored_model<'a>(vendors: &[&str], model: &'a str) -> Option<(&'a str, &'a str)> {
     model
         .split_once('/')
-        .filter(|(vendor, name)| PI_VENDORS.contains(vendor) && !name.is_empty())
+        .filter(|(vendor, name)| vendors.contains(vendor) && !name.is_empty())
+}
+
+/// [`split_vendored_model`] over [`PI_VENDORS`].
+pub fn split_pi_model(model: &str) -> Option<(&str, &str)> {
+    split_vendored_model(PI_VENDORS, model)
 }
 
 impl Harness {

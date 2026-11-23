@@ -43,9 +43,6 @@ struct Selection {
     effort: Option<String>,
 }
 
-/// Suffixes `agy` may turn into a thinking level and drop from an id.
-const EFFORT_SUFFIXES: &[&str] = &["-low", "-medium", "-high", "-xhigh"];
-
 /// The largest body buffered to rewrite it.
 const MAX_REWRITTEN_BODY: usize = 64 * 1024 * 1024;
 
@@ -229,10 +226,8 @@ fn pin_selection(body: &[u8], selected: &Selection) -> Option<Bytes> {
     let model = selected.model.as_deref()?;
     let mut json: serde_json::Value = serde_json::from_slice(body).ok()?;
     let sent = json.get("model")?.as_str()?;
-    let names_selected = sent == model
-        || EFFORT_SUFFIXES
-            .iter()
-            .any(|suffix| model.strip_suffix(suffix) == Some(sent));
+    let names_selected =
+        sent == model || moatless_types::model::strip_hub_effort_suffix(model) == sent;
     if !names_selected {
         return None;
     }

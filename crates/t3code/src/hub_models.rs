@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use moatless_api_schemas::agent::AgentModel;
+use moatless_core::agent_catalog::ModelSource;
 use moatless_types::agent::{AgentProfile, PI_VENDORS};
 use moatless_types::http::HttpTimeouts;
 use serde_json::Value;
@@ -73,7 +74,7 @@ impl HubModels {
             }
         }
         match self.fetch().await {
-            Ok(body) if !chat_models(&body, &[]).is_empty() => {
+            Ok(body) if !chat_models(&body, &[], PI_VENDORS).is_empty() => {
                 *cached = Some((Instant::now(), body.clone()));
                 return Some(body);
             }
@@ -95,10 +96,10 @@ impl HubModels {
         let Some(body) = self.listing().await else {
             return Vec::new();
         };
-        let mut models = if profile == AgentProfile::Antigravity {
-            antigravity_models(&body, static_models)
-        } else {
-            chat_models(&body, static_models)
+        let mut models = match moatless_core::agent_catalog::entry(profile).model_source {
+            ModelSource::Catalog => return Vec::new(),
+            ModelSource::Vendored(vendors) => chat_models(&body, static_models, vendors),
+            ModelSource::HubOwner(owner) => owner_models(&body, static_models, owner),
         };
         models.retain(|model| {
             moatless_core::agent_catalog::validate_agent_model(profile, Some(&model.id)).is_ok()
@@ -123,7 +124,7 @@ impl HubModels {
 ///
 /// The hub lists a dated id (`claude-sonnet-4-20250514`) beside its alias; only
 /// the alias is kept.
-fn chat_models(body: &Value, static_models: &[AgentModel]) -> Vec<AgentModel> {
+fn chat_models(body: &Value, static_models: &[AgentModel], vendors: &[&str]) -> Vec<AgentModel> {
     let mut rows: Vec<(i64, String)> = Vec::new();
     for row in body["data"].as_array().into_iter().flatten() {
         let (Some(id), Some(owner)) = (row["id"].as_str(), row["owned_by"].as_str()) else {
@@ -131,7 +132,7 @@ fn chat_models(body: &Value, static_models: &[AgentModel]) -> Vec<AgentModel> {
         };
         // The hub names an OpenAI-compatible provider as its operator typed it.
         let vendor = owner.to_ascii_lowercase();
-        if !PI_VENDORS.contains(&vendor.as_str()) || is_non_chat(id) {
+        if !vendors.contains(&vendor.as_str()) || is_non_chat(id) {
             continue;
         }
         let slug = format!("{vendor}/{id}");
@@ -162,10 +163,10 @@ fn chat_models(body: &Value, static_models: &[AgentModel]) -> Vec<AgentModel> {
     models
 }
 
-/// `static_models` the hub serves, then the chat models of its `antigravity`
-/// rows under their bare ids, which is what `agy` sends the gateway, labelled
+/// `static_models` the hub serves, then the chat models of the rows `owner`
+/// serves under their bare ids, which is what `agy` sends the gateway, labelled
 /// without the effort suffix: the effort picker sets the effort.
-fn antigravity_models(body: &Value, static_models: &[AgentModel]) -> Vec<AgentModel> {
+fn owner_models(body: &Value, static_models: &[AgentModel], owner: &str) -> Vec<AgentModel> {
     let rows: Vec<(&str, &str)> = body["data"]
         .as_array()
         .into_iter()
@@ -177,8 +178,8 @@ fn antigravity_models(body: &Value, static_models: &[AgentModel]) -> Vec<AgentMo
         .filter(|model| rows.iter().any(|(id, _)| *id == model.id))
         .cloned()
         .collect();
-    for (id, owner) in rows {
-        if owner.eq_ignore_ascii_case("antigravity")
+    for (id, row_owner) in rows {
+        if row_owner.eq_ignore_ascii_case(owner)
             && !is_non_chat(id)
             && !models.iter().any(|model| model.id == id)
         {
@@ -194,10 +195,7 @@ fn antigravity_models(body: &Value, static_models: &[AgentModel]) -> Vec<AgentMo
 /// `gemini-4-argon-high` as `Gemini 4 Argon`, `claude-sonnet-5-5-high` as
 /// `Claude Sonnet 5.5`.
 fn account_label(id: &str) -> String {
-    let base = ["-low", "-medium", "-high", "-xhigh"]
-        .iter()
-        .find_map(|suffix| id.strip_suffix(suffix))
-        .unwrap_or(id);
+    let base = moatless_types::model::strip_hub_effort_suffix(id);
     let mut words: Vec<String> = Vec::new();
     for part in base.split('-') {
         let numeric = part.bytes().all(|b| b.is_ascii_digit());
@@ -265,7 +263,7 @@ mod tests {
             {"id": "gpt-6.1-terra", "owned_by": "openai", "created": 20},
         ]});
 
-        let models = chat_models(&body, &static_models());
+        let models = chat_models(&body, &static_models(), PI_VENDORS);
 
         assert_eq!(
             ids(&models),
@@ -286,7 +284,7 @@ mod tests {
             {"id": "mistralai/mistral-large-4-0", "owned_by": "OpenRouter", "created": 1},
         ]});
 
-        let models = chat_models(&body, &[]);
+        let models = chat_models(&body, &[], PI_VENDORS);
 
         assert_eq!(ids(&models), ["openrouter/mistralai/mistral-large-4-0"]);
         assert_eq!(models[0].label, "mistralai/mistral-large-4-0");
@@ -299,7 +297,7 @@ mod tests {
         ]});
 
         assert_eq!(
-            ids(&chat_models(&body, &static_models())),
+            ids(&chat_models(&body, &static_models(), PI_VENDORS)),
             ["openai/gpt-6.1-sol"]
         );
     }
@@ -314,7 +312,10 @@ mod tests {
             {"id": "gpt-6-luna", "owned_by": "openai", "created": 1},
         ]});
 
-        assert_eq!(ids(&chat_models(&body, &[])), ["openai/gpt-6-luna"]);
+        assert_eq!(
+            ids(&chat_models(&body, &[], PI_VENDORS)),
+            ["openai/gpt-6-luna"]
+        );
     }
 
     #[test]
@@ -326,7 +327,7 @@ mod tests {
         ]});
 
         assert_eq!(
-            ids(&chat_models(&body, &[])),
+            ids(&chat_models(&body, &[], PI_VENDORS)),
             [
                 "anthropic/claude-sonnet-4",
                 "anthropic/claude-opus-4-1-20250805"
@@ -358,7 +359,7 @@ mod tests {
             },
         ];
 
-        let models = antigravity_models(&body, &catalog);
+        let models = owner_models(&body, &catalog, "antigravity");
 
         assert_eq!(
             ids(&models),
@@ -382,7 +383,7 @@ mod tests {
 
     #[test]
     fn an_answer_without_rows_publishes_nothing() {
-        assert!(chat_models(&json!({"error": "x"}), &static_models()).is_empty());
+        assert!(chat_models(&json!({"error": "x"}), &static_models(), PI_VENDORS).is_empty());
     }
 
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};

@@ -170,15 +170,16 @@ impl MiniSweProcess {
                 "MiniSwe requires provider/model",
             )
         })?;
-        let (provider, _) = model
-            .split_once('/')
-            .filter(|(p, n)| ["openai", "anthropic"].contains(p) && !n.is_empty())
-            .ok_or_else(|| {
-                error(
-                    ErrorClass::InvalidConfiguration,
-                    "mini-swe requires openai/model or anthropic/model",
-                )
-            })?;
+        let (provider, _) = moatless_types::agent::split_vendored_model(
+            moatless_types::agent::MINI_SWE_VENDORS,
+            model,
+        )
+        .ok_or_else(|| {
+            error(
+                ErrorClass::InvalidConfiguration,
+                "mini-swe-agent requires anthropic/model or openai/model",
+            )
+        })?;
         self.totals.model = Some(model.into());
         let base = config.backend_api_url.as_deref().ok_or_else(|| {
             error(
