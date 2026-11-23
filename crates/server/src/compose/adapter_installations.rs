@@ -186,7 +186,7 @@ impl GithubPrInstallation {
                 state.relation_recorder.clone(),
                 state.task_reader.clone(),
                 state.loop_task_opener.clone(),
-                state.message_send.clone(),
+                state.loop_turns.clone(),
                 state.task_closer.clone(),
                 Arc::new(ProvisionedWorkspaces {
                     workspaces: state.workspaces.clone(),
@@ -251,7 +251,7 @@ impl LinearInstallation {
                 state.task_reader.clone(),
                 state.loop_task_opener.clone(),
                 state.relation_recorder.clone(),
-                state.message_send.clone(),
+                state.loop_turns.clone(),
                 state.sandbox_waker.clone(),
                 state.task_closer.clone(),
                 self.active_turns.clone(),

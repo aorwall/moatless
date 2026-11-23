@@ -255,6 +255,13 @@ pub const CONCERNS: &[Concern] = &[
         slice: 9,
     },
     Concern {
+        name: "harness cooldowns",
+        owner: "moatless-tasks",
+        roots: &["crates/tasks/src/task/cooldown_dao"],
+        tables: &["harness_cooldowns"],
+        slice: 9,
+    },
+    Concern {
         name: "task relations",
         owner: "moatless-tasks",
         roots: &["crates/tasks/src/task/relations_dao"],

@@ -33,6 +33,7 @@ use crate::tag::dao::{PgTagDao, TagDao};
 use crate::tag::operations::Tags;
 use crate::task::bindings::TaskBindings;
 use crate::task::closer::TaskCloser;
+use crate::task::cooldown::HarnessCooldowns;
 use crate::task::creation::TaskCreationService;
 use crate::task::dao::PgTaskDao;
 use crate::task::fork::{TaskForkService, TaskForks};
@@ -335,6 +336,7 @@ impl TaskGraph {
                 self.relations.clone(),
                 self.tasks.clone(),
             )),
+            harness_cooldowns: Arc::new(HarnessCooldowns::new(self.db.clone())),
             task_switch: Arc::new(TaskSwitchService::new(
                 self.db.clone(),
                 self.tasks.clone(),
@@ -391,4 +393,5 @@ pub struct TaskOperations {
     pub task_fork: Arc<TaskForkService>,
     pub task_rewind: Arc<TaskRewindService>,
     pub task_switch: Arc<TaskSwitchService>,
+    pub harness_cooldowns: Arc<HarnessCooldowns>,
 }

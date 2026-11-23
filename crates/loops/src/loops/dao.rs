@@ -16,10 +16,10 @@ use moatless_types::access_control::{Scope, ScopeContext, ScopedEntity};
 use super::persistence::LoopSpawnConfigRow;
 use super::persistence::SubscriptionMatchRow;
 use crate::loops::models::{
-    LoopConfigRow, LoopListFilter, LoopRecord, LoopRow, LoopSourceRow, LoopSpawnConfig, LoopUpdate,
-    ManagedLoopOverrideSkip, ManagedLoopReconcileSummary, ManagedLoopUpsert, NewAdapterEventSource,
-    NewLoop, NewLoopConfig, NewLoopSource, NewScheduleSource, Schedule, ScheduleRow,
-    SubscriptionRow, UpdateLoopSource,
+    LoopAgentChoice, LoopConfigRow, LoopListFilter, LoopRecord, LoopRow, LoopSourceRow,
+    LoopSpawnConfig, LoopUpdate, ManagedLoopOverrideSkip, ManagedLoopReconcileSummary,
+    ManagedLoopUpsert, NewAdapterEventSource, NewLoop, NewLoopConfig, NewLoopSource,
+    NewScheduleSource, Schedule, ScheduleRow, SubscriptionRow, UpdateLoopSource,
 };
 use moatless_core::db::DbPool;
 use moatless_core::db_enum::decode_required;
@@ -27,6 +27,24 @@ use moatless_types::adapter::AdapterKind;
 use moatless_types::agent::{AgentProfile, AgentProperties};
 use moatless_types::loops::SubscriptionMatch;
 use moatless_types::loops::{LoopKind, RoutingMode};
+
+#[derive(sqlx::FromRow)]
+struct LoopAgentChoiceRow {
+    #[sqlx(try_from = "String")]
+    agent_profile: AgentProfile,
+    model: Option<String>,
+    fallback_to_other_agent: bool,
+}
+
+impl From<LoopAgentChoiceRow> for LoopAgentChoice {
+    fn from(row: LoopAgentChoiceRow) -> Self {
+        Self {
+            agent_profile: row.agent_profile,
+            model: row.model,
+            fallback_to_other_agent: row.fallback_to_other_agent,
+        }
+    }
+}
 
 #[derive(sqlx::FromRow)]
 struct JoinedLoopRecordRow {
@@ -1132,16 +1150,20 @@ impl LoopDao {
         Ok(())
     }
 
-    /// See [`crate::loops::models::NewLoopConfig::fallback_to_other_agent`];
-    /// `None` when `loop_id` has no config. Unscoped: the platform reads it.
-    pub async fn fallback_to_other_agent(
+    /// The agent `loop_id` runs its Tasks on; `None` when it has no config.
+    /// Unscoped: the platform reads it.
+    pub async fn agent_choice(
         &self,
         loop_id: &str,
-    ) -> Result<Option<bool>, sqlx::Error> {
-        sqlx::query_scalar("SELECT fallback_to_other_agent FROM loop_configs WHERE loop_id = $1")
-            .bind(loop_id)
-            .fetch_optional(&self.db)
-            .await
+    ) -> Result<Option<LoopAgentChoice>, sqlx::Error> {
+        sqlx::query_as::<_, LoopAgentChoiceRow>(
+            "SELECT agent_profile, model, fallback_to_other_agent \
+               FROM loop_configs WHERE loop_id = $1",
+        )
+        .bind(loop_id)
+        .fetch_optional(&self.db)
+        .await
+        .map(|row| row.map(LoopAgentChoice::from))
     }
 
     /// Resolve the `LoopSpawnConfig` for a schedule firing.

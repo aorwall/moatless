@@ -6,14 +6,17 @@
 
 use moatless_core::config::AgentFallbackOrder;
 use moatless_tasks::agent_event::AgentEvent;
+use moatless_tasks::task::cooldown::HarnessCooldowns;
 use moatless_tasks::task::error::TaskError;
-use moatless_tasks::task::models::TaskStatus;
+use moatless_tasks::task::models::{Task, TaskStatus};
 use moatless_tasks::task::switch::{SwitchCredentials, SwitchNote, SwitchOutcome};
 use moatless_types::access_control::ScopeContext;
 use moatless_types::agent::{AgentProfile, Harness};
 use moatless_types::model::ClaudeModel;
 
 use std::sync::Arc;
+
+use chrono::{DateTime, Utc};
 
 use moatless_identity::ports::HarnessTokens;
 use moatless_identity::secret::service::SecretService;
@@ -36,6 +39,7 @@ pub struct FallbackPorts {
     pub secrets: Arc<SecretService>,
     pub harness_credentials: Arc<HarnessTokens>,
     pub credential_sync: Arc<CredentialSync>,
+    pub harness_cooldowns: Arc<HarnessCooldowns>,
 }
 
 /// The `agent.error` reasons that mean the provider will not serve the turn,
@@ -52,6 +56,20 @@ fn falls_back_on(reason: Option<&str>) -> bool {
     reason.is_some_and(|reason| FALLBACK_REASONS.contains(&reason))
 }
 
+/// The [`FALLBACK_REASONS`] that cool their harness down for the run-as user.
+/// `connectivity` is not one: it points at the sandbox's own egress, and
+/// would divert every other Task of the user off a provider that serves.
+const COOLDOWN_REASONS: &[&str] = &["usage_limit", "rate_limit", "provider_unavailable"];
+
+/// `targets` without the harnesses in `cooling`, in order.
+pub(crate) fn serving(targets: &[Harness], cooling: &[Harness]) -> Vec<Harness> {
+    targets
+        .iter()
+        .copied()
+        .filter(|target| !cooling.contains(target))
+        .collect()
+}
+
 /// Whether a failed turn falls back, and to which harnesses, in order.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Fallback<'a> {
@@ -62,7 +80,7 @@ pub(crate) enum Fallback<'a> {
 /// The catalog model a fallback onto `harness` runs; `None` is the harness's
 /// default. Claude Code runs Opus rather than the profile's unresolved
 /// default, so a fallback turn gets the strongest model.
-fn fallback_model(harness: Harness) -> Option<&'static str> {
+pub(crate) fn fallback_model(harness: Harness) -> Option<&'static str> {
     match harness {
         Harness::ClaudeCode => Some(ClaudeModel::Opus.alias()),
         _ => None,
@@ -107,9 +125,9 @@ pub(crate) fn decide<'a>(facts: &FallbackFacts<'_>, order: &'a AgentFallbackOrde
 
 /// Handle `agent.error`: re-run the turn on another harness when [`decide`] says so.
 ///
-/// The Task switches to the first target that accepts it and its failed turn
-/// is queued again. Every failure is logged and left as the error the turn
-/// already reported.
+/// The refusing harness cools down for the run-as user first. The Task moves
+/// to the first serving target that accepts it, and the turn is queued again;
+/// a failure is logged and the turn keeps its error.
 pub async fn fall_back_to_other_agent(state: &FallbackPorts, event: &AgentEvent) {
     let reason = event.payload.get("reason").and_then(|v| v.as_str());
     if !falls_back_on(reason) {
@@ -131,9 +149,26 @@ pub async fn fall_back_to_other_agent(state: &FallbackPorts, event: &AgentEvent)
             return;
         }
     };
+    let failed_profile = match event.agent_profile.as_deref() {
+        Some(profile) => AgentProfile::parse(profile),
+        None => Some(task.agent_profile),
+    };
+    let resets_at = event.payload.get("resetsAt").and_then(|v| v.as_str());
+    let Some(run_as) = run_as_user(&task) else {
+        tracing::info!(
+            task_id,
+            "Agent fallback skipped: no user to run the task as"
+        );
+        return;
+    };
+    if let (Some(profile), Some(reason)) = (failed_profile, reason) {
+        if COOLDOWN_REASONS.contains(&reason) {
+            trip(state, &run_as, profile.harness(), reason, resets_at).await;
+        }
+    }
     let loop_enabled = match task.loop_id.as_deref() {
-        Some(loop_id) => match state.loops.fallback_to_other_agent(loop_id).await {
-            Ok(enabled) => enabled,
+        Some(loop_id) => match state.loops.agent_choice(loop_id).await {
+            Ok(choice) => choice.map(|choice| choice.fallback_to_other_agent),
             Err(error) => {
                 tracing::warn!(task_id, loop_id, %error, "Agent fallback could not read the loop");
                 return;
@@ -147,10 +182,6 @@ pub async fn fall_back_to_other_agent(state: &FallbackPorts, event: &AgentEvent)
             tracing::warn!(task_id, turn_number, %error, "Agent fallback could not read the turn");
             return;
         }
-    };
-    let failed_profile = match event.agent_profile.as_deref() {
-        Some(profile) => AgentProfile::parse(profile),
-        None => Some(task.agent_profile),
     };
     let facts = FallbackFacts {
         reason,
@@ -169,24 +200,25 @@ pub async fn fall_back_to_other_agent(state: &FallbackPorts, event: &AgentEvent)
         return;
     };
     let failed_harness = failed_profile.harness();
-
-    let Some(run_as) = task
-        .run_as_user_id
-        .clone()
-        .or_else(|| task.owner_user_id.clone())
-        .or_else(|| task.created_by.clone())
-    else {
+    let mut cooling = Vec::new();
+    for &target in targets {
+        if cooling_until(state, &run_as, target).await.is_some() {
+            cooling.push(target);
+        }
+    }
+    let targets = serving(targets, &cooling);
+    if targets.is_empty() {
         tracing::info!(
             task_id,
-            "Agent fallback skipped: no user to run the task as"
+            turn_number,
+            "Agent fallback skipped: every fallback is cooling down too"
         );
         return;
-    };
+    }
     let run_as = ScopeContext::user(run_as);
-    let resets_at = event.payload.get("resetsAt").and_then(|v| v.as_str());
     let sandbox_id = task.sandbox_id.as_deref().unwrap_or(task_id);
     let mut switched = None;
-    for &harness in targets {
+    for harness in targets {
         let profile = match state
             .task_switch
             .profile_for(Some(sandbox_id), harness)
@@ -269,8 +301,54 @@ pub async fn fall_back_to_other_agent(state: &FallbackPorts, event: &AgentEvent)
     }
 }
 
+/// The user a Task's turns run as, whose credentials and cooldowns apply.
+pub(crate) fn run_as_user(task: &Task) -> Option<String> {
+    task.run_as_user_id
+        .clone()
+        .or_else(|| task.owner_user_id.clone())
+        .or_else(|| task.created_by.clone())
+}
+
+/// Record `harness`'s refusal of `user_id`'s turn. A failure is logged: later
+/// turns then run on the refusing harness, as without a cooldown.
+async fn trip(
+    state: &FallbackPorts,
+    user_id: &str,
+    harness: Harness,
+    reason: &str,
+    resets_at: Option<&str>,
+) {
+    let resets_at = resets_at
+        .and_then(|at| DateTime::parse_from_rfc3339(at).ok())
+        .map(|at| at.with_timezone(&Utc));
+    match state
+        .harness_cooldowns
+        .trip(user_id, harness, reason, resets_at, Utc::now())
+        .await
+    {
+        Ok(until) => tracing::info!(%harness, %until, reason, "Harness cooling down"),
+        Err(error) => tracing::warn!(%harness, %error, "Could not record a harness cooldown"),
+    }
+}
+
+/// Until when `harness` cools down for `user_id`. A failed read is logged and
+/// counts as none, so routing falls back to the configured agent.
+pub(crate) async fn cooling_until(
+    state: &FallbackPorts,
+    user_id: &str,
+    harness: Harness,
+) -> Option<DateTime<Utc>> {
+    state
+        .harness_cooldowns
+        .active_until(user_id, harness, Utc::now())
+        .await
+        .inspect_err(|error| tracing::warn!(%harness, %error, "Could not read a harness cooldown"))
+        .ok()
+        .flatten()
+}
+
 /// How the conversation names a harness.
-fn label(harness: Harness) -> &'static str {
+pub(crate) fn label(harness: Harness) -> &'static str {
     match harness {
         Harness::Codex => "Codex",
         Harness::Pi => "Pi",
@@ -297,7 +375,7 @@ fn why(harness: Harness, reason: Option<&str>, resets_at: Option<&str>) -> Strin
     }
 }
 
-async fn switch(
+pub(crate) async fn switch(
     state: &FallbackPorts,
     task_id: &str,
     profile: AgentProfile,
@@ -320,6 +398,14 @@ async fn switch(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_fallback_skips_a_target_that_is_cooling_down() {
+        let targets = [Harness::ClaudeCode, Harness::Codex];
+        assert_eq!(serving(&targets, &[]), targets);
+        assert_eq!(serving(&targets, &[Harness::ClaudeCode]), [Harness::Codex]);
+        assert!(serving(&targets, &targets).is_empty());
+    }
 
     fn facts(failed_profile: AgentProfile) -> FallbackFacts<'static> {
         FallbackFacts {

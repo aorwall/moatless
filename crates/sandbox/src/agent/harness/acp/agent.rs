@@ -205,14 +205,20 @@ const USAGE_LIMIT_AFTER_SECS: i64 = 60;
 
 /// The failure for a provider asking to be retried in `seconds`.
 fn retry_after(seconds: Option<i64>, diagnostic: &str) -> HarnessError {
-    match seconds {
-        Some(seconds) if seconds > USAGE_LIMIT_AFTER_SECS => HarnessError::usage_limit(
+    // Checked: the seconds are provider text, and an unchecked add panics on
+    // a value past chrono's range.
+    let resets_at = seconds
+        .filter(|seconds| *seconds > USAGE_LIMIT_AFTER_SECS)
+        .and_then(chrono::Duration::try_seconds)
+        .and_then(|wait| Utc::now().checked_add_signed(wait));
+    match resets_at {
+        Some(at) => HarnessError::usage_limit(
             FailureStage::Execution,
             SessionImpact::Intact,
             diagnostic,
-            Some(Utc::now() + chrono::Duration::seconds(seconds)),
+            Some(at),
         ),
-        _ => execution_error(ErrorClass::ProviderThrottle, diagnostic),
+        None => execution_error(ErrorClass::ProviderThrottle, diagnostic),
     }
 }
 
@@ -279,6 +285,10 @@ mod tests {
             .expect("a retry request is a failure");
         assert_eq!(short.class, ErrorClass::ProviderThrottle);
         assert_eq!(short.resets_at, None);
+        let huge = agent
+            .reported_failure("⚠ The model provider asked to retry in 99999999999999999 seconds")
+            .expect("a retry request is a failure");
+        assert_eq!(huge.class, ErrorClass::ProviderThrottle);
     }
 
     /// The incident's reply: agy lost its model connection mid-turn.

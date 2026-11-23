@@ -14,6 +14,7 @@
 pub mod access_settings;
 pub mod adapter_installations;
 pub mod adapters;
+pub mod agent_circuit;
 pub mod agent_harness_access;
 pub mod app;
 pub mod app_administration;

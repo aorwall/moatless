@@ -176,6 +176,7 @@ impl AppState {
             task_fork,
             task_rewind,
             task_switch,
+            harness_cooldowns,
         } = task_graph.assemble(TaskWorkflowInputs {
             repository_reader: repository_reader.clone(),
             workspace_resolver: workspace_resolver.clone(),
@@ -307,12 +308,28 @@ impl AppState {
                 task_creation.clone(),
                 adapter_delivery.clone(),
             ));
+        let loop_turns: Arc<dyn moatless_ports::task::MessageAcceptor> =
+            Arc::new(crate::agent_circuit::LoopTurnAcceptor::new(
+                crate::event_handler::agent_fallback::FallbackPorts {
+                    hub_available: config.model_gateway.hub_url.is_some(),
+                    order: config.agent_fallback_order.clone(),
+                    tasks: tasks.clone(),
+                    loops: loops.clone(),
+                    task_switch: task_switch.clone(),
+                    message_send: message_send.clone(),
+                    sandbox_waker: sandbox_waker.clone(),
+                    secrets: secrets.clone(),
+                    harness_credentials: harness_credentials.clone(),
+                    credential_sync: credential_sync.clone(),
+                    harness_cooldowns: harness_cooldowns.clone(),
+                },
+            ));
         let routing = loop_graph.routing(RoutingInputs {
             adapter_connections: connection_routing.clone(),
             own_events: own_events.clone(),
             tasks: task_reader.clone(),
             task_creation: loop_task_opener.clone(),
-            message_send: message_send.clone(),
+            message_send: loop_turns.clone(),
             sandbox_waker: sandbox_waker.clone(),
             adapters: adapters.clone(),
             message_buffer: config.message_buffer.clone(),
@@ -419,6 +436,8 @@ impl AppState {
             git_sync,
             loop_sync,
             message_send,
+            loop_turns,
+            harness_cooldowns,
             task_presenter,
             task_closer,
             skills,

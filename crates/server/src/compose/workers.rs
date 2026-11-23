@@ -71,7 +71,7 @@ pub(crate) fn schedule_runner(
 ) -> moatless_loops::loops::firing::schedule_runner::ScheduleRunner {
     ports.loop_graph.schedule_runner(ScheduleRunnerInputs {
         tasks: app_state.task_reader.clone(),
-        message_send: app_state.message_send.clone(),
+        message_send: app_state.loop_turns.clone(),
         adapters: app_state.adapters.clone(),
         task_creation: app_state.loop_task_opener.clone(),
         sandbox_waker: app_state.sandbox_waker.clone(),

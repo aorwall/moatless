@@ -63,6 +63,7 @@ pub const TABLES: &[(&str, &str)] = &[
     ("task_event_changes", "moatless-core"),
     ("task_event_dispatch_queue", "moatless-core"),
     ("task_event_position", "moatless-core"),
+    ("harness_cooldowns", "moatless-tasks"),
     ("task_events", "moatless-tasks"),
     ("task_follows", "moatless-tasks"),
     ("task_forks", "moatless-tasks"),

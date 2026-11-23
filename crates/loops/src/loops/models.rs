@@ -56,6 +56,16 @@ impl LoopSpawnConfig {
 }
 
 /// A cron rule that fires a Loop on a timer.
+/// The agent a Loop runs its Tasks on, read when a turn is delivered or
+/// falls back.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoopAgentChoice {
+    pub agent_profile: AgentProfile,
+    pub model: Option<String>,
+    /// See [`NewLoopConfig::fallback_to_other_agent`].
+    pub fallback_to_other_agent: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct Schedule {
     pub id: String,
@@ -215,8 +225,9 @@ pub struct NewLoopConfig {
     pub room: Option<RoomSpec>,
     /// Re-run a spawned Task's turn on the other harness once when the
     /// provider will not serve it: a usage limit, or a rate limit or an
-    /// unavailable provider that outlasted retries. Read when the turn errors,
-    /// not at spawn, so a toggle reaches Tasks already running.
+    /// unavailable provider that outlasted retries. While that harness cools
+    /// down, deliver later turns on the other one. Read per turn, not at
+    /// spawn, so a toggle reaches Tasks already running.
     pub fallback_to_other_agent: bool,
 }
 

@@ -2,6 +2,8 @@
 
 pub(crate) mod access_dao;
 pub mod closer;
+pub mod cooldown;
+pub(crate) mod cooldown_dao;
 pub mod creation;
 pub(crate) mod dao;
 pub mod error;

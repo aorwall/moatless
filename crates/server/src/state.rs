@@ -278,6 +278,9 @@ pub struct AppState {
     /// The message-send flows over the ports they read; holds the self-echo
     /// dedup filter, so the message domain does not name the adapter registry.
     pub message_send: Arc<MessageSendService>,
+    /// The acceptor every Loop delivery queues its turns through.
+    pub loop_turns: Arc<dyn moatless_ports::task::MessageAcceptor>,
+    pub harness_cooldowns: Arc<moatless_tasks::task::cooldown::HarnessCooldowns>,
     pub secret_requests: Arc<SecretRequests>,
     /// Presents a task row as a `TaskResponse`; holds the eight ports the
     /// response is assembled from so presenting handlers name one service
@@ -777,6 +780,7 @@ impl From<&AppState> for crate::event_handler::agent_fallback::FallbackPorts {
             secrets: state.secrets.clone(),
             harness_credentials: state.harness_credentials.clone(),
             credential_sync: state.credential_sync.clone(),
+            harness_cooldowns: state.harness_cooldowns.clone(),
         }
     }
 }

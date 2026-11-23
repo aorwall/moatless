@@ -6,9 +6,9 @@ use std::sync::Arc;
 use super::access::ensure_workspace_usable;
 use super::dao::LoopDao;
 use super::models::{
-    AdapterSourceUpdate, LoopListFilter, LoopRecord, LoopSourceRow, LoopUpdate, ManagedLoopUpsert,
-    NewAdapterEventSource, NewLoop, NewLoopConfig, NewLoopSource, NewScheduleSource,
-    UpdateLoopSource as StoreUpdateSource,
+    AdapterSourceUpdate, LoopAgentChoice, LoopListFilter, LoopRecord, LoopSourceRow, LoopUpdate,
+    ManagedLoopUpsert, NewAdapterEventSource, NewLoop, NewLoopConfig, NewLoopSource,
+    NewScheduleSource, UpdateLoopSource as StoreUpdateSource,
 };
 use super::schedule::next_fire_at;
 use super::sync::LoopSyncService;
@@ -87,12 +87,12 @@ impl Loops {
         &self.store
     }
 
-    /// See [`LoopDao::fallback_to_other_agent`].
-    pub async fn fallback_to_other_agent(
+    /// See [`LoopDao::agent_choice`].
+    pub async fn agent_choice(
         &self,
         loop_id: &str,
-    ) -> Result<Option<bool>, sqlx::Error> {
-        self.store.fallback_to_other_agent(loop_id).await
+    ) -> Result<Option<LoopAgentChoice>, sqlx::Error> {
+        self.store.agent_choice(loop_id).await
     }
 
     /// The Loops an access-filtered caller may see.
