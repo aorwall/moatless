@@ -222,7 +222,7 @@ mod tests {
 
     #[test]
     fn agent_profile_wire_form_is_its_column_value() {
-        for profile in AgentProfile::ALL {
+        for &profile in AgentProfile::ALL {
             let wire = serde_json::to_string(&profile).unwrap();
             assert_eq!(wire, format!("\"{}\"", profile.as_str()));
             assert_eq!(AgentProfile::parse(profile.as_str()), Some(profile));
@@ -346,40 +346,31 @@ impl std::fmt::Display for Harness {
     }
 }
 
-/// A catalog entry: a harness plus transport, default model and credentials (e.g. "claude-code-tui").
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "kebab-case")]
-pub enum AgentProfile {
-    ClaudeCode,
-    /// Claude Code over the tmux (interactive TUI) transport.
-    ClaudeCodeTui,
-    /// Claude Code over the subprocess/NDJSON transport.
-    ClaudeCodeCli,
-    /// Claude Code pinned to the `fable` model.
-    ClaudeCodeFable,
-    Codex,
-    /// Pi over the JSONL RPC transport.
-    Pi,
-    /// mini-swe-agent over the Python JSONL bridge.
-    MiniSwe,
-    /// Google's Antigravity CLI (`agy`) over the ACP harness.
-    Antigravity,
+enum_with_all! {
+    /// A catalog entry: a harness plus transport, default model and credentials (e.g. "claude-code-tui").
+    /// Declaration order is the catalog's display order.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+    #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+    #[serde(rename_all = "kebab-case")]
+    pub enum AgentProfile {
+        ClaudeCode,
+        /// Claude Code over the tmux (interactive TUI) transport.
+        ClaudeCodeTui,
+        /// Claude Code over the subprocess/NDJSON transport.
+        ClaudeCodeCli,
+        /// Claude Code pinned to the `fable` model.
+        ClaudeCodeFable,
+        Codex,
+        /// Pi over the JSONL RPC transport.
+        Pi,
+        /// mini-swe-agent over the Python JSONL bridge.
+        MiniSwe,
+        /// Google's Antigravity CLI (`agy`) over the ACP harness.
+        Antigravity,
+    }
 }
 
 impl AgentProfile {
-    /// Every profile, in catalog display order.
-    pub const ALL: [Self; 8] = [
-        Self::ClaudeCode,
-        Self::ClaudeCodeTui,
-        Self::ClaudeCodeCli,
-        Self::ClaudeCodeFable,
-        Self::Codex,
-        Self::Pi,
-        Self::MiniSwe,
-        Self::Antigravity,
-    ];
-
     /// The wire and column value, e.g. `claude-code-tui`.
     pub fn as_str(self) -> &'static str {
         match self {
@@ -396,7 +387,7 @@ impl AgentProfile {
 
     /// Parse a wire or column value; `None` for anything else.
     pub fn parse(value: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|p| p.as_str() == value)
+        Self::ALL.iter().copied().find(|p| p.as_str() == value)
     }
 
     /// The harness this profile runs on.
@@ -426,7 +417,11 @@ impl std::str::FromStr for AgentProfile {
     /// The `Err` names the valid options, so a caller can surface it verbatim.
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         Self::parse(value).ok_or_else(|| {
-            let options = Self::ALL.map(Self::as_str).join(", ");
+            let options = Self::ALL
+                .iter()
+                .map(|p| p.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
             format!("unknown agentProfile `{value}`. Available options: {options}")
         })
     }

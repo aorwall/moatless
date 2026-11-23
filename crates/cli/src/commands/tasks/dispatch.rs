@@ -125,7 +125,7 @@ pub enum TaskAction {
         #[arg(
             long,
             required = true,
-            value_parser = clap::builder::PossibleValuesParser::new(AgentProfile::ALL.map(AgentProfile::as_str))
+            value_parser = clap::builder::PossibleValuesParser::new(AgentProfile::ALL.iter().map(|p| p.as_str()))
                 .map(|id| id.parse::<AgentProfile>().expect("a possible value"))
         )]
         agent_profile: AgentProfile,

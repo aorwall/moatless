@@ -106,7 +106,8 @@ resolves declarations, imports, and test-only modules. Keep this crate
 independent of the workspace application crates.
 
 Use `package.metadata.arch.allow` for an exact dependency edge, with `rule`,
-`dependency` and `reason`. Use `/// arch-allow(rule): reason` for an item. The
-annotation checker rejects an unknown rule, an empty reason, and wrong
-placement. Baseline existing debt when a new checker lands, and put a
-deliberate exception beside its declaration.
+`dependency` and `reason`. Use `/// arch-allow(rule): reason` for an item;
+`agent-id-literal` also reads one on a single `impl` method. The annotation
+checker rejects an unknown rule, an empty reason, and wrong placement. Baseline
+existing debt when a new checker lands, and put a deliberate exception beside
+its declaration.

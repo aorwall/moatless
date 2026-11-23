@@ -63,6 +63,8 @@ async fn check_provider_connections(state: &AuthState, user_id: &str) -> Vec<Pro
 /// `None` means no codex row (keeps the frontend's `?? true` default from not
 /// showing a reconnect banner); `connected` is false iff
 /// `metadata.refresh_failure` is stamped, meaning the user must sign in again.
+///
+/// arch-allow(agent-id-literal): `codex` is a provider-token name.
 async fn check_codex_connection(state: &AuthState, user_id: &str) -> Option<ProviderConnection> {
     let token = match state
         .provider_tokens_dao

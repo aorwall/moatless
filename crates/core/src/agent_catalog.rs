@@ -131,6 +131,7 @@ pub const CLAUDE_CODE_FABLE: AgentProfileEntry = AgentProfileEntry {
     ..claude_code(AgentProfile::ClaudeCodeFable, "Claude Code (Fable)", false)
 };
 
+/// arch-allow(agent-id-literal): `codex` is a provider-token name.
 pub const CODEX: AgentProfileEntry = AgentProfileEntry {
     profile: AgentProfile::Codex,
     label: "Codex",
@@ -205,6 +206,8 @@ pub const MINI_SWE: AgentProfileEntry = AgentProfileEntry {
 
 /// Antigravity (`agy`) models, as the deployment's hub names them: the hub's
 /// `antigravity` rows, which are appended at runtime, follow this default.
+///
+/// arch-allow(agent-id-literal): `antigravity` is a hub `owned_by`.
 pub const ANTIGRAVITY: AgentProfileEntry = AgentProfileEntry {
     profile: AgentProfile::Antigravity,
     label: "Antigravity",
@@ -236,7 +239,7 @@ pub fn entry(profile: AgentProfile) -> &'static AgentProfileEntry {
 
 /// All supported agents in display order.
 pub fn catalog() -> impl Iterator<Item = &'static AgentProfileEntry> {
-    AgentProfile::ALL.into_iter().map(entry)
+    AgentProfile::ALL.iter().copied().map(entry)
 }
 
 /// Look up a catalog entry by its `agent_profile` id.
@@ -332,8 +335,31 @@ mod tests {
     use super::{
         UNRESOLVED_MODEL_CHOICE, entry, model_conflicts, offers_model, validate_agent_model,
     };
-    use moatless_types::agent::AgentProfile;
+    use moatless_types::agent::{AgentProfile, Harness};
     use moatless_types::model::{ClaudeModel, CodexModel};
+
+    #[test]
+    fn every_profile_has_its_own_entry_and_every_harness_a_profile() {
+        let mut ids = std::collections::BTreeSet::new();
+        for &profile in AgentProfile::ALL {
+            let e = entry(profile);
+            assert_eq!(e.profile, profile, "{profile}");
+            assert!(ids.insert(e.id()), "{profile} shares its id");
+            assert!(!e.label.is_empty(), "{profile}");
+            assert!(
+                e.default_model == UNRESOLVED_MODEL_CHOICE
+                    || validate_agent_model(profile, Some(e.default_model)).is_ok(),
+                "{profile} refuses its own default model {}",
+                e.default_model
+            );
+        }
+        for &harness in Harness::ALL {
+            assert!(
+                AgentProfile::ALL.iter().any(|p| p.harness() == harness),
+                "{harness} has no profile"
+            );
+        }
+    }
 
     #[test]
     fn pi_refuses_subscription_providers_and_unqualified_models() {

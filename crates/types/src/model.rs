@@ -271,6 +271,8 @@ const ANTIGRAVITY_ONLY: &[(&str, ModelPrice)] = &[
 /// A catalog model or one in [`ANTIGRAVITY_ONLY`] matches on its id anywhere
 /// in the reported one, and an earlier id on its family in [`EARLIER_CLAUDE`]
 /// or as an earlier Codex id.
+///
+/// arch-allow(agent-id-literal): `codex` is a model-id substring here.
 pub fn price_for(model: &str) -> Option<ModelPrice> {
     let m = model.to_ascii_lowercase();
     if let Some(codex) = CodexModel::ALL.into_iter().find(|c| m.contains(c.id())) {

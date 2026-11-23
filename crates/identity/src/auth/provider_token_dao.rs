@@ -282,6 +282,7 @@ impl ProviderTokenDao for PgProviderTokenDao {
             .await
     }
 
+    /// arch-allow(agent-id-literal): `codex` is a provider-token name.
     async fn upsert_codex_blob(
         &self,
         scope: &CodexScope,

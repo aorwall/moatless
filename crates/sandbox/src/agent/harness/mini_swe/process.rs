@@ -353,7 +353,10 @@ impl MiniSweProcess {
         }
         self.pending.push_back(ProcessEvent::Activity(Activity {
             session: SessionId(self.session.clone()),
-            detail: event["type"].as_str().unwrap_or("mini-swe").into(),
+            detail: event["type"]
+                .as_str()
+                .unwrap_or(moatless_types::agent::Harness::MiniSwe.as_str())
+                .into(),
         }));
     }
 }

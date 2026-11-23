@@ -18,13 +18,20 @@ use moatless_types::agent::{AgentProfile, Harness, split_pi_model};
 
 /// The Claude provider instance id.
 pub const CLAUDE_INSTANCE: &str = "claudeAgent";
+/// arch-allow(agent-id-literal): a T3 instance id.
 pub const CODEX_INSTANCE: &str = "codex";
+/// arch-allow(agent-id-literal): a T3 instance id.
 pub const PI_INSTANCE: &str = "pi";
+/// arch-allow(agent-id-literal): a T3 instance id.
 pub const MINI_SWE_INSTANCE: &str = "mini-swe";
 /// Antigravity, which runs on the ACP harness: the instance names the agent a
 /// person picks, not the protocol, so it is also T3's own `antigravity` driver.
+///
+/// arch-allow(agent-id-literal): a T3 instance id.
 pub const ANTIGRAVITY_INSTANCE: &str = "antigravity";
 /// The id Antigravity was published under before; a stale client still sends it.
+///
+/// arch-allow(agent-id-literal): a T3 instance id.
 const LEGACY_ACP_INSTANCE: &str = "acp";
 /// T3's `ANTIGRAVITY_DEFAULT_MODEL`: "whichever model the session runs".
 pub const ANTIGRAVITY_DEFAULT_ALIAS: &str = "antigravity-default";
@@ -59,6 +66,8 @@ pub struct EffortPicker {
 }
 
 /// How T3 shows `harness`.
+///
+/// arch-allow(agent-id-literal): T3 instance ids and usage kinds.
 pub fn presentation(harness: Harness) -> Presentation {
     match harness {
         Harness::ClaudeCode => Presentation {

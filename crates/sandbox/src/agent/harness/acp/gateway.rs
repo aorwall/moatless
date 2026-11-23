@@ -208,6 +208,8 @@ async fn forward(State(state): State<ProxyState>, request: Request) -> Response 
 ///
 /// `agy` offers at most 40 of the ids it is given, so on the full hub list a
 /// published model can be missing and fail as `Unknown model ID`.
+///
+/// arch-allow(agent-id-literal): `antigravity` is a hub `owned_by`.
 fn account_models(body: &[u8], selected: Option<&str>) -> Option<Bytes> {
     let mut json: serde_json::Value = serde_json::from_slice(body).ok()?;
     json.get_mut("data")?.as_array_mut()?.retain(|row| {

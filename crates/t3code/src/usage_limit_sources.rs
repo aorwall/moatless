@@ -288,6 +288,8 @@ enum QuotaProvider {
 impl QuotaProvider {
     /// `None` for every other pooled provider: it reports no quota headers at
     /// all, so a row for one would be a heading with nothing under it.
+    ///
+    /// arch-allow(agent-id-literal): `codex` names the hub's quota file.
     fn parse(provider: &str) -> Option<Self> {
         match provider {
             "claude" => Some(Self::Claude),

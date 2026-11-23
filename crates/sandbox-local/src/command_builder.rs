@@ -10,6 +10,7 @@ use moatless_workspace_types::workspace::WORKSPACE_REPOS_ENV;
 
 use super::naming::TaskPaths;
 
+/// arch-allow(agent-id-literal): `codex` is the CLI binary.
 #[allow(clippy::too_many_arguments)]
 pub fn build_env(
     config: &Config,

@@ -73,7 +73,7 @@ pub(super) fn usage(message: &Value) -> Usage {
 
 impl SessionFormat for MiniSweSessionFormat {
     fn harness(&self) -> &'static str {
-        "mini-swe"
+        moatless_types::agent::Harness::MiniSwe.as_str()
     }
     fn session_path(&self, home: &Path, _cwd: &Path, id: &str, _first: &str) -> PathBuf {
         home.join("sessions").join(format!("{id}.jsonl"))

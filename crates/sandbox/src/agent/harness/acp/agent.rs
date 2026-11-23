@@ -42,6 +42,8 @@ impl AcpAgent {
     }
 
     /// The agent's name on journal binding lines.
+    ///
+    /// arch-allow(agent-id-literal): journals keep this name.
     pub(super) fn name(self) -> &'static str {
         match self {
             Self::Antigravity => "antigravity",
@@ -81,6 +83,8 @@ impl AcpAgent {
 
     /// The agent process, speaking ACP on stdio, with `env` layered over the
     /// inherited environment.
+    ///
+    /// arch-allow(agent-id-literal): `acp` is `agy`'s subcommand.
     pub(super) fn command(
         self,
         config: &Config,
@@ -123,6 +127,8 @@ impl AcpAgent {
     }
 
     /// `session/new` and `session/load` fields beyond the protocol's own.
+    ///
+    /// arch-allow(agent-id-literal): `antigravity` is `agy`'s meta namespace.
     pub(super) fn session_meta(self, system_prompt: Option<&str>) -> Value {
         match (self, system_prompt) {
             (Self::Antigravity, Some(prompt)) => {

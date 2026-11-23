@@ -170,7 +170,9 @@ async fn close_linear_bound_task(
     // Only the close reason is this Adapter's — the `"claude-code"` actor and
     // the `{reason, issue_identifier, state_name}` payload the UI renders.
     let close_reason = CloseReason {
-        actor: "claude-code".to_string(),
+        actor: moatless_types::agent::AgentProfile::ClaudeCode
+            .as_str()
+            .to_string(),
         payload: serde_json::json!({
             "reason": "linear_state_terminal",
             "issue_identifier": issue.identifier,

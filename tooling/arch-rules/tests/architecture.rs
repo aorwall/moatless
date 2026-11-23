@@ -171,7 +171,8 @@ enforce!(
     conversation_writer,
     session_line_parsing,
     sqlx_test_migrations,
-    migration_contract
+    migration_contract,
+    agent_id_literal
 );
 
 #[test]

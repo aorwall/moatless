@@ -5,6 +5,7 @@
 //! `arch-baseline.json`, or on any of them under `ARCH_STRICT=1`.
 
 pub mod adapter_boundaries;
+pub mod agent_id_literal;
 pub mod agents_md_budget;
 pub mod agents_symlink;
 pub mod annotations;

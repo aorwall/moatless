@@ -91,6 +91,7 @@ impl PiProcess {
             .map_err(|e| error(ErrorClass::ProcessExit, e))
     }
 
+    /// arch-allow(agent-id-literal): `pi` is the CLI binary.
     async fn open(&mut self, input: &Input) -> Result<(), HarnessError> {
         if matches!(input.resume, Some(ResumeSession::Last))
             && !input.start_fresh
@@ -398,7 +399,10 @@ impl PiProcess {
         }
         self.pending.push_back(ProcessEvent::Activity(Activity {
             session: SessionId(self.session.clone()),
-            detail: event["type"].as_str().unwrap_or("pi").into(),
+            detail: event["type"]
+                .as_str()
+                .unwrap_or(moatless_types::agent::Harness::Pi.as_str())
+                .into(),
         }));
     }
 }

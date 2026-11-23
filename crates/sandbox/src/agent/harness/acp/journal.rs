@@ -58,7 +58,7 @@ fn usage(line: &Value) -> Option<Usage> {
 
 impl SessionFormat for AcpSessionFormat {
     fn harness(&self) -> &'static str {
-        "acp"
+        moatless_types::agent::Harness::Acp.as_str()
     }
     fn session_path(&self, home: &Path, _cwd: &Path, id: &str, _first: &str) -> PathBuf {
         journal_path(home, id)

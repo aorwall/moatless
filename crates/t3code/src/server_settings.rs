@@ -4,6 +4,7 @@
 use serde_json::{Map, Value, json};
 use tracing::warn;
 
+use crate::providers::{ANTIGRAVITY_INSTANCE, MINI_SWE_INSTANCE, PI_INSTANCE};
 use crate::state::UiRpcState;
 use moatless_types::ui_rpc::UiRpcAuthIdentity;
 
@@ -111,13 +112,11 @@ fn readable(stored: Map<String, Value>) -> Map<String, Value> {
 /// `providerInstances` enables Pi explicitly: T3 resolves a provider's
 /// enabled state from settings, and treats an unconfigured Pi as off, which hides it from the picker.
 pub(crate) fn settings_object(stored: Map<String, Value>) -> Value {
-    let mut settings = json!({
-        "providerInstances": {
-            "pi": { "driver": "pi", "enabled": true },
-            "mini-swe": { "driver": "mini-swe", "enabled": true },
-            "antigravity": { "driver": "antigravity", "enabled": true }
-        }
-    });
+    let instances: Map<String, Value> = [PI_INSTANCE, MINI_SWE_INSTANCE, ANTIGRAVITY_INSTANCE]
+        .into_iter()
+        .map(|id| (id.to_string(), json!({ "driver": id, "enabled": true })))
+        .collect();
+    let mut settings = json!({ "providerInstances": instances });
     if let Value::Object(fields) = &mut settings {
         fields.extend(readable(stored));
     }

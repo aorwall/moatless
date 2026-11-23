@@ -45,7 +45,7 @@ pub(super) fn blocks(message: &Value) -> Vec<Block> {
 
 impl SessionFormat for PiSessionFormat {
     fn harness(&self) -> &'static str {
-        "pi"
+        moatless_types::agent::Harness::Pi.as_str()
     }
     fn session_path(&self, home: &Path, _cwd: &Path, id: &str, _first: &str) -> PathBuf {
         home.join("sessions").join(format!("{id}.jsonl"))

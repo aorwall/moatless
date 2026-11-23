@@ -52,7 +52,12 @@ fn dependency_rule(rule: &str) -> bool {
 
 /// Whether this declaration carries a valid exception to an item rule.
 pub fn permits(record: &Record, rule: &str) -> bool {
-    attrs(&record.item)
+    excuses(attrs(&record.item), rule)
+}
+
+/// Whether `attrs` carry a valid exception to `rule`.
+pub fn excuses(attrs: &[syn::Attribute], rule: &str) -> bool {
+    attrs
         .iter()
         .filter(|a| a.path().is_ident("doc"))
         .filter_map(doc_value)
@@ -114,7 +119,8 @@ fn applicable(rule: &str, r: &Record) -> bool {
         | "store-privacy"
         | "table-ownership"
         | "adapter-boundaries"
-        | "row-stays-with-query" => true,
+        | "row-stays-with-query"
+        | "agent-id-literal" => true,
         _ => false,
     }
 }
@@ -122,10 +128,26 @@ fn applicable(rule: &str, r: &Record) -> bool {
 pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
     let mut out = Vec::new();
     for r in &ws.role_index()?.records {
-        for line in attrs(&r.item)
-            .iter()
-            .filter(|a| a.path().is_ident("doc"))
-            .filter_map(doc_value)
+        let methods = match &r.item {
+            syn::Item::Impl(imp) => imp
+                .items
+                .iter()
+                .filter_map(|i| match i {
+                    syn::ImplItem::Fn(f) => Some((f.attrs.as_slice(), true)),
+                    _ => None,
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+        for (line, method) in std::iter::once((attrs(&r.item), false))
+            .chain(methods)
+            .flat_map(|(attrs, method)| {
+                attrs
+                    .iter()
+                    .filter(|a| a.path().is_ident("doc"))
+                    .filter_map(doc_value)
+                    .map(move |line| (line, method))
+            })
         {
             match parse(&line) {
                 Err(why) => out.push(Violation::at(
@@ -135,7 +157,13 @@ pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
                     &r.file,
                 )),
                 Ok(Some(a)) => {
-                    if !applicable(a.rule, r) {
+                    // Only `agent-id-literal` reads an exception on one method.
+                    let fits = if method {
+                        a.rule == crate::agent_id_literal::RULE
+                    } else {
+                        applicable(a.rule, r)
+                    };
+                    if !fits {
                         out.push(Violation::at(
                             RULE,
                             format!("{}: {}", r.id, a.rule),

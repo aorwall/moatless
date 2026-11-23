@@ -720,6 +720,8 @@ impl Config {
     }
 
     /// The `--gemini-dir` the Antigravity CLI keeps all its state in.
+    ///
+    /// arch-allow(agent-id-literal): `agy` names its dir.
     pub(crate) fn antigravity_dir(&self) -> std::path::PathBuf {
         self.acp_home_dir().join("antigravity")
     }

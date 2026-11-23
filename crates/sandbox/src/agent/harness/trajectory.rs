@@ -414,7 +414,7 @@ impl ClaudeSessionFormat {
 
 impl SessionFormat for ClaudeSessionFormat {
     fn harness(&self) -> &'static str {
-        "claude-code"
+        moatless_types::agent::Harness::ClaudeCode.as_str()
     }
 
     fn session_path(&self, home: &Path, cwd: &Path, id: &str, _first_line: &str) -> PathBuf {
@@ -565,7 +565,7 @@ pub struct CodexSessionFormat;
 
 impl SessionFormat for CodexSessionFormat {
     fn harness(&self) -> &'static str {
-        "codex"
+        moatless_types::agent::Harness::Codex.as_str()
     }
 
     fn quotes_replies(&self) -> bool {

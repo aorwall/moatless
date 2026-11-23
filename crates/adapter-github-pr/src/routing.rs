@@ -683,7 +683,9 @@ impl GithubPrInboundRouter {
         // publishes the event. The close-ports live on `TaskCloser`, not
         // this router; only the close event below is github_pr's own.
         let close_reason = CloseReason {
-            actor: "claude-code".to_string(),
+            actor: moatless_types::agent::AgentProfile::ClaudeCode
+                .as_str()
+                .to_string(),
             payload: serde_json::json!({ "reason": "pr_closed", "pr_number": pr_number }),
         };
         if let Err(e) = self.task_closer.close(task_id, close_reason).await {
