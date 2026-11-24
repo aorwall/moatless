@@ -24,9 +24,13 @@ impl std::str::FromStr for ProxyPolicyMode {
 }
 
 /// A request path made safe to match: percent-decoded once, with no `.` or
-/// `..` segment, no empty segment, no backslash and no control byte.
+/// `..` segment, no empty segment, no backslash and no control byte. The raw
+/// query rides along for a [`QueryRule`].
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NormalPath(String);
+pub struct NormalPath {
+    path: String,
+    query: String,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum PathError {
@@ -39,12 +43,14 @@ pub enum PathError {
 }
 
 impl NormalPath {
-    /// Normalise the path half of `path_and_query`; the query is ignored.
+    /// Normalise the path half of `path_and_query`, keeping the query raw.
     ///
     /// Refused rather than cleaned: a path the upstream would resolve
     /// differently from this matcher is the trick the rules exist to stop.
     pub fn parse(path_and_query: &str) -> Result<Self, PathError> {
-        let raw = path_and_query.split('?').next().unwrap_or_default();
+        let (raw, query) = path_and_query
+            .split_once('?')
+            .unwrap_or((path_and_query, ""));
         if !raw.starts_with('/') {
             return Err(PathError::NotAbsolute);
         }
@@ -65,15 +71,23 @@ impl NormalPath {
                 return Err(PathError::Traversal);
             }
         }
-        Ok(Self(decoded))
+        Ok(Self {
+            path: decoded,
+            query: query.to_string(),
+        })
     }
 
     pub fn as_str(&self) -> &str {
-        &self.0
+        &self.path
+    }
+
+    /// The raw query after `?`, empty when there is none.
+    pub fn query(&self) -> &str {
+        &self.query
     }
 
     fn segments(&self) -> Vec<&str> {
-        let rest = self.0.trim_start_matches('/');
+        let rest = self.path.trim_start_matches('/');
         let rest = rest.strip_suffix('/').unwrap_or(rest);
         if rest.is_empty() {
             Vec::new()
@@ -90,6 +104,10 @@ fn percent_decode(raw: &str) -> Result<String, PathError> {
     while i < bytes.len() {
         if bytes[i] == b'%' {
             let hex = bytes.get(i + 1..i + 3).ok_or(PathError::Encoding)?;
+            // `from_str_radix` alone takes `+f`, which `net/url` refuses.
+            if !hex.iter().all(u8::is_ascii_hexdigit) {
+                return Err(PathError::Encoding);
+            }
             let hex = std::str::from_utf8(hex).map_err(|_| PathError::Encoding)?;
             out.push(u8::from_str_radix(hex, 16).map_err(|_| PathError::Encoding)?);
             i += 3;
@@ -206,6 +224,41 @@ impl BodyRule {
     }
 }
 
+/// A rule on the request's query string: `param` must appear exactly once,
+/// and its form-decoded value must be one of `one_of`.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QueryRule {
+    pub param: String,
+    pub one_of: Vec<String>,
+}
+
+impl QueryRule {
+    /// False for a repeated `param`, since upstreams disagree on which copy
+    /// they read, and for any pair that does not decode.
+    pub fn matches(&self, query: &str) -> bool {
+        let mut found = None;
+        for pair in query.split('&').filter(|p| !p.is_empty()) {
+            let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+            let (Some(key), Some(value)) = (form_decode(key), form_decode(value)) else {
+                return false;
+            };
+            if key == self.param {
+                if found.is_some() {
+                    return false;
+                }
+                found = Some(value);
+            }
+        }
+        found.is_some_and(|value| self.one_of.contains(&value))
+    }
+}
+
+/// `application/x-www-form-urlencoded`: `+` is a space, then percent-decoding.
+fn form_decode(raw: &str) -> Option<String> {
+    percent_decode(&raw.replace('+', " ")).ok()
+}
+
 /// One allow rule as configuration writes it.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -214,6 +267,8 @@ pub struct RuleSpec {
     pub path: String,
     #[serde(default)]
     pub body: Option<BodyRule>,
+    #[serde(default)]
+    pub query: Option<QueryRule>,
     /// Limits the rule to sandboxes whose pod runs as one of these Kubernetes
     /// service accounts. Absent means every caller.
     #[serde(default)]
@@ -239,6 +294,7 @@ pub struct Rule {
     methods: Vec<String>,
     path: PathGlob,
     body: Option<BodyRule>,
+    query: Option<QueryRule>,
     service_accounts: Option<Vec<String>>,
     users: Option<Vec<String>>,
 }
@@ -254,6 +310,7 @@ impl Rule {
             methods: methods.iter().map(|m| m.to_ascii_uppercase()).collect(),
             path: PathGlob::parse(path)?,
             body,
+            query: None,
             service_accounts: None,
             users: None,
         })
@@ -264,6 +321,19 @@ impl Rule {
     /// match no one.
     pub fn for_service_accounts(mut self, accounts: Vec<String>) -> Result<Self, String> {
         self.service_accounts = Some(non_empty(accounts, "serviceAccounts", self.path())?);
+        Ok(self)
+    }
+
+    /// Require the request's query to satisfy `query`. An empty `one_of` is
+    /// refused: it would match no request.
+    pub fn with_query(mut self, query: QueryRule) -> Result<Self, String> {
+        if query.param.trim().is_empty() || query.one_of.is_empty() {
+            return Err(format!(
+                "rule `{}` has a query rule with no param or no values",
+                self.path()
+            ));
+        }
+        self.query = Some(query);
         Ok(self)
     }
 
@@ -282,6 +352,9 @@ impl Rule {
         }
         if let Some(users) = &spec.users {
             rule = rule.for_users(users.clone())?;
+        }
+        if let Some(query) = &spec.query {
+            rule = rule.with_query(query.clone())?;
         }
         Ok(rule)
     }
@@ -331,6 +404,8 @@ pub enum Verdict {
     Allow(String),
     /// A rule matched the method and path but its body rule did not.
     BodyRefused(String),
+    /// A rule matched the method and path but its query rule did not.
+    QueryRefused(String),
     /// No rule matched the method and path.
     NoRule,
 }
@@ -359,6 +434,14 @@ impl RuleSet {
     ) -> Verdict {
         match self.first(method, path, caller) {
             None => Verdict::NoRule,
+            Some(rule)
+                if rule
+                    .query
+                    .as_ref()
+                    .is_some_and(|q| !q.matches(path.query())) =>
+            {
+                Verdict::QueryRefused(rule.path().to_string())
+            }
             Some(rule) => match &rule.body {
                 Some(body_rule) if !body.is_some_and(|b| body_rule.matches(b)) => {
                     Verdict::BodyRefused(rule.path().to_string())
@@ -570,6 +653,53 @@ mod tests {
         ));
         assert_eq!(check(Some("moatless-user"), Some("human")), Verdict::NoRule);
         assert_eq!(check(None, None), Verdict::NoRule);
+    }
+
+    #[test]
+    fn a_query_rule_admits_only_one_listed_value() {
+        let rules = RuleSet::new(vec![
+            Rule::new(&["GET"], "/api/v1/query", None)
+                .unwrap()
+                .with_query(QueryRule {
+                    param: "query".to_string(),
+                    one_of: vec!["up{env=\"prod\"}".to_string()],
+                })
+                .unwrap(),
+        ]);
+        let check = |p: &str| rules.check("GET", &path(p), Caller::default(), None);
+        assert!(matches!(
+            check("/api/v1/query?query=up%7Benv%3D%22prod%22%7D&time=1"),
+            Verdict::Allow(_)
+        ));
+        assert!(matches!(
+            check("/api/v1/query?query=up{env=\"prod\"}"),
+            Verdict::Allow(_)
+        ));
+        let refused = |p: &str| matches!(check(p), Verdict::QueryRefused(_));
+        assert!(refused("/api/v1/query?query=up"));
+        assert!(refused("/api/v1/query"));
+        // A second copy could be the one the upstream reads.
+        assert!(refused(
+            "/api/v1/query?query=up%7Benv%3D%22prod%22%7D&query=secret"
+        ));
+        assert!(refused("/api/v1/query?query=%zz"));
+        assert!(refused("/api/v1/query?query=%+f"));
+        assert!(NormalPath::parse("/a%+2e").is_err());
+        let spaced = QueryRule {
+            param: "q".to_string(),
+            one_of: vec!["a b".to_string()],
+        };
+        assert!(spaced.matches("q=a+b"));
+        assert!(!spaced.matches("q=a%2Bb"));
+    }
+
+    #[test]
+    fn a_query_rule_with_no_values_is_refused() {
+        let spec: RuleSpec = serde_json::from_value(serde_json::json!({
+            "methods": ["GET"], "path": "/x", "query": {"param": "q", "oneOf": []}
+        }))
+        .unwrap();
+        assert!(Rule::from_spec(&spec).is_err());
     }
 
     #[test]

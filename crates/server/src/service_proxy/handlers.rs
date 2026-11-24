@@ -98,6 +98,7 @@ pub(super) async fn forward(
         verdict => {
             let reason = match verdict {
                 Verdict::BodyRefused(rule) => format!("body_rule:{rule}"),
+                Verdict::QueryRefused(rule) => format!("query_rule:{rule}"),
                 _ => "no_rule".to_string(),
             };
             warn!(

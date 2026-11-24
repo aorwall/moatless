@@ -78,6 +78,7 @@ fn services(upstream: &str) -> Arc<ServiceProxies> {
                 { "methods": ["GET"], "path": "/redirect" },
                 { "methods": ["GET"], "path": "/gateway-timeout" },
                 { "methods": ["GET"], "path": "/api/prod/**", "serviceAccounts": ["moatless-ops"], "users": ["reviewer-bot"] },
+                { "methods": ["GET"], "path": "/api/query", "query": { "param": "query", "oneOf": ["up"] } },
                 { "methods": ["POST"], "path": "/api/ds/query",
                   "body": { "pointer": "/kind", "oneOf": ["read"] } }
             ]
@@ -295,6 +296,26 @@ async fn a_request_no_rule_allows_is_refused_before_the_upstream() {
     )
     .await;
     assert_eq!(allowed.status(), StatusCode::OK);
+    assert_eq!(seen.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn a_query_rule_forwards_only_a_listed_value() {
+    let seen = Seen::default();
+    let upstream = fake_upstream(Arc::clone(&seen)).await;
+    let gateway = gateway(
+        &upstream,
+        &["grafana"],
+        &[("GRAFANA_TOKEN", GRAFANA_SECRET)],
+    );
+    let scope = scope();
+    for (path, status) in [
+        ("/api/query?query=down", StatusCode::FORBIDDEN),
+        ("/api/query?query=up", StatusCode::OK),
+    ] {
+        let response = send_as(&gateway, &scope, "grafana", Method::GET, path, "").await;
+        assert_eq!(response.status(), status, "{path}");
+    }
     assert_eq!(seen.lock().unwrap().len(), 1);
 }
 

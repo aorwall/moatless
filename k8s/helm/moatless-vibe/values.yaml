@@ -582,7 +582,9 @@ workspaceSync:
 # `http://127.0.0.1:7781/{name}`, handed under `expose.urlEnv`. A rule with
 # `serviceAccounts: [name]` admits only a pod running as one of them, and
 # `users: [id]` only a sandbox acting for one of those Moatless user ids; with
-# both, either admits. The next rule decides for any other pod.
+# both, either admits. The next rule decides for any other pod. A rule's
+# `query: {param, oneOf}` refuses a request unless `param` appears once with a
+# listed value.
 # e.g. grafana: {upstream: https://grafana.example.com,
 #   credential: {secret: GRAFANA_TOKEN, inject: {style: bearer}},
 #   expose: {urlEnv: GRAFANA_URL, tokenEnv: GRAFANA_TOKEN},
