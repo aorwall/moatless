@@ -179,6 +179,7 @@ impl CoordinatorService {
         let run_cancel = CancellationToken::new();
         let mut coordinator = coordinator;
         coordinator.bind(Arc::clone(&agent_state), run_cancel.clone());
+        coordinator.agent_profile = config.agent_profile.clone();
 
         Self {
             coordinator,
@@ -857,7 +858,7 @@ impl CoordinatorService {
             to = profile,
             "Rebuilt the harness for the Task's new Agent profile"
         );
-        self.coordinator.replace_harness(harness);
+        self.coordinator.replace_harness(harness, profile);
         self.config = config;
         true
     }

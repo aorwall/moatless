@@ -23,6 +23,7 @@ use moatless_identity::secret::service::SecretService;
 use moatless_loops::loops::operations::Loops;
 use moatless_ports::sandbox::SandboxWaker;
 use moatless_tasks::credential_sync::CredentialSync;
+use moatless_tasks::message::replay::TurnReplay;
 use moatless_tasks::message::send::MessageSendService;
 use moatless_tasks::task::operations::TaskCommands;
 use moatless_tasks::task::switch::TaskSwitchService;
@@ -74,7 +75,49 @@ pub(crate) fn serving(targets: &[Harness], cooling: &[Harness]) -> Vec<Harness> 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Fallback<'a> {
     To(&'a [Harness]),
+    /// Re-run the turn on the harness the Task already moved to, unswitched.
+    OnCurrent,
     Skip(&'static str),
+}
+
+/// Which profile failed a turn, and what its error may do about it.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Attribution {
+    /// The profile [`decide`] reads; `None` for one the catalog lacks.
+    pub failed_profile: Option<AgentProfile>,
+    /// The harness to cool down: only one the sandbox named. The ingest stamp
+    /// is the Task's profile on arrival, which a turn still running on the
+    /// old harness after a switch would cool down instead.
+    pub cools: Option<Harness>,
+    /// The Task runs another harness than the one that failed: a fallback
+    /// already moved it, and switching again would act on a stale error.
+    pub moved_on: bool,
+}
+
+/// Attribute an `agent.error` from the profile the sandbox `named` on it, else
+/// the profile `stamped` at ingest, else the Task's `current` one.
+///
+/// An error from a sandbox too old to name its profile still falls back, as
+/// it did before, but cools nothing down: a wrong fallback moves one Task,
+/// while a wrong cooldown diverts every Task of the user for days.
+pub(crate) fn attribute(
+    named: Option<&str>,
+    stamped: Option<&str>,
+    current: AgentProfile,
+) -> Attribution {
+    let Some(named) = named else {
+        return Attribution {
+            failed_profile: stamped.map_or(Some(current), AgentProfile::parse),
+            cools: None,
+            moved_on: false,
+        };
+    };
+    let failed = AgentProfile::parse(named);
+    Attribution {
+        failed_profile: failed,
+        cools: failed.map(AgentProfile::harness),
+        moved_on: failed.is_some_and(|failed| failed.harness() != current.harness()),
+    }
 }
 
 /// The catalog model a fallback onto `harness` runs; `None` is the harness's
@@ -99,6 +142,8 @@ pub(crate) struct FallbackFacts<'a> {
     /// Whether the failed turn was itself a fallback; `None` when it
     /// delivered no input to re-run.
     pub turn_was_fallback: Option<bool>,
+    /// See [`Attribution::moved_on`].
+    pub moved_on: bool,
 }
 
 pub(crate) fn decide<'a>(facts: &FallbackFacts<'_>, order: &'a AgentFallbackOrder) -> Fallback<'a> {
@@ -114,6 +159,9 @@ pub(crate) fn decide<'a>(facts: &FallbackFacts<'_>, order: &'a AgentFallbackOrde
         Some(true) => return Fallback::Skip("the turn was already a fallback"),
         Some(false) => {}
     }
+    if facts.moved_on {
+        return Fallback::OnCurrent;
+    }
     let Some(failed) = facts.failed_profile.map(AgentProfile::harness) else {
         return Fallback::Skip("the failed profile is not in the catalog");
     };
@@ -125,9 +173,9 @@ pub(crate) fn decide<'a>(facts: &FallbackFacts<'_>, order: &'a AgentFallbackOrde
 
 /// Handle `agent.error`: re-run the turn on another harness when [`decide`] says so.
 ///
-/// The refusing harness cools down for the run-as user first. The Task moves
-/// to the first serving target that accepts it, and the turn is queued again;
-/// a failure is logged and the turn keeps its error.
+/// The refusing harness, as [`attribute`] names it, cools down for the run-as
+/// user first. The Task moves to the first serving target that accepts it, and
+/// the turn is queued again; a failure is logged and the turn keeps its error.
 pub async fn fall_back_to_other_agent(state: &FallbackPorts, event: &AgentEvent) {
     let reason = event.payload.get("reason").and_then(|v| v.as_str());
     if !falls_back_on(reason) {
@@ -149,10 +197,12 @@ pub async fn fall_back_to_other_agent(state: &FallbackPorts, event: &AgentEvent)
             return;
         }
     };
-    let failed_profile = match event.agent_profile.as_deref() {
-        Some(profile) => AgentProfile::parse(profile),
-        None => Some(task.agent_profile),
-    };
+    let attribution = attribute(
+        event.payload.get("agentProfile").and_then(|v| v.as_str()),
+        event.agent_profile.as_deref(),
+        task.agent_profile,
+    );
+    let failed_profile = attribution.failed_profile;
     let resets_at = event.payload.get("resetsAt").and_then(|v| v.as_str());
     let Some(run_as) = run_as_user(&task) else {
         tracing::info!(
@@ -161,9 +211,15 @@ pub async fn fall_back_to_other_agent(state: &FallbackPorts, event: &AgentEvent)
         );
         return;
     };
-    if let (Some(profile), Some(reason)) = (failed_profile, reason) {
-        if COOLDOWN_REASONS.contains(&reason) {
-            trip(state, &run_as, profile.harness(), reason, resets_at).await;
+    if let Some(reason) = reason.filter(|reason| COOLDOWN_REASONS.contains(reason)) {
+        if let Some(harness) = attribution.cools {
+            trip(state, &run_as, harness, reason, resets_at).await;
+        } else {
+            tracing::info!(
+                task_id,
+                reason,
+                "Harness cooldown skipped: the error names no harness it ran on"
+            );
         }
     }
     let loop_enabled = match task.loop_id.as_deref() {
@@ -188,9 +244,16 @@ pub async fn fall_back_to_other_agent(state: &FallbackPorts, event: &AgentEvent)
         failed_profile,
         loop_enabled,
         turn_was_fallback: replay.as_ref().map(|replay| replay.was_fallback),
+        moved_on: attribution.moved_on,
     };
     let targets = match decide(&facts, &state.order) {
         Fallback::To(targets) => targets,
+        Fallback::OnCurrent => {
+            if let Some(replay) = replay {
+                rerun_on_current(state, &task, &run_as, replay, turn_number).await;
+            }
+            return;
+        }
         Fallback::Skip(why) => {
             tracing::info!(task_id, turn_number, why, "Agent fallback skipped");
             return;
@@ -297,6 +360,48 @@ pub async fn fall_back_to_other_agent(state: &FallbackPorts, event: &AgentEvent)
             {
                 tracing::warn!(task_id, %failed_profile, %error, "Agent fallback could not switch back");
             }
+        }
+    }
+}
+
+/// Queue `replay` again on the harness `task` already moved to, unless that
+/// harness is cooling down too.
+async fn rerun_on_current(
+    state: &FallbackPorts,
+    task: &Task,
+    run_as: &str,
+    replay: TurnReplay,
+    turn_number: i32,
+) {
+    let task_id = task.task_id.as_str();
+    let current = task.agent_profile.harness();
+    if cooling_until(state, run_as, current).await.is_some() {
+        tracing::info!(
+            task_id,
+            turn_number,
+            %current,
+            "Agent fallback skipped: the Task's current agent is cooling down too"
+        );
+        return;
+    }
+    match state.message_send.queue_replay(replay).await {
+        Ok(true) => {
+            tracing::info!(
+                task_id,
+                turn_number,
+                %current,
+                "Agent fallback re-queued the turn on the Task's current agent"
+            );
+            if let Err(error) = state.sandbox_waker.wake(task_id).await {
+                state
+                    .message_send
+                    .persist_error_result(task_id, &error)
+                    .await;
+            }
+        }
+        Ok(false) => {}
+        Err(error) => {
+            tracing::warn!(task_id, %error, "Agent fallback could not queue the turn");
         }
     }
 }
@@ -413,13 +518,93 @@ mod tests {
             failed_profile: Some(failed_profile),
             loop_enabled: Some(true),
             turn_was_fallback: Some(false),
+            moved_on: false,
         }
+    }
+
+    /// The incident shape: Antigravity's turn errors after the fallback moved
+    /// the Task to Claude Code, and the ingress stamped Claude Code on it.
+    #[test]
+    fn an_error_from_the_old_harness_cools_it_and_leaves_the_task_where_it_is() {
+        let attribution = attribute(
+            Some("antigravity"),
+            Some("claude-code"),
+            AgentProfile::ClaudeCode,
+        );
+        assert_eq!(attribution.cools, Some(Harness::Acp));
+        assert!(attribution.moved_on);
+        let facts = FallbackFacts {
+            failed_profile: attribution.failed_profile,
+            moved_on: attribution.moved_on,
+            ..facts(AgentProfile::Antigravity)
+        };
+        assert_eq!(
+            decide(&facts, &AgentFallbackOrder::default()),
+            Fallback::OnCurrent
+        );
+    }
+
+    #[test]
+    fn an_error_from_the_current_harness_cools_it_and_falls_back() {
+        let attribution = attribute(Some("claude-code"), None, AgentProfile::ClaudeCode);
+        assert_eq!(
+            attribution,
+            Attribution {
+                failed_profile: Some(AgentProfile::ClaudeCode),
+                cools: Some(Harness::ClaudeCode),
+                moved_on: false,
+            }
+        );
+    }
+
+    /// A sandbox too old to name its harness: the fallback still decides from
+    /// the ingest stamp, but no harness cools down on a guess.
+    #[test]
+    fn an_error_that_names_no_harness_cools_nothing() {
+        assert_eq!(
+            attribute(None, Some("antigravity"), AgentProfile::ClaudeCode),
+            Attribution {
+                failed_profile: Some(AgentProfile::Antigravity),
+                cools: None,
+                moved_on: false,
+            }
+        );
+        assert_eq!(
+            attribute(None, None, AgentProfile::Codex).failed_profile,
+            Some(AgentProfile::Codex)
+        );
+    }
+
+    #[test]
+    fn an_error_naming_a_profile_the_catalog_lacks_cools_nothing() {
+        assert_eq!(
+            attribute(Some("gpt-9000"), None, AgentProfile::Codex),
+            Attribution {
+                failed_profile: None,
+                cools: None,
+                moved_on: false,
+            }
+        );
+    }
+
+    /// A stale error on a turn that was itself a fallback still stops there.
+    #[test]
+    fn a_stale_error_on_a_fallback_turn_is_not_re_run() {
+        let facts = FallbackFacts {
+            turn_was_fallback: Some(true),
+            moved_on: true,
+            ..facts(AgentProfile::Antigravity)
+        };
+        assert_eq!(
+            decide(&facts, &AgentFallbackOrder::default()),
+            Fallback::Skip("the turn was already a fallback")
+        );
     }
 
     fn decide_default(facts: &FallbackFacts<'_>) -> Vec<Harness> {
         match decide(facts, &AgentFallbackOrder::default()) {
             Fallback::To(targets) => targets.to_vec(),
-            Fallback::Skip(_) => vec![],
+            Fallback::OnCurrent | Fallback::Skip(_) => vec![],
         }
     }
 

@@ -194,6 +194,90 @@ async fn a_harness_switch_drops_the_other_harness_model() {
     }
 }
 
+/// An `agent.error` names the profile of the harness that failed, so the
+/// backend cools that harness down and not whichever the Task names on arrival.
+#[tokio::test]
+async fn an_error_names_the_profile_of_the_harness_that_ran() {
+    let cancel = CancellationToken::new();
+    let agent_state = Arc::new(AgentState::new());
+    let fails = || {
+        Script::new(vec![
+            Step::SessionReady(SessionId("sess".to_string())),
+            Step::AcceptInput,
+            Step::Failed(HarnessError::usage_limit(
+                FailureStage::Execution,
+                SessionImpact::Intact,
+                "You've hit your usage limit.",
+                None,
+            )),
+        ])
+    };
+    let factory: HarnessFactory = Box::new(move |_, _| Ok(HarnessRuntime::scripted(fails())));
+    let (events, received, _cancel) = recording_publisher_with_cancel(cancel.clone());
+    let coordinator = Coordinator::new(HarnessRuntime::scripted(fails()), events.clone(), "task-1");
+    let service = CoordinatorService::new(
+        coordinator,
+        Arc::clone(&agent_state),
+        claude_config(),
+        Arc::new(RwLock::new(HashMap::new())),
+        Arc::new(RecordingBackend {
+            received: Arc::new(Mutex::new(Vec::new())),
+        }),
+        Arc::new(RwLock::new(None)),
+        Arc::new(ScheduledJobRegistry::new(Arc::new(LateInjector::new()))),
+        Arc::new(crate::commands::CommandRegistry::for_test()),
+        CredentialFailureDetector::default(),
+        Arc::new(Dispatcher::new()),
+        crate::workspace_sync::WorkspaceSyncTracker::new(),
+    )
+    .with_harness_factory(factory);
+    let (tx, rx) = mpsc::channel::<AgentCommand>(64);
+    tokio::spawn(service.run(rx, Heartbeat::new()));
+
+    let error_profiles = |received: &Arc<Mutex<Vec<PublishEventRequest>>>| -> Vec<String> {
+        received
+            .lock()
+            .expect("lock")
+            .iter()
+            .filter(|r| r.sub_type == "error")
+            .map(|r| {
+                let payload: serde_json::Value =
+                    serde_json::from_str(&r.payload_json).expect("json");
+                payload["agentProfile"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string()
+            })
+            .collect()
+    };
+    let wait_for_errors = |count: usize| {
+        let received = Arc::clone(&received);
+        let events = events.clone();
+        async move {
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+            loop {
+                flush(&events).await;
+                if count_sub_type(&received, "error") >= count {
+                    return;
+                }
+                assert!(tokio::time::Instant::now() < deadline, "no error event");
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        }
+    };
+
+    let (ack_tx, _ack) = oneshot::channel();
+    tx.try_send(send("go", None, ack_tx)).expect("channel open");
+    wait_for_errors(1).await;
+    let (ack_tx, _ack) = oneshot::channel();
+    tx.try_send(send("fallback", Some("codex"), ack_tx))
+        .expect("channel open");
+    wait_for_errors(2).await;
+
+    assert_eq!(error_profiles(&received), ["claude-code", "codex"]);
+    cancel.cancel();
+}
+
 fn send(text: &str, agent_profile: Option<&str>, ack: oneshot::Sender<RunAck>) -> AgentCommand {
     send_on(text, None, agent_profile, ack)
 }

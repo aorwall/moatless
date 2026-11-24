@@ -145,7 +145,7 @@ fn a_usage_limit_error_names_its_reason_and_reset_time() {
         "You've hit your usage limit.",
         Some(resets_at),
     );
-    let payload = super::super::seam::error_payload(&error);
+    let payload = super::super::seam::error_payload(&error, None);
     assert_eq!(payload["reason"], "usage_limit");
     assert_eq!(payload["resetsAt"], "2026-10-03T18:05:00Z");
     assert_eq!(
@@ -159,7 +159,7 @@ fn a_usage_limit_error_names_its_reason_and_reset_time() {
         "You've hit your usage limit.",
         None,
     );
-    let payload = super::super::seam::error_payload(&unknown_reset);
+    let payload = super::super::seam::error_payload(&unknown_reset, None);
     assert_eq!(payload["reason"], "usage_limit");
     assert!(payload.get("resetsAt").is_none());
 }
@@ -175,7 +175,7 @@ fn a_throttle_that_outlasted_its_retries_is_reported_as_a_usage_limit() {
         "exceeded retry limit, last status: 429 Too Many Requests",
     );
     assert!(crate::agent::retry::is_retryable_harness_error(&error));
-    let payload = super::super::seam::error_payload(&error);
+    let payload = super::super::seam::error_payload(&error, None);
     assert_eq!(payload["reason"], "usage_limit");
 }
 
@@ -190,6 +190,6 @@ fn an_unavailable_provider_is_reported_under_its_own_reason() {
         "auth_unavailable: no auth available (providers=codex)",
     );
     assert!(crate::agent::retry::is_retryable_harness_error(&error));
-    let payload = super::super::seam::error_payload(&error);
+    let payload = super::super::seam::error_payload(&error, None);
     assert_eq!(payload["reason"], "provider_unavailable");
 }

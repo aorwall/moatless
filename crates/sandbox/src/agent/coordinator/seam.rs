@@ -85,6 +85,10 @@ pub struct Coordinator {
     /// Whether a turn is open, as the same act that opened or closed it left
     /// it. The service reads it rather than tracking its own copy.
     turn_active: bool,
+    /// The Agent profile `harness` runs, stamped on `agent.error` so the
+    /// backend cools down the harness that failed rather than the Task's
+    /// profile on arrival. Set with the harness: see [`Self::replace_harness`].
+    pub(super) agent_profile: Option<String>,
 }
 
 impl Coordinator {
@@ -112,6 +116,7 @@ impl Coordinator {
             agent_state: None,
             run_cancel: None,
             turn_active: false,
+            agent_profile: None,
         }
     }
 
@@ -125,10 +130,12 @@ impl Coordinator {
         self.run_cancel = Some(run_cancel);
     }
 
-    /// Replace the harness, dropping the old one; only while no turn is open.
-    pub(crate) fn replace_harness(&mut self, harness: HarnessRuntime) {
+    /// Replace the harness with one running `agent_profile`, dropping the
+    /// old one; only while no turn is open.
+    pub(crate) fn replace_harness(&mut self, harness: HarnessRuntime, agent_profile: &str) {
         debug_assert!(!self.turn_active, "harness replaced mid-turn");
         self.harness = harness;
+        self.agent_profile = Some(agent_profile.to_string());
     }
 
     /// Whether a turn is currently open.
@@ -518,7 +525,11 @@ impl Coordinator {
 
     async fn publish_error(&self, error: &HarnessError) {
         self.run_events()
-            .publish_agent_event(&self.task_id, AgentSubType::Error, error_payload(error))
+            .publish_agent_event(
+                &self.task_id,
+                AgentSubType::Error,
+                error_payload(error, self.agent_profile.as_deref()),
+            )
             .await;
     }
 
@@ -642,12 +653,17 @@ pub(super) fn extract_wakeup_from_block(block: &CanonicalContentBlock) -> Option
 }
 
 /// The `agent.error` payload. `resetsAt` (RFC 3339) is present only when the
-/// provider stated when a usage limit lifts.
-pub(super) fn error_payload(error: &HarnessError) -> Value {
+/// provider stated when a usage limit lifts; `agentProfile` names the profile
+/// of the harness that failed, which the backend's fallback trusts over the
+/// Task's.
+pub(super) fn error_payload(error: &HarnessError, agent_profile: Option<&str>) -> Value {
     let mut payload = json!({
         "error": error.diagnostic,
         "reason": error_reason(error.class),
     });
+    if let Some(profile) = agent_profile {
+        payload["agentProfile"] = json!(profile);
+    }
     if let Some(at) = error.resets_at {
         payload["resetsAt"] = json!(at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true));
     }
