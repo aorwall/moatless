@@ -580,8 +580,9 @@ workspaceSync:
 # default) needs `services: [name]` in the Workspace's `.moatless/workspaces.json`
 # entry and in its `workspaceSync.identityGrants` entry. A pod reaches one at
 # `http://127.0.0.1:7781/{name}`, handed under `expose.urlEnv`. A rule with
-# `serviceAccounts: [name]` admits only a pod running as one of them; the next
-# rule decides for any other pod.
+# `serviceAccounts: [name]` admits only a pod running as one of them, and
+# `users: [id]` only a sandbox acting for one of those Moatless user ids; with
+# both, either admits. The next rule decides for any other pod.
 # e.g. grafana: {upstream: https://grafana.example.com,
 #   credential: {secret: GRAFANA_TOKEN, inject: {style: bearer}},
 #   expose: {urlEnv: GRAFANA_URL, tokenEnv: GRAFANA_TOKEN},

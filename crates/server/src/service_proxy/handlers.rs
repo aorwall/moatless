@@ -6,7 +6,7 @@ use axum::body::Body;
 use axum::extract::State;
 use axum::http::{HeaderMap, HeaderName, Method, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
-use moatless_core::proxy_rules::{NormalPath, Verdict};
+use moatless_core::proxy_rules::{Caller, NormalPath, Verdict};
 use moatless_core::service_proxies::{Injection, ServiceProxy};
 use moatless_types::http::RelayedUpstreamFailure;
 use tracing::{info, warn};
@@ -88,7 +88,10 @@ pub(super) async fn forward(
     let rule = match service.rules.check(
         method.as_str(),
         &path,
-        scope.service_account.as_deref(),
+        Caller {
+            service_account: scope.service_account.as_deref(),
+            user: Some(&scope.user),
+        },
         Some(&body),
     ) {
         Verdict::Allow(rule) => rule,

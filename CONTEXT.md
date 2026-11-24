@@ -83,7 +83,8 @@ An upstream API, defined in `SERVICE_PROXIES_JSON`, that a pod reaches at
 against the definition's rules and injects the credential. An
 `availability: all` service is on in every Workspace; a `granted` one only in a
 Workspace that lists it in `services` and whose **Identity grant** lists it too.
-A rule naming `serviceAccounts` applies only to a pod running as one of them.
+A rule naming `serviceAccounts` or `users` applies only to a pod running as one
+of those accounts or acting for one of those Moatless users.
 _Avoid_: integration (that is an **Adapter**)
 
 **Org sync**:

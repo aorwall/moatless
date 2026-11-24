@@ -412,12 +412,16 @@ mod tests {
         let services = parse_one(limited_to(serde_json::json!(["moatless-ops"]))).unwrap();
         let rules = &services.get("grafana").unwrap().rules;
         let query = crate::proxy_rules::NormalPath::parse("/api/ds/query").unwrap();
+        let as_account = |account| crate::proxy_rules::Caller {
+            service_account: Some(account),
+            user: None,
+        };
         assert!(matches!(
-            rules.check("POST", &query, Some("moatless-ops"), None),
+            rules.check("POST", &query, as_account("moatless-ops"), None),
             crate::proxy_rules::Verdict::Allow(_)
         ));
         assert_eq!(
-            rules.check("POST", &query, Some("moatless-user"), None),
+            rules.check("POST", &query, as_account("moatless-user"), None),
             crate::proxy_rules::Verdict::NoRule
         );
         assert!(parse_one(limited_to(serde_json::json!([]))).is_err());

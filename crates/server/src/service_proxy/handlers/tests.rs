@@ -77,7 +77,7 @@ fn services(upstream: &str) -> Arc<ServiceProxies> {
                 { "methods": ["GET"], "path": "/api/health" },
                 { "methods": ["GET"], "path": "/redirect" },
                 { "methods": ["GET"], "path": "/gateway-timeout" },
-                { "methods": ["GET"], "path": "/api/prod/**", "serviceAccounts": ["moatless-ops"] },
+                { "methods": ["GET"], "path": "/api/prod/**", "serviceAccounts": ["moatless-ops"], "users": ["reviewer-bot"] },
                 { "methods": ["POST"], "path": "/api/ds/query",
                   "body": { "pointer": "/kind", "oneOf": ["read"] } }
             ]
@@ -299,7 +299,7 @@ async fn a_request_no_rule_allows_is_refused_before_the_upstream() {
 }
 
 #[tokio::test]
-async fn a_rule_limited_to_service_accounts_forwards_only_for_their_pods() {
+async fn a_limited_rule_forwards_only_for_its_pods_and_users() {
     let seen = Seen::default();
     let upstream = fake_upstream(Arc::clone(&seen)).await;
     let gateway = gateway(
@@ -334,7 +334,13 @@ async fn a_rule_limited_to_service_accounts_forwards_only_for_their_pods() {
     )
     .await;
     assert_eq!(ops.status(), StatusCode::OK);
-    assert_eq!(seen.lock().unwrap().len(), 1);
+    let bot = SandboxScope {
+        user: "reviewer-bot".to_string(),
+        ..running_as(Some("moatless-user"))
+    };
+    let named_user = send_as(&gateway, &bot, "grafana", Method::GET, "/api/prod/x", "").await;
+    assert_eq!(named_user.status(), StatusCode::OK);
+    assert_eq!(seen.lock().unwrap().len(), 2);
 }
 
 #[tokio::test]
