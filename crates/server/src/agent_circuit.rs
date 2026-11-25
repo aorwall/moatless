@@ -23,8 +23,9 @@ use crate::event_handler::agent_fallback::{
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Route {
     Stay,
-    /// Onto `harness`, while the Loop's agent cools down until `until`.
+    /// From `from` onto `harness`, while `from` cools down until `until`.
     Around {
+        from: Harness,
         harness: Harness,
         until: DateTime<Utc>,
     },
@@ -41,25 +42,48 @@ pub(crate) struct RouteFacts<'a> {
     pub loop_cooling_until: Option<DateTime<Utc>>,
     /// `AGENT_FALLBACK_ORDER`'s targets for the Loop's harness, in order.
     pub targets: &'a [Harness],
-    /// Which of `targets` cool down for the run-as user.
+    /// Until when the Task's own harness cools down, when it is neither the
+    /// Loop's nor one of `targets`, such as a review's per-head agent.
+    pub task_cooling_until: Option<DateTime<Utc>>,
+    /// `AGENT_FALLBACK_ORDER`'s targets for the Task's harness, in order.
+    pub task_targets: &'a [Harness],
+    /// Which of `targets` and `task_targets` cool down for the run-as user.
     pub cooling: &'a [Harness],
 }
 
 /// A Task on a harness that is neither the Loop's nor one of its fallbacks
-/// stays there, rather than undoing a person's switch. A person's switch onto
-/// a fallback is undone once the Loop's agent serves: no row tells it apart
-/// from the platform's.
+/// stays there while that harness serves, rather than undoing a person's
+/// switch or a per-head agent; while it cools down, the Task moves onto its own
+/// fallback. A person's switch onto a fallback is undone once the Loop's agent
+/// serves: no row tells it apart from the platform's.
 pub(crate) fn route(facts: &RouteFacts<'_>) -> Route {
+    let elsewhere =
+        facts.task_harness != facts.loop_harness && !facts.targets.contains(&facts.task_harness);
+    if elsewhere {
+        return match facts.task_cooling_until {
+            Some(until) => around(facts.task_harness, facts.task_targets, facts.cooling, until),
+            None => Route::Stay,
+        };
+    }
     match facts.loop_cooling_until {
         Some(until) if facts.task_harness == facts.loop_harness => {
-            // None serving: the Loop's agent may serve sooner than a fallback.
-            match serving(facts.targets, facts.cooling).first() {
-                Some(&harness) => Route::Around { harness, until },
-                None => Route::Stay,
-            }
+            around(facts.loop_harness, facts.targets, facts.cooling, until)
         }
         Some(_) => Route::Stay,
-        None if facts.targets.contains(&facts.task_harness) => Route::Back,
+        None if facts.task_harness != facts.loop_harness => Route::Back,
+        None => Route::Stay,
+    }
+}
+
+/// Onto the first of `targets` that serves. None serving stays: `from` may
+/// serve sooner than a fallback.
+fn around(from: Harness, targets: &[Harness], cooling: &[Harness], until: DateTime<Utc>) -> Route {
+    match serving(targets, cooling).first() {
+        Some(&harness) => Route::Around {
+            from,
+            harness,
+            until,
+        },
         None => Route::Stay,
     }
 }
@@ -104,26 +128,36 @@ impl LoopTurnAcceptor {
             return;
         };
         let loop_harness = choice.agent_profile.harness();
+        let task_harness = task.agent_profile.harness();
         let targets = self.ports.order.targets(loop_harness);
-        if targets.is_empty() {
+        let task_targets = self.ports.order.targets(task_harness);
+        if targets.is_empty() && task_targets.is_empty() {
             return;
         }
         let mut cooling = Vec::new();
-        for &target in targets {
-            if cooling_until(&self.ports, &user, target).await.is_some() {
+        for &target in targets.iter().chain(task_targets) {
+            if !cooling.contains(&target)
+                && cooling_until(&self.ports, &user, target).await.is_some()
+            {
                 cooling.push(target);
             }
         }
         let facts = RouteFacts {
             loop_harness,
-            task_harness: task.agent_profile.harness(),
+            task_harness,
             loop_cooling_until: cooling_until(&self.ports, &user, loop_harness).await,
             targets,
+            task_cooling_until: cooling_until(&self.ports, &user, task_harness).await,
+            task_targets,
             cooling: &cooling,
         };
         let (profile, model, summary) = match route(&facts) {
             Route::Stay => return,
-            Route::Around { harness, until } => {
+            Route::Around {
+                from,
+                harness,
+                until,
+            } => {
                 let sandbox_id = task.sandbox_id.as_deref().unwrap_or(task_id);
                 let profile = match self
                     .ports
@@ -139,9 +173,9 @@ impl LoopTurnAcceptor {
                 };
                 let summary = format!(
                     "Switched from {} to {}: {} is cooling down until {}",
-                    label(loop_harness),
+                    label(from),
                     label(harness),
-                    label(loop_harness),
+                    label(from),
                     until.to_rfc3339_opts(SecondsFormat::Secs, true),
                 );
                 (
@@ -204,6 +238,8 @@ mod tests {
             task_harness,
             loop_cooling_until: loop_cooling.then(|| Utc::now() + Duration::hours(1)),
             targets: ACP_TARGETS,
+            task_cooling_until: None,
+            task_targets: &[],
             cooling,
         }
     }
@@ -215,6 +251,7 @@ mod tests {
         assert_eq!(
             route(&first),
             Route::Around {
+                from: Harness::Acp,
                 harness: Harness::ClaudeCode,
                 until
             }
@@ -229,6 +266,7 @@ mod tests {
         assert_eq!(
             route(&second),
             Route::Around {
+                from: Harness::Acp,
                 harness: Harness::Codex,
                 until
             }
@@ -254,6 +292,35 @@ mod tests {
     #[test]
     fn a_task_on_its_loops_agent_stays_while_it_serves() {
         assert_eq!(route(&facts(Harness::Acp, false, &[])), Route::Stay);
+    }
+
+    /// The review gate's case: a Claude Code Loop whose Task starts on
+    /// Antigravity, picked per head, while Antigravity cools down.
+    #[test]
+    fn a_task_started_on_another_cooling_agent_goes_to_that_agents_fallback() {
+        let until = Utc::now() + Duration::hours(1);
+        let facts = RouteFacts {
+            loop_harness: Harness::ClaudeCode,
+            task_harness: Harness::Acp,
+            loop_cooling_until: None,
+            targets: &[Harness::Codex],
+            task_cooling_until: Some(until),
+            task_targets: ACP_TARGETS,
+            cooling: &[],
+        };
+        assert_eq!(
+            route(&facts),
+            Route::Around {
+                from: Harness::Acp,
+                harness: Harness::ClaudeCode,
+                until
+            }
+        );
+        let serving = RouteFacts {
+            task_cooling_until: None,
+            ..facts
+        };
+        assert_eq!(route(&serving), Route::Stay);
     }
 
     #[test]
