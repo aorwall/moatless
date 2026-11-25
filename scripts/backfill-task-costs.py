@@ -28,7 +28,9 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-BUCKET = os.environ.get("TRANSCRIPT_BUCKET", "soap-fp-staging-moatless-uploads")
+BUCKET = os.environ.get("TRANSCRIPT_BUCKET", "")
+if not BUCKET:
+    sys.exit("TRANSCRIPT_BUCKET must name the uploads bucket")
 PREFIX = os.environ.get("TRANSCRIPT_PREFIX", "transcripts")
 
 # USD per 1M tokens. Claude splits cache writes by TTL; the 1h tier costs more.

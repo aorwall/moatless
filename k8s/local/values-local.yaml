@@ -38,9 +38,6 @@ postgres:
 # --- Kubernetes execution mode -------------------------------------------------
 kubernetes:
   enabled: true
-  # SOAP-private ECR image → guaranteed ImagePullBackOff off-cluster.
-  nodeStorageJanitor:
-    enabled: false
   # Pulls the full 5-8GB sandbox image on every node with pullPolicy: Always.
   imagePrepull:
     enabled: false

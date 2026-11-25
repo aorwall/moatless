@@ -5,10 +5,13 @@
 #
 # Exports CODEARTIFACT_AUTH_TOKEN for repos whose .npmrc reads it, and keeps
 # ~/.npmrc (registry auth only) and pip.conf on the current token. The token cache
-# is shared with /etc/mavenrc. Sourced: never exit, never write to stdout.
+# is shared with /etc/mavenrc. Inert unless CODEARTIFACT_DOMAIN,
+# CODEARTIFACT_DOMAIN_OWNER and AWS_REGION (or AWS_DEFAULT_REGION) are set.
+# Sourced: never exit, never write to stdout.
 
 _codeartifact_env() {
-  [ -n "${CODEARTIFACT_DOMAIN:-}" ] || return 0
+  [ -n "${CODEARTIFACT_DOMAIN:-}" ] && [ -n "${CODEARTIFACT_DOMAIN_OWNER:-}" ] \
+    && [ -n "${AWS_REGION:-${AWS_DEFAULT_REGION:-}}" ] || return 0
   local cache="${XDG_CACHE_HOME:-$HOME/.cache}/codeartifact/token"
   local now="${EPOCHSECONDS:-0}" token="" exp=0 written=""
   # The fast path reads three small files with builtins: no fork per shell.
@@ -31,7 +34,7 @@ _codeartifact_env() {
 
 _codeartifact_host() {
   printf '%s-%s.d.codeartifact.%s.amazonaws.com' "$CODEARTIFACT_DOMAIN" \
-    "${CODEARTIFACT_DOMAIN_OWNER:-222222222222}" "${AWS_REGION:-${AWS_DEFAULT_REGION:-eu-north-1}}"
+    "$CODEARTIFACT_DOMAIN_OWNER" "${AWS_REGION:-$AWS_DEFAULT_REGION}"
 }
 
 # Writes `$2` to `$1` at mode 0600 through a rename, so a concurrent reader
@@ -42,7 +45,7 @@ _codeartifact_put() {
 
 # No `registry=` line and no uv config, deliberately: bun.lock and uv.lock
 # record the registry URL, and a CodeArtifact URL there fails outside the
-# sandbox. No `@soaplabs:registry=` either: a scoped registry beats
+# sandbox. No scoped `@<scope>:registry=` either: a scoped registry beats
 # `bun add --registry=…/npm-prerelease/`, which then fails "No version matching".
 _codeartifact_write() {
   local token="$2" host npm pre
@@ -73,8 +76,8 @@ _codeartifact_mint() {
   (
     flock -n 9 || exit 0
     out="$(timeout 30 aws codeartifact get-authorization-token \
-      --domain "$CODEARTIFACT_DOMAIN" --domain-owner "${CODEARTIFACT_DOMAIN_OWNER:-222222222222}" \
-      --region "${AWS_REGION:-${AWS_DEFAULT_REGION:-eu-north-1}}" \
+      --domain "$CODEARTIFACT_DOMAIN" --domain-owner "$CODEARTIFACT_DOMAIN_OWNER" \
+      --region "${AWS_REGION:-$AWS_DEFAULT_REGION}" \
       --query '[authorizationToken,expiration]' --output text 2>"$cache.err")"
     token="${out%%[[:space:]]*}"
     if [ -n "$out" ] && [[ "$token" =~ ^[A-Za-z0-9._=-]+$ ]] && [ "$token" != None ]; then
@@ -95,7 +98,7 @@ _codeartifact_mint() {
 # get-authorization-token on domain $CODEARTIFACT_DOMAIN said:
 $(sed '/^[[:space:]]*$/d; s/^/#   /' "$cache.err")
 #   identity: ${identity:-none, no AWS credentials reached this sandbox}
-# No private @soaplabs package resolves until that call succeeds. The usual
+# No private scoped package resolves until that call succeeds. The usual
 # cause is a missing codeartifact:GetAuthorizationToken grant on that
 # identity, but read the error above rather than assuming it. Do not reach
 # for a GitHub Packages token: nothing here publishes to one. The next bash

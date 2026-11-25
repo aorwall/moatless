@@ -5,7 +5,7 @@
 # token, Lombok, and a data directory outside the checkout.
 
 # m2e resolves through settings that read ${env.CODEARTIFACT_AUTH_TOKEN}, which
-# only /etc/mavenrc exports; without it every com.soaplabs artifact is missing.
+# only /etc/mavenrc exports; without it every artifact from a private CodeArtifact repository is missing.
 [ -r /etc/mavenrc ] && . /etc/mavenrc
 
 data="${XDG_CACHE_HOME:-$HOME/.cache}/jdtls/$(pwd | sha256sum | cut -c1-16)"

@@ -4,11 +4,13 @@
 #
 # Mints CODEARTIFACT_AUTH_TOKEN and caches it until ten minutes before expiry,
 # so a sandbox outliving the 12-hour token still builds. Writes
-# ~/.m2/settings.xml only when none exists, with the two CodeArtifact
-# repository ids Soap poms declare.
-if [ -n "${CODEARTIFACT_DOMAIN:-}" ] && command -v aws >/dev/null 2>&1; then
-  _ca_owner="${CODEARTIFACT_DOMAIN_OWNER:-222222222222}"
-  _ca_region="${AWS_REGION:-${AWS_DEFAULT_REGION:-eu-north-1}}"
+# ~/.m2/settings.xml only when none exists, with the two repository ids a pom
+# names a CodeArtifact repository by: `codeartifact` and `<domain>-<owner>`.
+# Inert unless CODEARTIFACT_DOMAIN, CODEARTIFACT_DOMAIN_OWNER and a region are set.
+_ca_region="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
+if [ -n "${CODEARTIFACT_DOMAIN:-}" ] && [ -n "${CODEARTIFACT_DOMAIN_OWNER:-}" ] \
+    && [ -n "$_ca_region" ] && command -v aws >/dev/null 2>&1; then
+  _ca_owner="$CODEARTIFACT_DOMAIN_OWNER"
   _ca_cache="${XDG_CACHE_HOME:-$HOME/.cache}/codeartifact/token"
   _ca_exp=$(cat "$_ca_cache.exp" 2>/dev/null || echo 0)
   # dash aborts the whole mvn run on a non-numeric operand in $((...)).
@@ -27,7 +29,7 @@ if [ -n "${CODEARTIFACT_DOMAIN:-}" ] && command -v aws >/dev/null 2>&1; then
     else
       # The cached token stays: it is often still valid, since the renewal
       # starts ten minutes before expiry.
-      echo "[mavenrc] CodeArtifact token mint failed; com.soaplabs artifacts may 401:" >&2
+      echo "[mavenrc] CodeArtifact token mint failed; private artifacts may 401:" >&2
       sed '/^[[:space:]]*$/d; s/^/[mavenrc]   /' "$_ca_cache.err" >&2
     fi
     rm -f "$_ca_cache.err"
@@ -41,22 +43,23 @@ if [ -n "${CODEARTIFACT_DOMAIN:-}" ] && command -v aws >/dev/null 2>&1; then
   _ca_home=$(getent passwd "$(id -u)" | cut -d: -f6)
   _ca_settings="${_ca_home:-$HOME}/.m2/settings.xml"
   if [ ! -e "$_ca_settings" ] && mkdir -p "$(dirname "$_ca_settings")"; then
-    cat > "$_ca_settings" <<'EOF'
+    cat > "$_ca_settings" <<EOF
 <settings>
   <servers>
     <server>
       <id>codeartifact</id>
       <username>aws</username>
-      <password>${env.CODEARTIFACT_AUTH_TOKEN}</password>
+      <password>\${env.CODEARTIFACT_AUTH_TOKEN}</password>
     </server>
     <server>
-      <id>soaplabs-222222222222</id>
+      <id>${CODEARTIFACT_DOMAIN}-${_ca_owner}</id>
       <username>aws</username>
-      <password>${env.CODEARTIFACT_AUTH_TOKEN}</password>
+      <password>\${env.CODEARTIFACT_AUTH_TOKEN}</password>
     </server>
   </servers>
 </settings>
 EOF
   fi
-  unset _ca_owner _ca_region _ca_cache _ca_exp _ca_out _ca_home _ca_settings
+  unset _ca_owner _ca_cache _ca_exp _ca_out _ca_home _ca_settings
 fi
+unset _ca_region

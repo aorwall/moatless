@@ -34,14 +34,15 @@ chmod +x "$work/bin/aws"
 # Runs `bash -c "$1"` the way an agent's Bash tool does: BASH_ENV only.
 run() {
   env -i PATH="$work/bin:/usr/bin:/bin" HOME="$work/home" BASH_ENV="$script" \
-    CODEARTIFACT_DOMAIN="${DOMAIN-soaplabs}" AWS_REGION=eu-north-1 \
+    CODEARTIFACT_DOMAIN="${DOMAIN-example}" CODEARTIFACT_DOMAIN_OWNER="${OWNER-111122223333}" \
+    AWS_REGION=us-east-1 \
     FAKE_MINTS="$work/mints" FAKE_TOKEN="${FAKE_TOKEN:-tok-1}" \
     FAKE_EXPIRATION="${FAKE_EXPIRATION:-$(date -u -d '+12 hours' +%FT%T+00:00)}" \
     FAKE_FAIL="${FAKE_FAIL:-}" bash -c "$1"
 }
 mints() { if [ -e "$work/mints" ]; then wc -l < "$work/mints"; else echo 0; fi; }
 reset() { rm -rf "$work/home" "$work/mints"; mkdir -p "$work/home"; }
-host="soaplabs-222222222222.d.codeartifact.eu-north-1.amazonaws.com"
+host="example-111122223333.d.codeartifact.us-east-1.amazonaws.com"
 
 # An unset domain configures nothing and mints nothing.
 reset
@@ -49,6 +50,12 @@ out="$(DOMAIN= run 'printf %s "${CODEARTIFACT_AUTH_TOKEN-unset}"')"
 [ "$out" = unset ] || fail "unset domain exported '$out'"
 [ ! -e "$work/home/.npmrc" ] || fail "unset domain wrote ~/.npmrc"
 [ "$(mints)" -eq 0 ] || fail "unset domain minted"
+
+# A domain without its owner account configures nothing: there is no default.
+reset
+out="$(OWNER= run 'printf %s "${CODEARTIFACT_AUTH_TOKEN-unset}"')"
+[ "$out" = unset ] || fail "unset owner exported '$out'"
+[ "$(mints)" -eq 0 ] || fail "unset owner minted"
 
 # The first bash mints, exports the token and writes npm and pip config.
 reset
@@ -114,7 +121,8 @@ exp="$(cat "$work/home/.cache/codeartifact/token.exp")"
 # A caller running under `set -eu` survives sourcing it.
 reset
 out="$(env -i PATH="$work/bin:/usr/bin:/bin" HOME="$work/home" BASH_ENV="$script" \
-  CODEARTIFACT_DOMAIN=soaplabs FAKE_MINTS="$work/mints" FAKE_TOKEN=tok-1 FAKE_EXPIRATION=None \
+  CODEARTIFACT_DOMAIN=example CODEARTIFACT_DOMAIN_OWNER=111122223333 \
+  AWS_REGION=us-east-1 FAKE_MINTS="$work/mints" FAKE_TOKEN=tok-1 FAKE_EXPIRATION=None \
   bash -euc 'echo ok')"
 [ "$out" = ok ] || fail "set -eu caller printed '$out'"
 
@@ -122,7 +130,8 @@ out="$(env -i PATH="$work/bin:/usr/bin:/bin" HOME="$work/home" BASH_ENV="$script
 # keeps a token this script still holds as valid.
 mavenrc="$(dirname "$script")/../features/java/mavenrc"
 maven() {
-  env -i PATH="$work/bin:/usr/bin:/bin" HOME="$work/home" CODEARTIFACT_DOMAIN=soaplabs \
+  env -i PATH="$work/bin:/usr/bin:/bin" HOME="$work/home" CODEARTIFACT_DOMAIN=example \
+    CODEARTIFACT_DOMAIN_OWNER=111122223333 AWS_REGION=us-east-1 \
     FAKE_MINTS="$work/mints" FAKE_TOKEN="${FAKE_TOKEN:-tok-1}" FAKE_FAIL="${FAKE_FAIL:-}" \
     FAKE_EXPIRATION="$(date -u -d '+12 hours' +%FT%T+00:00)" sh -c ". '$mavenrc'" 2>/dev/null
 }

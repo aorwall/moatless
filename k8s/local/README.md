@@ -2,7 +2,7 @@
 
 Run Moatless Vibe on a single-node Kubernetes cluster on your machine, using
 locally built images and the chart's first-party Postgres. This is the
-supported local path — no Docker Hub pull, no SOAP registry mirror, no cloud.
+supported local path — no Docker Hub pull, no private registry mirror, no cloud.
 
 `values-local.yaml` in this directory is the committed local config. It contains
 **no secrets** — you create the Secret by hand (step 3 below).
@@ -208,7 +208,6 @@ returns before the previous revision's pods finish terminating.
 | Setting | Why |
 |---|---|
 | `image.pullPolicy` / `backend.image.pullPolicy: IfNotPresent`, tag `dev` | Chart defaults both to `Always` + `latest`, which forces a Docker Hub pull and silently ignores locally built images. |
-| `kubernetes.nodeStorageJanitor.enabled: false` | Default janitor image is a private SOAP ECR ref → guaranteed `ImagePullBackOff`. |
 | `kubernetes.imagePrepull.enabled: false` | Pre-pulls the full 5-8GB sandbox image with `pullPolicy: Always`. |
 | `kubernetes.sandboxStorage.defaultPvc: true`, `defaultS3: false` | The S3 snapshot needs a real bucket a local install does not have, so the per-task PVC alone carries the workspace. Docker Desktop's built-in hostpath provisioner backs it, so workspaces survive pod replacement and retained close/reopen without any cloud storage. |
 | `kubernetes.sandboxSysctls` — drop `tcp_keepalive_*` | Some kubelets reject them as unsafe → block sandbox pod admission. |

@@ -1002,9 +1002,9 @@ kubernetes:
   nodeStorageJanitor:
     enabled: true
     # -- Must include /bin/sh, find, awk, basename, sed, and wget with service-
-    # account token support. The ECR-mirrored docker:dind image is already allowlisted
-    # for sandbox cache init containers in restricted clusters.
-    image: "111111111111.dkr.ecr.eu-north-1.amazonaws.com/mirror/docker.io/library/docker:29.8.2-dind"
+    # account token support. Reusing the sandbox dind image means a cluster that
+    # restricts registries allowlists one image for both.
+    image: "docker.io/library/docker:29.8.2-dind"
     retentionHours: 168
     intervalSeconds: 3600
     resources:
