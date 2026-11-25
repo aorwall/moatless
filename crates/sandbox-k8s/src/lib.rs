@@ -30,3 +30,5 @@ pub mod sandbox_resources;
 mod service;
 pub mod status_resolver;
 mod wait;
+
+pub use ingress::warn_if_previews_unroutable;

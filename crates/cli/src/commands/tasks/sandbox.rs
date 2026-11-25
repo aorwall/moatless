@@ -440,7 +440,7 @@ mod tests {
     /// A sandbox-mode config for the task `OWN`.
     fn config_inside(task_id: &str) -> Config {
         Config {
-            api_url: "https://example.invalid".to_string(),
+            api_url: Some("https://example.invalid".to_string()),
             auth_mode: AuthMode::Sandbox {
                 user_auth_token: "token".to_string(),
                 task_id: Some(task_id.to_string()),

@@ -88,6 +88,7 @@ pub(crate) async fn build(
             let k8s =
                 sandbox::k8s::client::K8sClient::new(config.sandbox.namespace.clone()).await?;
             info!("K8s client initialized");
+            sandbox::k8s::warn_if_previews_unroutable(&k8s, config).await;
 
             reaper_k8s = Some(k8s.clone());
             docker_watcher_client = None;

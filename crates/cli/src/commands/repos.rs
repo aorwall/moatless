@@ -870,7 +870,7 @@ mod tests {
     use moatless_workspace_types::schemas::repository::RepositoryRemoteResponse;
 
     const REPO_ID: &str = "6a12f676-2716-4de8-9bcc-8889e7f7fe3c";
-    const BASE_URL: &str = "https://moatless.dev";
+    const BASE_URL: &str = "https://moatless.example.com";
 
     fn repository(
         provider: Option<RepositoryProvider>,
@@ -903,7 +903,7 @@ mod tests {
     }
 
     fn proxied() -> String {
-        format!("https://moatless.dev/git/{REPO_ID}")
+        format!("{BASE_URL}/git/{REPO_ID}")
     }
 
     #[test]

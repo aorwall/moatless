@@ -19,6 +19,10 @@ pub enum ClientError {
     Unauthorized,
     #[error("Not logged in — run `moat login` to authenticate")]
     NotLoggedIn,
+    #[error(
+        "No Moatless API URL configured — run `moat login --url <url>` or set `MOATLESS_API_URL`"
+    )]
+    NoApiUrl,
     /// The request succeeded but the body didn't decode — almost always version
     /// skew, since a long-lived sandbox's baked-in `moat` reads a backend that
     /// has moved on.
@@ -151,7 +155,12 @@ impl MoatClient {
             },
         };
 
-        let base_url = config.api_url.trim_end_matches('/').to_string();
+        let base_url = config
+            .api_url
+            .as_deref()
+            .unwrap_or_default()
+            .trim_end_matches('/')
+            .to_string();
         let http = config.http.clone();
         let typed_client = ApiClient::new(&base_url, Self::build_http_client(&auth_mode, http.api));
 

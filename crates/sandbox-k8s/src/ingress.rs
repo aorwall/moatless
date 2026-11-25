@@ -7,7 +7,7 @@ use k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference;
 use kube::api::{Api, DynamicObject, ListParams, PostParams};
 use kube::discovery::ApiResource;
 use std::collections::BTreeMap;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 use super::client::K8sClient;
 use super::naming::{generate_ingress_route_name, generate_service_name};
@@ -120,6 +120,24 @@ pub async fn create_task_ingress_routes(
     }
 
     Ok(())
+}
+
+/// Log an error at startup when `PROXY_DOMAIN` is set on a cluster without the
+/// Traefik `IngressRoute` CRD: every Script preview would otherwise fail
+/// silently, one `warn` per publish.
+pub async fn warn_if_previews_unroutable(k8s: &K8sClient, config: &Config) {
+    if config.proxy.domain.is_none() {
+        return;
+    }
+    match ingress_api(k8s).list(&ListParams::default().limit(1)).await {
+        Ok(_) => {}
+        Err(kube::Error::Api(ref e)) if e.code == 404 => error!(
+            "PROXY_DOMAIN is set but the cluster has no Traefik IngressRoute CRD, so Script \
+             previews get no URL. Install Traefik, or unset PROXY_DOMAIN \
+             (chart value `proxy.previews.enabled: false`)"
+        ),
+        Err(e) => warn!(error = %e, "Could not check for the Traefik IngressRoute CRD"),
+    }
 }
 
 /// Collect the `moatless.io/task-id` label of every managed `IngressRoute`.

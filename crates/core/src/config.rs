@@ -434,17 +434,15 @@ pub struct SandboxConfig {
     /// Maximum container restart count before auto-stopping a crash-looping
     /// sandbox (default: 5). Set to 0 to disable crash-loop auto-stop.
     pub max_crash_restart_count: i32,
-    /// JSON-encoded tolerations for sandbox pods (e.g.,
-    /// `[{"key":"kubernetes.azure.com/scalesetpriority","operator":"Equal","value":"spot","effect":"NoSchedule"}]`)
+    /// JSON tolerations array for sandbox pods, env `K8S_SANDBOX_TOLERATIONS`.
     pub tolerations_json: Option<String>,
-    /// JSON-encoded node selector for sandbox pods (e.g.,
-    /// `{"karpenter.sh/capacity-type":"spot"}`)
+    /// JSON node selector for sandbox pods, env `K8S_SANDBOX_NODE_SELECTOR`.
     pub node_selector_json: Option<String>,
-    /// Kubernetes `ServiceAccount` name for sandbox pods (set via
-    /// `K8S_SANDBOX_SERVICE_ACCOUNT`)
+    /// JSON object of extra sandbox pod annotations, env `K8S_SANDBOX_POD_ANNOTATIONS`.
+    pub pod_annotations_json: Option<String>,
+    /// Sandbox pods' `ServiceAccount`, env `K8S_SANDBOX_SERVICE_ACCOUNT`.
     pub service_account_name: Option<String>,
-    /// Default Claude model for sandbox agents (forwarded as
-    /// `DEFAULT_CLAUDE_CODE_MODEL` env var)
+    /// Default Claude model, forwarded to sandboxes as `DEFAULT_CLAUDE_CODE_MODEL`.
     pub default_model: Option<String>,
     /// Delivered with every Codex turn naming no model: the sandbox has none.
     pub default_codex_model: String,
@@ -935,6 +933,7 @@ impl Config {
                 max_crash_restart_count: env_or("SANDBOX_MAX_CRASH_RESTART_COUNT", 5),
                 tolerations_json: env_opt("K8S_SANDBOX_TOLERATIONS"),
                 node_selector_json: env_opt("K8S_SANDBOX_NODE_SELECTOR"),
+                pod_annotations_json: env_opt("K8S_SANDBOX_POD_ANNOTATIONS"),
                 service_account_name: env_opt("K8S_SANDBOX_SERVICE_ACCOUNT"),
                 default_model: env_opt("DEFAULT_CLAUDE_CODE_MODEL"),
                 default_codex_model: env_str("DEFAULT_CODEX_MODEL", DEFAULT_CODEX_MODEL),
@@ -1033,7 +1032,7 @@ impl Config {
                 auth0_client_secret: env_opt("AUTH0_CLIENT_SECRET"),
                 auth0_callback_url: env_opt("AUTH0_CALLBACK_URL"),
                 auth0_audience: env_opt("AUTH0_AUDIENCE"),
-                auth0_groups_claim: env_str("AUTH0_GROUPS_CLAIM", "https://moatless.ai/groups"),
+                auth0_groups_claim: env_str("AUTH0_GROUPS_CLAIM", ""),
                 oidc: oidc_config_from_env(),
                 session_max_age_secs: env_or("SESSION_MAX_AGE", 604_800),
                 session_absolute_age_secs: env_or("SESSION_ABSOLUTE_MAX_AGE", 2_592_000),
@@ -1451,6 +1450,7 @@ impl Config {
                 codex_refresher_interval_secs: 0,
                 max_crash_restart_count: 5,
                 node_selector_json: None,
+                pod_annotations_json: None,
                 tolerations_json: None,
                 service_account_name: None,
                 default_model: None,

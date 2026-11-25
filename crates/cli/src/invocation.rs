@@ -16,7 +16,12 @@ async fn dispatch_sandbox(
     json: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match command {
-        SandboxCommands::Shared(cmd) => run_shared(*cmd, moat, cfg, json).await?,
+        SandboxCommands::Shared(cmd) => {
+            if needs_server(&cmd) {
+                cfg.require_api_url()?;
+            }
+            run_shared(*cmd, moat, cfg, json).await?;
+        }
         SandboxCommands::SetName { name } => {
             commands::tasks::set_name(moat, cfg, name, json).await?;
         }
@@ -46,6 +51,14 @@ pub(super) async fn run_standalone(cli: StandaloneCli) -> Result<(), Box<dyn std
         StandaloneCommands::Login { .. } | StandaloneCommands::Logout
     ) && !is_status_command_standalone(&cli.command)
         && !is_raw_api_command(&cli.command);
+    let needs_url = match &cli.command {
+        StandaloneCommands::Shared(cmd) => needs_server(cmd),
+        StandaloneCommands::Login { .. } => false,
+        StandaloneCommands::Logout => true,
+    };
+    if needs_url {
+        cfg.require_api_url()?;
+    }
     if needs_auth {
         auth::ensure_auth(&mut moat, &cfg).await?;
     }
@@ -169,6 +182,14 @@ async fn run_shared(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Every command except these reaches the backend, so it needs an API URL.
+fn needs_server(cmd: &SharedCommands) -> bool {
+    !matches!(
+        cmd,
+        SharedCommands::Status | SharedCommands::K8s { .. } | SharedCommands::Docker { .. }
+    )
+}
 
 fn is_status_command_standalone(cmd: &StandaloneCommands) -> bool {
     matches!(

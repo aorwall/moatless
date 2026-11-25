@@ -58,8 +58,10 @@ spec:
               name: grpc
               protocol: TCP
           env:
+            {{- if .Values.proxy.previews.enabled }}
             - name: PROXY_DOMAIN
               value: {{ .Values.proxy.domain | quote }}
+            {{- end }}
             - name: PROXY_PROTOCOL
               value: {{ .Values.proxy.protocol | quote }}
             {{- if .Values.proxy.traefikEntryPoint }}
@@ -263,6 +265,10 @@ spec:
             {{- if .Values.kubernetes.sandboxNodeSelector }}
             - name: K8S_SANDBOX_NODE_SELECTOR
               value: {{ .Values.kubernetes.sandboxNodeSelector | toJson | quote }}
+            {{- end }}
+            {{- if .Values.kubernetes.sandboxPodAnnotations }}
+            - name: K8S_SANDBOX_POD_ANNOTATIONS
+              value: {{ .Values.kubernetes.sandboxPodAnnotations | toJson | quote }}
             {{- end }}
             {{- if .Values.kubernetes.sandboxExtraEnv }}
             - name: K8S_SANDBOX_EXTRA_ENV

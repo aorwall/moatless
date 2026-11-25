@@ -77,6 +77,42 @@ fn an_empty_row_selector_leaves_the_global_one_alone() {
 }
 
 #[test]
+fn configured_pod_annotations_land_without_overriding_moatless_keys() {
+    let mut config = test_config();
+    config.sandbox.pod_annotations_json = Some(
+        r#"{"karpenter.sh/do-not-disrupt":"true","moatless.io/repository-url":"spoofed"}"#.into(),
+    );
+
+    let pod = build_pod(&config, "task-1", &test_plan(), None, None).unwrap();
+    let annotations = pod.metadata.annotations.expect("annotations");
+
+    assert_eq!(
+        annotations
+            .get("karpenter.sh/do-not-disrupt")
+            .map(String::as_str),
+        Some("true")
+    );
+    assert_ne!(
+        annotations
+            .get("moatless.io/repository-url")
+            .map(String::as_str),
+        Some("spoofed")
+    );
+}
+
+#[test]
+fn no_cluster_specific_annotation_is_set_by_default() {
+    let pod = build_pod(&test_config(), "task-1", &test_plan(), None, None).unwrap();
+    let annotations = pod.metadata.annotations.expect("annotations");
+
+    assert!(
+        annotations
+            .keys()
+            .all(|key| key.starts_with("moatless.io/"))
+    );
+}
+
+#[test]
 fn a_retained_placement_never_sets_node_name() {
     let mut pod = Pod {
         spec: Some(PodSpec::default()),

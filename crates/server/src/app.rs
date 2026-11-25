@@ -346,8 +346,6 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             supervisor.health(),
         ));
 
-        moatless_workspaces::compose::seed_default_repositories(app_state.db.clone()).await;
-
         auth::jwt::warn_on_jwt_secret_fallback(&config);
 
         // Seed the bootstrap admin for local password auth. Unlike the other

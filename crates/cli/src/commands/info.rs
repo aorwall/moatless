@@ -17,7 +17,10 @@ pub fn format_whoami(resp: &SessionResponse) {
 }
 
 pub fn print_status(config: &Config) {
-    println!("API URL: {}", config.api_url);
+    println!(
+        "API URL: {}",
+        config.api_url.as_deref().unwrap_or("(not set)")
+    );
 
     match &config.auth_mode {
         AuthMode::Sandbox { task_id, .. } => {

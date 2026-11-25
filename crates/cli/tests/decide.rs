@@ -122,7 +122,7 @@ async fn each_fails_the_command_after_every_row_when_an_item_failed() {
     let (base_url, recorded) = stub_backend().await;
     let client = MoatClient::new_with_api_key(&base_url, "test-key", HttpConfig::default());
     let config = Config {
-        api_url: base_url,
+        api_url: Some(base_url),
         auth_mode: AuthMode::Standalone { api_key: None },
         login: moatless_cli::config::LoginEnv::default(),
         sandbox_grpc_port: "50052".to_string(),

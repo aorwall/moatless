@@ -59,7 +59,19 @@ pub fn build_pod(
         );
     }
 
-    let mut annotations = BTreeMap::new();
+    // The `moatless.io/*` keys inserted below win over a configured one.
+    let mut annotations = config
+        .sandbox
+        .pod_annotations_json
+        .as_deref()
+        .and_then(|json| {
+            serde_json::from_str::<BTreeMap<String, String>>(json)
+                .inspect_err(|e| {
+                    tracing::warn!(error = %e, "Ignoring malformed K8S_SANDBOX_POD_ANNOTATIONS");
+                })
+                .ok()
+        })
+        .unwrap_or_default();
     // Redact any embedded credentials (userinfo) so a PAT/password in the clone
     // URL never lands in the pod spec / etcd. Authentication happens at runtime
     // via the credential channel + git credential helper, not the URL.
@@ -68,11 +80,6 @@ pub fn build_pod(
         redact_url_userinfo(&plan.git_clone_url),
     );
     annotations.insert("moatless.io/created-at".to_string(), chrono_now_iso());
-    // Prevent Karpenter from evicting running sandbox pods during node consolidation.
-    annotations.insert(
-        "karpenter.sh/do-not-disrupt".to_string(),
-        "true".to_string(),
-    );
 
     // ── Volumes ─────────────────────────────────────────────────────
     //

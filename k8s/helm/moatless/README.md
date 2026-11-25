@@ -194,6 +194,7 @@ trusted repositories.
 | `kubernetes.computeMode` | Sandbox compute contract: `standard` or `fargate` | `standard` |
 | `kubernetes.sandboxEphemeralStorage` | Sandbox ephemeral-storage request; under Fargate also the limit | `"6Gi"` |
 | `kubernetes.sandboxEphemeralStorageLimit` | Sandbox ephemeral-storage limit, an eviction ceiling | `""` |
+| `kubernetes.sandboxPodAnnotations` | Extra annotations on every sandbox pod; set `karpenter.sh/do-not-disrupt: "true"` on a Karpenter cluster | `{}` |
 
 ### T3 Code UI
 
@@ -769,6 +770,7 @@ this feature exists to remove.
 | `proxy.traefikIngressRoute.enabled` | Emit the app's Traefik IngressRoute CRDs | `false` |
 | `proxyIngress.enabled` | Emit the wildcard preview Ingress | `true` |
 | `proxyIngress.host` | Wildcard host for previews | `*.preview.example.com` |
+| `proxy.previews.enabled` | Publish Script previews through per-port Traefik IngressRoutes; needs the Traefik CRDs | `true` |
 
 > The Traefik IngressRoutes read the app host from `ingress.hosts[0].host`
 > regardless of `ingress.enabled`. Keep `ingress.hosts[0].host` set even when you

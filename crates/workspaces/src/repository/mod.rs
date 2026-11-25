@@ -9,7 +9,6 @@ pub mod models;
 pub mod operations;
 pub mod routes;
 pub mod schemas;
-pub(crate) mod seed;
 
 pub mod branches;
 pub(crate) mod mutations;

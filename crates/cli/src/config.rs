@@ -6,6 +6,7 @@
 //! `Authorization: Bearer <key>` for non-interactive contexts; else the API key
 //! comes from `~/.config/moatless/credentials.json` (set by `moat login`).
 
+use crate::client::ClientError;
 pub use crate::http_config::HttpConfig;
 
 /// Authentication mode.
@@ -22,9 +23,10 @@ pub enum AuthMode {
 
 #[derive(Debug, Clone)]
 pub struct Config {
-    /// API URL. Resolution: `MOATLESS_API_URL` → `BACKEND_API_URL` →
-    /// "<https://moatless.dev>"
-    pub api_url: String,
+    /// API URL: `MOATLESS_API_URL`, else `BACKEND_API_URL`, else the default
+    /// profile's. `None` when none is set; read it through
+    /// [`Config::require_api_url`].
+    pub api_url: Option<String>,
     /// Authentication mode (sandbox vs standalone).
     pub auth_mode: AuthMode,
     /// What `moat login` fills its prompts from instead of asking.
@@ -66,14 +68,10 @@ impl Config {
             .or_else(|_| std::env::var("BACKEND_API_URL"))
             .ok();
 
-        // Fall back to the default profile's api_url (set by
-        // `moat login --local`) before the hardcoded default.
-        let api_url = env_url
-            .or_else(|| {
-                crate::credentials::default_profile_url()
-                    .and_then(|(host, url)| url.or_else(|| Some(format!("https://{host}"))))
-            })
-            .unwrap_or_else(|| "https://moatless.dev".to_string());
+        let api_url = env_url.filter(|url| !url.trim().is_empty()).or_else(|| {
+            crate::credentials::default_profile_url()
+                .and_then(|(host, url)| url.or_else(|| Some(format!("https://{host}"))))
+        });
 
         let auth_mode = if let Some(token) = sandbox_token() {
             let task_id = std::env::var("TASK_ID").ok();
@@ -92,7 +90,7 @@ impl Config {
             };
             AuthMode::Standalone { api_key }
         } else {
-            let host = host_from_url(&api_url);
+            let host = api_url.as_deref().map_or_default(host_from_url);
             let api_key = crate::credentials::get_api_key(&host);
             AuthMode::Standalone { api_key }
         };
@@ -127,9 +125,15 @@ impl Config {
         }
     }
 
-    /// Get the host portion of the API URL (for credential profiles).
+    /// Get the host portion of the API URL (for credential profiles), empty
+    /// when no URL is configured.
     pub fn host(&self) -> String {
-        host_from_url(&self.api_url)
+        self.api_url.as_deref().map_or_default(host_from_url)
+    }
+
+    /// The API URL, or [`ClientError::NoApiUrl`] when none is configured.
+    pub fn require_api_url(&self) -> Result<&str, ClientError> {
+        self.api_url.as_deref().ok_or(ClientError::NoApiUrl)
     }
 }
 

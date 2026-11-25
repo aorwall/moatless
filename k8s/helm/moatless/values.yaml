@@ -321,6 +321,11 @@ proxyIngress:
 proxy:
   # -- Domain for proxy routing (e.g., preview.example.com)
   domain: "preview.example.com"
+  # -- Script previews: the backend routes `<task>--<port>.<domain>` through a
+  # Traefik IngressRoute per port, so they need the Traefik CRDs. Set false on
+  # a cluster without Traefik; the backend then publishes no preview URL.
+  previews:
+    enabled: true
   # -- Protocol (http or https)
   protocol: "https"
   # -- Port for proxy server (must be > 1024 for non-root)
@@ -955,6 +960,10 @@ kubernetes:
   # -- Node selector for sandbox pods (overrides top-level nodeSelector)
   # If empty, falls back to top-level nodeSelector
   sandboxNodeSelector: {}
+  # -- Extra annotations on every sandbox pod. On a Karpenter cluster set
+  # `karpenter.sh/do-not-disrupt: "true"`, or consolidation evicts running
+  # sandboxes.
+  sandboxPodAnnotations: {}
   # -- Tolerations for sandbox pods (overrides top-level tolerations)
   # If empty, falls back to top-level tolerations
   sandboxTolerations: []

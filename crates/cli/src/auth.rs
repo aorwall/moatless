@@ -14,10 +14,11 @@ use moatless_types::http::HttpTimeouts;
 /// password or opens the browser for OAuth; falls back to `config`'s
 /// (env-resolved) URL when `url_override` is `None`.
 pub async fn login(config: &Config, url_override: Option<String>) -> Result<(), ClientError> {
-    let url = url_override
-        .unwrap_or_else(|| config.api_url.clone())
-        .trim_end_matches('/')
-        .to_string();
+    let url = match url_override {
+        Some(url) => url,
+        None => config.require_api_url()?.to_string(),
+    };
+    let url = url.trim_end_matches('/').to_string();
 
     match probe_auth_mode(&url, config.http.auth_probe).await {
         ProbedAuthMode::Password => login_password(&url, config).await,

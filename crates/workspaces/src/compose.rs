@@ -204,11 +204,6 @@ pub fn skills(
     ))
 }
 
-/// Seed the built-in repositories a fresh deployment starts with.
-pub async fn seed_default_repositories(db: DbPool) {
-    crate::repository::seed::seed_default_repositories(&PgRepositoryDao(db)).await;
-}
-
 /// Write one repository row, for a consumer's PostgreSQL tests.
 #[cfg(any(test, feature = "test-support"))]
 pub async fn seed_repository(
