@@ -29,9 +29,9 @@ Everything downstream of `sandbox-base` is a thin overlay: install a tool in
 `moatless-sandbox` rather than the base, so a tool added to `sandbox-base`
 reaches it only after `sandbox` rebuilds. A language toolchain is the
 exception: the base carries Node, Bun, Python and Rust and nothing else, and a
-JDK, Maven and `psql` come from `docker/recipes/soaplabs.json`. A Java repo
+JDK, Maven and `psql` come from `docker/recipes/java.json`. A Java repo
 reaches them only by setting its workspace `dockerImage` to
-`<REGISTRY_ORG>/moatless-sandbox-recipe:soaplabs`.
+`<REGISTRY_ORG>/moatless-sandbox-recipe:java`.
 
 ## Deciding whether the sandbox binaries changed
 
