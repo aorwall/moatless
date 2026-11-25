@@ -14,7 +14,7 @@ use async_trait::async_trait;
 
 use crate::UiRpcDbPool;
 use crate::transcript::{JoinedOrigin, Transcript};
-use moatless_core::change_feed::conversation::{ConversationChange, ConversationHead};
+use moatless_core::change_feed::conversation::ConversationHead;
 use moatless_core::change_feed::listing::{ListingChange, ListingHead};
 use moatless_ports::activity::ActivitySource;
 use moatless_ports::task::TaskReader;
@@ -210,39 +210,6 @@ pub trait ConversationDao: Send + Sync {
         &self,
         task_ids: &[String],
     ) -> Result<Vec<(String, ConversationHead)>, sqlx::Error>;
-
-    /// This conversation's changes at or after `from`, oldest first, capped at
-    /// `limit`. At `from` rather than after it — see
-    /// [`moatless_core::change_feed::conversation::changes_from`].
-    async fn conversation_changes(
-        &self,
-        task_id: &str,
-        from: i64,
-        limit: i64,
-    ) -> Result<Vec<ConversationChange>, sqlx::Error>;
-
-    /// The rows a batch of changes names, oldest first: Messages, the
-    /// activities under them or named by their own id, and the interactive
-    /// calls those answer, each with the Message it sits on.
-    ///
-    /// Elides nothing, so [`Transcript::omitted`] is zero, and is unscoped for
-    /// the reason [`ConversationDao::transcript`] is.
-    async fn changed_messages(
-        &self,
-        task_id: &str,
-        uuids: &[String],
-        activity_ids: &[String],
-    ) -> Result<Transcript, sqlx::Error>;
-
-    /// The oldest `limit` settled turns numbered above `above` (from the first
-    /// for `None`), with their Messages. Unscoped for the reason
-    /// [`ConversationDao::transcript`] is.
-    async fn settled_turns(
-        &self,
-        task_id: &str,
-        above: Option<i32>,
-        limit: i64,
-    ) -> Result<Transcript, sqlx::Error>;
 
     /// The highest listing position this deployment has reached, and the
     /// identity of the database it reached it in.
@@ -453,42 +420,6 @@ impl ConversationDao for PgConversationDao {
         task_ids: &[String],
     ) -> Result<Vec<(String, ConversationHead)>, sqlx::Error> {
         moatless_core::change_feed::conversation::current_heads(&self.pool, task_ids).await
-    }
-
-    async fn conversation_changes(
-        &self,
-        task_id: &str,
-        from: i64,
-        limit: i64,
-    ) -> Result<Vec<ConversationChange>, sqlx::Error> {
-        moatless_core::change_feed::conversation::changes_from(&self.pool, task_id, from, limit)
-            .await
-    }
-
-    async fn changed_messages(
-        &self,
-        task_id: &str,
-        uuids: &[String],
-        activity_ids: &[String],
-    ) -> Result<Transcript, sqlx::Error> {
-        let window = self
-            .transcripts
-            .changed(task_id, uuids, activity_ids)
-            .await?;
-        crate::transcript::resolve(&self.pool, &*self.activities, task_id, window).await
-    }
-
-    async fn settled_turns(
-        &self,
-        task_id: &str,
-        above: Option<i32>,
-        limit: i64,
-    ) -> Result<Transcript, sqlx::Error> {
-        let window = self
-            .transcripts
-            .settled_turns(task_id, above, limit)
-            .await?;
-        crate::transcript::resolve(&self.pool, &*self.activities, task_id, window).await
     }
 
     async fn listing_head(&self) -> Result<ListingHead, sqlx::Error> {

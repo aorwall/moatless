@@ -898,16 +898,11 @@ pub trait ThreadCommandSink: Send + Sync {
     /// Queue a fork's conversation for its parent's next message.
     async fn merge_back(
         &self,
-        _viewer: &ScopeContext,
-        _source: &str,
-        _target: &str,
-        _through_turn: i32,
-    ) -> Result<(), CommandRefusal> {
-        Err(CommandRefusal::Unsupported {
-            command: "thread.merge_back".into(),
-            reason: "Merge-back is not implemented by this sink.".into(),
-        })
-    }
+        viewer: &ScopeContext,
+        source: &str,
+        target: &str,
+        through_turn: i32,
+    ) -> Result<(), CommandRefusal>;
 
     /// Drop every turn of this Thread above `keep_through` (`0` empties it) —
     /// the same cut [`fork`](Self::fork) resolves, applied in place.

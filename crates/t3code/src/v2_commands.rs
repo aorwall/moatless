@@ -1,6 +1,5 @@
-//! Orchestration V2's command union, rewritten onto the V1 commands
-//! [`commands::dispatch`] already carries out, so a V2 client reaches
-//! the same Moatless writes a V1 client does.
+//! Orchestration V2's command union, rewritten onto the `thread.*` commands
+//! [`commands::dispatch`] carries out.
 //!
 //! Three outcomes per command: translated, discarded (the client keeps the
 //! state locally and nothing here records it), or refused with a reason.

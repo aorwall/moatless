@@ -13,7 +13,7 @@ use sqlx::postgres::PgPoolOptions;
 use tokio::task::JoinSet;
 
 use crate::compose::t3_graph;
-use crate::config::{AgentModelDefaults, OrchestrationProtocol};
+use crate::config::AgentModelDefaults;
 use crate::subscriptions::shell_subscription;
 
 const USER: &str = "11111111-1111-1111-1111-111111111111";
@@ -68,7 +68,6 @@ async fn a_reconnect_wave_leaves_connections_for_workers_and_readiness(pool: PgP
                     &ScopeContext::user(USER.to_string()),
                     &environment,
                     None,
-                    OrchestrationProtocol::V2,
                 )
                 .await;
                 // A slow snapshot build: hold a connection until released.

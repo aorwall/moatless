@@ -2,7 +2,7 @@
 //! `/bounded`, then older pages over `/history`, under the same access rule as
 //! the whole snapshot.
 
-use super::harness::{mounted_router_at, ui_rpc_authed_request};
+use super::harness::{mounted_router, ui_rpc_authed_request};
 use super::seeding::{seed_task, seed_turn};
 use crate::common::USER_1;
 use crate::common::USER_2;
@@ -81,7 +81,7 @@ fn cursor_query(cursor: &Value) -> String {
 #[sqlx::test]
 async fn a_long_thread_opens_on_its_newest_turns_and_pages_the_rest(pool: PgPool) {
     seed_long_thread(&pool).await;
-    let router = mounted_router_at(&pool, 2).await;
+    let router = mounted_router(&pool).await;
 
     let (status, bounded) = get(
         &router,
@@ -119,7 +119,7 @@ async fn a_long_thread_opens_on_its_newest_turns_and_pages_the_rest(pool: PgPool
 #[sqlx::test]
 async fn a_compacted_history_page_carries_an_id_table(pool: PgPool) {
     seed_long_thread(&pool).await;
-    let router = mounted_router_at(&pool, 2).await;
+    let router = mounted_router(&pool).await;
     let (_, bounded) = get(
         &router,
         "/api/orchestration/threads/t-long/bounded?compactIds=1",
@@ -149,7 +149,7 @@ async fn a_compacted_history_page_carries_an_id_table(pool: PgPool) {
 #[sqlx::test]
 async fn a_thread_the_viewer_may_not_read_is_absent_from_both_routes(pool: PgPool) {
     seed_long_thread(&pool).await;
-    let router = mounted_router_at(&pool, 2).await;
+    let router = mounted_router(&pool).await;
     let (_, bounded) = get(&router, "/api/orchestration/threads/t-long/bounded", USER_1).await;
     let history = format!(
         "/api/orchestration/threads/t-long/history?cursor={}",
@@ -168,7 +168,7 @@ async fn a_thread_the_viewer_may_not_read_is_absent_from_both_routes(pool: PgPoo
 #[sqlx::test]
 async fn a_cursor_the_server_did_not_mint_is_a_typed_refusal(pool: PgPool) {
     seed_long_thread(&pool).await;
-    let router = mounted_router_at(&pool, 2).await;
+    let router = mounted_router(&pool).await;
 
     let (status, body) = get(
         &router,
@@ -180,15 +180,4 @@ async fn a_cursor_the_server_did_not_mint_is_a_typed_refusal(pool: PgPool) {
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(body["_tag"], "EnvironmentRequestInvalidError");
     assert_eq!(body["reason"], "invalid_history_cursor");
-}
-
-#[sqlx::test]
-async fn a_v1_deployment_serves_no_bounded_route(pool: PgPool) {
-    seed_long_thread(&pool).await;
-    let router = mounted_router_at(&pool, 1).await;
-
-    let (status, _) = get(&router, "/api/orchestration/threads/t-long/bounded", USER_1).await;
-
-    // The client reads a plain 404 as an older server and loads the whole snapshot.
-    assert_eq!(status, StatusCode::NOT_FOUND);
 }

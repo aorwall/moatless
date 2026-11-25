@@ -73,9 +73,8 @@ pub use compose::mount;
 pub use compose::router_if_enabled;
 pub use compose::t3_graph;
 pub use config::AgentModelDefaults;
-pub use config::OrchestrationProtocol;
 pub use config::UiRpcConfigError;
-pub use feed::{ShellFeed, ThreadFeed};
+pub use feed::ShellFeed;
 pub use moatless_identity::auth::pairing::DevicePairing;
 pub use moatless_ports::sandbox::{
     SandboxIntentReader, SandboxObserver, SandboxPortPublisher, SandboxStarter, SandboxStopper,
@@ -92,10 +91,8 @@ pub(crate) use rpc::session::MAX_ACTIVE_STREAMS;
 pub(crate) use rpc::session::MAX_DETACHED_REQUESTS;
 pub use sandbox_proto::client::SandboxConnector;
 pub use snapshots::ShellSnapshot;
-pub use snapshots::ThreadSnapshot;
 pub use snapshots::archived_shell_snapshot;
 pub use snapshots::shell_snapshot;
-pub(crate) use snapshots::source_task_names;
 pub use snapshots::thread_shell;
 pub use snapshots::thread_snapshot;
 pub use startup_scripts::{StartupScriptFailure, StartupScripts};
@@ -104,7 +101,6 @@ pub use state::UiRpcDbPool;
 pub(crate) use state::UiRpcState;
 pub use subscriptions::ShellSubscription;
 pub use subscriptions::shell_subscription;
-pub use subscriptions::thread_subscription;
 
 #[cfg(test)]
 mod tests;

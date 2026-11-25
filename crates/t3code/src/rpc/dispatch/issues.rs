@@ -11,8 +11,6 @@ use crate::rpc::table::Request;
 use serde::de::IgnoredAny;
 use serde_json::Value;
 
-/// `issues.react` is declared because `capabilities.reactions` is false; a
-/// connection is the installed app and a binding the Workspace's config.
 pub(super) fn issue_methods() -> MethodTable {
     MethodTable::new()
         .detached("issues.list", Scope::OrchestrationRead, issues_list)
@@ -45,14 +43,11 @@ pub(super) fn issue_methods() -> MethodTable {
             Scope::OrchestrationOperate,
             issues_set_state,
         )
-        .declared("issues.react", Scope::OrchestrationOperate)
         .detached(
             "issueTrackers.list",
             Scope::OrchestrationRead,
             issue_trackers_list,
         )
-        .declared("issueTrackers.connect", Scope::OrchestrationOperate)
-        .declared("issueTrackers.bindProject", Scope::OrchestrationOperate)
 }
 
 fn answer(

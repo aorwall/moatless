@@ -81,7 +81,13 @@ pub(super) fn threads(
     workspaces: &[ListedWorkspace],
     conversations: &[Conversation],
 ) -> Vec<Value> {
-    shell_snapshot(workspaces, conversations, &AgentModelDefaults::default(), 0)["threads"]
+    shell_snapshot_v2(
+        workspaces,
+        conversations,
+        &[],
+        &AgentModelDefaults::default(),
+        0,
+    )["threads"]
         .as_array()
         .cloned()
         .unwrap_or_default()
@@ -243,20 +249,12 @@ pub(super) fn transcript(
         })
         .filter_map(|activity| activity.tool_use_id.clone())
         .collect();
-    let mut turns: Vec<i32> = messages.iter().filter_map(|m| m.turn_number).collect();
-    turns.sort_unstable();
-    turns.dedup();
     Transcript {
         messages,
         activities,
-        omitted: 0,
-        // What `task_turns` holds for these rows. A test about a turn with
-        // no Message of its own sets this itself.
-        turns,
         turn_outcomes: Vec::new(),
         rewound_turns: Vec::new(),
         settled_requests,
-        subagent_usage: HashMap::new(),
     }
 }
 
@@ -317,7 +315,7 @@ pub(super) fn quiet_detail(transcript: &Transcript) -> Value {
 }
 
 pub(super) fn detail_of(conversation: Conversation, transcript: &Transcript) -> Value {
-    thread_detail(
+    thread_projection(
         &conversation,
         "ws-a",
         &AgentModelDefaults::default(),
@@ -326,6 +324,8 @@ pub(super) fn detail_of(conversation: Conversation, transcript: &Transcript) -> 
             frontend_url: "http://localhost:3000",
             source_task_names: &HashMap::new(),
         },
+        &Lineage::root(&conversation.task_id),
+        &[],
     )
 }
 
@@ -354,32 +354,4 @@ pub(super) fn instant_at(value: &str) -> DateTime<Utc> {
     DateTime::parse_from_rfc3339(value)
         .expect("a well-formed instant")
         .with_timezone(&Utc)
-}
-
-/// The change that names Message `uuid`, at `position`.
-pub(super) fn change(position: i64, uuid: Option<&str>) -> ConversationChange {
-    ConversationChange {
-        position,
-        message_uuid: uuid.map(str::to_string),
-        activity_id: None,
-        reverted_to_turn: None,
-    }
-}
-
-pub(super) fn events(change: &ConversationChange, window: &Transcript) -> Vec<Value> {
-    change_events(
-        &running_conversation("task-a", "ws-a"),
-        change,
-        window,
-        &OriginContext {
-            frontend_url: "http://localhost:3000",
-            source_task_names: &HashMap::new(),
-        },
-    )
-    .into_iter()
-    .map(|item| {
-        assert_eq!(item["kind"], "event", "every item is a stream event");
-        item["event"].clone()
-    })
-    .collect()
 }

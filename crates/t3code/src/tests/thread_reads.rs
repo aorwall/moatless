@@ -1,20 +1,13 @@
-//! Find in a thread and the title lookups, over a V2 connection.
+//! Find in a thread and the title lookups.
 
 use super::fixtures::*;
 use super::*;
-use crate::config::OrchestrationProtocol;
 use crate::dao::Conversation;
 use crate::dao::running_conversation;
 use moatless_core::change_feed::conversation::ConversationHead;
 use moatless_tasks::conversation::transcript::TranscriptEntry;
 use moatless_types::message::{MessageRole, MessageType};
 use moatless_workspaces::workspace::models::ListedWorkspace;
-
-fn v2_connection() -> Connection {
-    let mut connection = connection();
-    connection.session.shared.protocol = OrchestrationProtocol::V2;
-    connection
-}
 
 fn conversation(task_id: &str, name: Option<&str>, workspace_id: &str) -> Conversation {
     let mut conversation = running_conversation(task_id);
@@ -110,7 +103,7 @@ async fn find_counts_each_rendered_occurrence_and_selects_the_first() {
         ),
         entry(3, MessageType::Assistant, "Nothing here."),
     ]);
-    let output = v2_connection()
+    let output = connection()
         .exchange(
             &find(json!({ "threadId": "task-1", "query": "build" })),
             &state,
@@ -142,7 +135,7 @@ async fn find_pages_through_a_long_conversation_and_wraps_a_step() {
         .map(|id| entry(id, MessageType::Assistant, "needle"))
         .collect();
     let state = thread_with(messages);
-    let output = v2_connection()
+    let output = connection()
         .exchange(
             &find(json!({
                 "threadId": "task-1",
@@ -164,7 +157,7 @@ async fn find_pages_through_a_long_conversation_and_wraps_a_step() {
 
 #[tokio::test]
 async fn find_in_a_thread_the_viewer_cannot_read_is_the_typed_error() {
-    let output = v2_connection()
+    let output = connection()
         .exchange(
             &find(json!({ "threadId": "task-2", "query": "x" })),
             &thread_with(Vec::new()),
@@ -182,7 +175,7 @@ async fn the_progressive_find_sends_the_first_occurrence_then_the_count() {
         entry(1, MessageType::User, "needle"),
         entry(2, MessageType::Assistant, "needle needle"),
     ]);
-    let mut connection = v2_connection();
+    let mut connection = connection();
     connection
         .exchange(
             &request(
@@ -220,7 +213,7 @@ async fn titles_name_what_the_viewer_can_read_and_omit_the_rest() {
         conversation("task-1", Some("Fix the build"), "ws-1"),
         conversation("task-2", None, "ws-1"),
     ]);
-    let output = v2_connection()
+    let output = connection()
         .exchange(
             &request(
                 "1",
@@ -244,7 +237,7 @@ async fn link_metadata_names_the_project_only_where_it_is_listed() {
         conversation("task-1", Some("Fix the build"), "ws-1"),
         conversation("task-2", Some("Elsewhere"), "ws-hidden"),
     ]);
-    let output = v2_connection()
+    let output = connection()
         .exchange(
             &request(
                 "1",
@@ -265,15 +258,11 @@ async fn link_metadata_names_the_project_only_where_it_is_listed() {
     );
 }
 
-/// The three keys a V2 client reads before it asks any of these methods.
+/// The three keys a client reads before it asks any of these methods.
 #[tokio::test]
-async fn a_v2_deployment_reports_find_and_link_metadata() {
-    let v2 = titled(Vec::new());
-    let config = server_config(&v2, &viewer(), &[]).await;
+async fn the_config_reports_find_and_link_metadata() {
+    let config = server_config(&state(), &viewer(), &[]).await;
     assert_eq!(config["threadFind"], true);
     assert_eq!(config["threadFindProgressive"], true);
     assert_eq!(config["threadLinkMetadata"], true);
-
-    let v1 = server_config(&state(), &viewer(), &[]).await;
-    assert!(v1.get("threadFind").is_none());
 }

@@ -1,9 +1,8 @@
-//! The orchestration V2 methods a V2 connection is answered with: see
-//! [`OrchestrationProtocol`](crate::config::OrchestrationProtocol).
+//! The orchestration V2 methods that read and command one thread.
 //!
-//! Every read is built from [`thread_detail_v2`], and every write is a V1
-//! command run through [`commands::dispatch`]; nothing here reads or writes
-//! state of its own.
+//! Every read is built from [`thread_detail_v2`], and every write is
+//! translated to a [`commands::dispatch`] command; nothing here reads or
+//! writes state of its own.
 
 use crate::authentication::viewer_scope;
 use crate::commands;
@@ -32,9 +31,9 @@ use tracing::error;
 use tracing::warn;
 use uuid::Uuid;
 
-/// What a V2 connection is answered with in place of, or beside, the V1 methods.
+/// The thread's reads and the command path.
 pub(super) fn orchestration_v2_methods() -> MethodTable {
-    MethodTable::v2()
+    MethodTable::new()
         .session(
             "orchestration.dispatchCommand",
             Scope::OrchestrationOperate,

@@ -31,7 +31,7 @@ const FIND_PAGE: i64 = 200;
 const TITLE_LOOKUP_LIMIT: usize = 500;
 
 pub(super) fn thread_read_methods() -> MethodTable {
-    MethodTable::v2()
+    MethodTable::new()
         .detached(
             "orchestration.searchThread",
             Scope::OrchestrationRead,

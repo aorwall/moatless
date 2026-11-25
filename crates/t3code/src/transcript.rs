@@ -1,12 +1,12 @@
 //! Opening one conversation: the Task band's transcript rows, with where each
 //! Message came from and what its calls settled resolved beside them.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::ops::{Deref, DerefMut};
 
-use moatless_ports::activity::{ActivitySource, SubagentUsage};
+use moatless_ports::activity::ActivitySource;
 use moatless_tasks::conversation::transcript::TranscriptWindow;
-use moatless_types::activity::{Activity, ActivityKind, ActivityView};
+use moatless_types::activity::{Activity, ActivityKind};
 use serde_json::Value;
 
 pub use moatless_tasks::conversation::transcript::{RewoundTurn, TranscriptEntry, TurnOutcome};
@@ -69,12 +69,6 @@ pub struct Transcript {
     pub messages: Vec<TranscriptMessage>,
     /// See [`TranscriptWindow::activities`].
     pub activities: Vec<Activity>,
-    /// See [`TranscriptWindow::omitted`].
-    pub omitted: i64,
-    /// See [`TranscriptWindow::turns`]. Empty from
-    /// [`crate::dao::ConversationDao::changed_messages`], whose caller projects
-    /// no checkpoints.
-    pub turns: Vec<i32>,
     /// See [`TranscriptWindow::turn_outcomes`].
     pub turn_outcomes: Vec<TurnOutcome>,
     /// See [`TranscriptWindow::rewound_turns`].
@@ -86,16 +80,10 @@ pub struct Transcript {
     /// onto a different Message than the call's, so this is looked up by
     /// request id rather than read out of `activities`.
     pub settled_requests: HashSet<String>,
-    /// What each subagent these rows spawned has spent, by its call's
-    /// `tool_use_id`.
-    ///
-    /// Looked up rather than read out of the rows: a subagent's own Messages
-    /// carry the spawning id as `parent_uuid` and are never among `activities`.
-    pub subagent_usage: HashMap<String, SubagentUsage>,
 }
 
 /// `window` as a [`Transcript`]: its Messages' origins joined, and the settled
-/// requests and subagent usage its activities name.
+/// requests its activities name.
 pub(crate) async fn resolve(
     pool: &UiRpcDbPool,
     activity_source: &dyn ActivitySource,
@@ -105,10 +93,9 @@ pub(crate) async fn resolve(
     let TranscriptWindow {
         entries,
         activities,
-        omitted,
-        turns,
         turn_outcomes,
         rewound_turns,
+        ..
     } = window;
     let mut origins = crate::dao::transcript_origins(pool, task_id, &entries).await?;
     let messages = entries
@@ -125,16 +112,12 @@ pub(crate) async fn resolve(
         })
         .collect();
     let settled_requests = read_settled_requests(activity_source, task_id, &activities).await?;
-    let subagent_usage = read_subagent_usage(activity_source, task_id, &activities).await?;
     Ok(Transcript {
         messages,
         activities,
-        omitted,
-        turns,
         turn_outcomes,
         rewound_turns,
         settled_requests,
-        subagent_usage,
     })
 }
 
@@ -160,27 +143,4 @@ async fn read_settled_requests(
         .settled_calls(task_id, &asked)
         .await
         .map_err(store_read)
-}
-
-/// What each subagent these rows spawned has spent, keyed by the spawning call.
-async fn read_subagent_usage(
-    activity_source: &dyn ActivitySource,
-    task_id: &str,
-    activities: &[Activity],
-) -> Result<HashMap<String, SubagentUsage>, sqlx::Error> {
-    let spawned: Vec<String> = activities
-        .iter()
-        .filter(|activity| crate::activity::is_subagent_call(&ActivityView::new(activity)))
-        .filter_map(|activity| activity.tool_use_id.clone())
-        .collect();
-    if spawned.is_empty() {
-        return Ok(HashMap::new());
-    }
-    Ok(activity_source
-        .subagent_usage(task_id, &spawned)
-        .await
-        .map_err(store_read)?
-        .into_iter()
-        .map(|usage| (usage.tool_use_id.clone(), usage))
-        .collect())
 }

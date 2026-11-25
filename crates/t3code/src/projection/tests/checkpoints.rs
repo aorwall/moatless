@@ -6,8 +6,10 @@ use super::*;
 
 // ── Checkpoints ─────────────────────────────────────────────────────
 
+/// The thread's start, then one per settled turn, each captured when its
+/// closing bubble was written and chained to the one before.
 #[test]
-fn a_checkpoint_per_turn_labelled_by_its_closing_bubble() {
+fn a_checkpoint_per_turn_captured_at_its_closing_bubble() {
     let mut messages = vec![
         message(1, MessageType::User, "do a thing"),
         message(2, MessageType::Assistant, "did it"),
@@ -19,20 +21,25 @@ fn a_checkpoint_per_turn_labelled_by_its_closing_bubble() {
 
     let detail = quiet_detail(&transcript(messages, Vec::new()));
     let checkpoints = detail["checkpoints"].as_array().unwrap();
-    assert_eq!(checkpoints.len(), 2);
-    assert_keys(
-        &checkpoints[0],
-        "checkpoint",
-        CHECKPOINT_REQUIRED,
-        CHECKPOINT_OPTIONAL,
-    );
-    assert_eq!(checkpoints[0]["turnId"], "task-a:1");
-    assert_eq!(checkpoints[0]["checkpointRef"], "task-a:1");
-    assert_eq!(checkpoints[0]["checkpointTurnCount"], json!(1));
-    assert_eq!(checkpoints[0]["assistantMessageId"], "msg-2");
-    assert_eq!(checkpoints[0]["completedAt"], "2026-07-01T10:02:00.000Z");
-    assert_eq!(checkpoints[1]["checkpointTurnCount"], json!(3));
-    assert_eq!(checkpoints[1]["assistantMessageId"], "msg-4");
+    assert_eq!(checkpoints.len(), 3);
+    for checkpoint in checkpoints {
+        assert_keys(
+            checkpoint,
+            "checkpoint",
+            CHECKPOINT_REQUIRED,
+            CHECKPOINT_OPTIONAL,
+        );
+    }
+    assert_eq!(checkpoints[0]["runId"], Value::Null);
+    assert_eq!(checkpoints[0]["ordinalWithinScope"], json!(0));
+    assert_eq!(checkpoints[1]["runId"], "task-a:1");
+    assert_eq!(checkpoints[1]["ref"], "task-a:checkpoint:1");
+    assert_eq!(checkpoints[1]["appRunOrdinal"], json!(1));
+    assert_eq!(checkpoints[1]["capturedAt"], "2026-07-01T10:02:00.000Z");
+    assert_eq!(checkpoints[1]["parentCheckpointId"], checkpoints[0]["id"]);
+    assert_eq!(checkpoints[2]["runId"], "task-a:3");
+    assert_eq!(checkpoints[2]["appRunOrdinal"], json!(3));
+    assert_eq!(checkpoints[2]["parentCheckpointId"], checkpoints[1]["id"]);
 }
 
 /// A turn still running has not completed, so it is no cut. The ones that
@@ -45,8 +52,8 @@ fn a_running_turn_withholds_itself_and_nothing_below_it() {
     let running = message(2, MessageType::Assistant, "doing it");
     let detail = detail(&transcript(vec![done, running], Vec::new()));
     let checkpoints = detail["checkpoints"].as_array().unwrap();
-    assert_eq!(checkpoints.len(), 1);
-    assert_eq!(checkpoints[0]["checkpointTurnCount"], json!(1));
+    assert_eq!(checkpoints.len(), 2);
+    assert_eq!(checkpoints[1]["appRunOrdinal"], json!(1));
 }
 
 /// `ready` with no files, never `missing`: the client defers on `missing` and
@@ -57,35 +64,10 @@ fn a_checkpoint_is_ready_and_carries_no_files() {
     let mut message = message(1, MessageType::Assistant, "did it");
     message.turn_number = Some(1);
     let detail = quiet_detail(&transcript(vec![message], Vec::new()));
-    assert_eq!(detail["checkpoints"][0]["status"], "ready");
-    assert_eq!(detail["checkpoints"][0]["files"], json!([]));
-}
-
-/// A turn whose agent only called tools wrote no bubble to name.
-#[test]
-fn a_checkpoint_on_a_silent_turn_names_no_assistant_message() {
-    let mut message = message(1, MessageType::User, "do a thing");
-    message.turn_number = Some(1);
-    let detail = quiet_detail(&transcript(vec![message], Vec::new()));
-    assert_eq!(detail["checkpoints"][0]["assistantMessageId"], Value::Null);
-}
-
-/// The turns are `task_turns`, not the Messages: a turn past `TRANSCRIPT_LIMIT`
-/// is one a rewind still takes, and withholding it would make a long thread's
-/// older turns silently unrewindable.
-#[test]
-fn a_turn_with_no_message_in_the_window_is_still_a_checkpoint() {
-    let mut rows = transcript(Vec::new(), Vec::new());
-    rows.turns = vec![7];
-    let mut conversation = running_conversation("task-a", "ws-a");
-    conversation.turn_status = Some("completed".to_string());
-    conversation.created_at_db = Some(instant_at("2026-07-01T09:00:00Z"));
-    let detail = detail_of(conversation, &rows);
-    let checkpoints = detail["checkpoints"].as_array().unwrap();
-    assert_eq!(checkpoints.len(), 1);
-    assert_eq!(checkpoints[0]["checkpointTurnCount"], json!(7));
-    assert_eq!(checkpoints[0]["assistantMessageId"], Value::Null);
-    assert_eq!(checkpoints[0]["completedAt"], "2026-07-01T09:00:00.000Z");
+    for checkpoint in detail["checkpoints"].as_array().unwrap() {
+        assert_eq!(checkpoint["status"], "ready");
+        assert_eq!(checkpoint["files"], json!([]));
+    }
 }
 
 /// A queued Message has no Turn, and a checkpoint the client cannot revert to
@@ -95,21 +77,32 @@ fn a_queued_message_is_no_checkpoint() {
     let mut message = message(1, MessageType::User, "not picked up yet");
     message.turn_number = None;
     let detail = quiet_detail(&transcript(vec![message], Vec::new()));
-    assert_eq!(detail["checkpoints"], json!([]));
+    let checkpoints = detail["checkpoints"].as_array().unwrap();
+    assert_eq!(checkpoints.len(), 2);
+    for checkpoint in checkpoints {
+        let run = checkpoint["runId"].as_str().unwrap_or_default();
+        assert!(
+            !run.contains(":queued:"),
+            "a queued run must not be a checkpoint"
+        );
+    }
 }
 
 #[test]
 fn an_empty_conversation_still_decodes() {
     let detail = detail(&transcript(Vec::new(), Vec::new()));
-    assert_keys(&detail, "thread", DETAIL_REQUIRED, DETAIL_OPTIONAL);
+    assert_keys(&detail, "projection", PROJECTION_REQUIRED, &[]);
     assert_eq!(detail["messages"], json!([]));
-    assert_eq!(detail["activities"], json!([]));
-    assert_eq!(detail["checkpoints"], json!([]));
-    assert_eq!(detail["deletedAt"], Value::Null);
+    assert_eq!(detail["turnItems"], json!([]));
+    assert_eq!(detail["plans"], json!([]));
+    assert_eq!(detail["thread"]["deletedAt"], Value::Null);
+    let checkpoints = detail["checkpoints"].as_array().unwrap();
+    assert_eq!(checkpoints.len(), 1, "only the thread's start");
+    assert_eq!(checkpoints[0]["runId"], Value::Null);
 }
 
-/// An errored newest turn is `error`, so the live event that repeats it settles
-/// `latestTurn` as failed rather than completed.
+/// An errored newest turn is `error`, so the client tells a failed cut from a
+/// completed one.
 #[test]
 fn an_errored_newest_turn_is_an_error_checkpoint() {
     let mut earlier = message(1, MessageType::Assistant, "did it");
@@ -118,6 +111,6 @@ fn an_errored_newest_turn_is_an_error_checkpoint() {
     let mut conversation = running_conversation("task-a", "ws-a");
     conversation.turn_status = Some("error".to_string());
     let detail = detail_of(conversation, &transcript(vec![earlier, failed], Vec::new()));
-    assert_eq!(detail["checkpoints"][0]["status"], "ready");
-    assert_eq!(detail["checkpoints"][1]["status"], "error");
+    assert_eq!(detail["checkpoints"][1]["status"], "ready");
+    assert_eq!(detail["checkpoints"][2]["status"], "error");
 }

@@ -718,6 +718,15 @@ impl ports::ThreadCommandSink for UnreachableCommands {
     ) -> Result<(), ports::CommandRefusal> {
         unreachable!("no test in this file forks a thread")
     }
+    async fn merge_back(
+        &self,
+        _viewer: &ScopeContext,
+        _source: &str,
+        _target: &str,
+        _through_turn: i32,
+    ) -> Result<(), ports::CommandRefusal> {
+        unreachable!("no test in this file merges a fork back")
+    }
     async fn link_pull_request(
         &self,
         _viewer: &ScopeContext,
@@ -881,9 +890,6 @@ fn stub_conversations() -> MockConversationDao {
         .expect_conversation_head()
         .returning(|_| Ok(ConversationHead { position: 0 }));
     conversations
-        .expect_conversation_changes()
-        .returning(|_, _, _| Ok(Vec::new()));
-    conversations
         .expect_readable_by_ids()
         .returning(|_, _| Ok(Vec::new()));
     conversations
@@ -900,21 +906,17 @@ fn state_over(
     state_from(attachments, conversations, workspaces)
 }
 
-/// A V2 deployment reading only from `conversations` and `workspaces`, which
+/// A deployment reading only from `conversations` and `workspaces`, which
 /// carry every expectation a case needs and no stub's.
 pub(super) fn state_reading(
     conversations: MockConversationDao,
     workspaces: MockWorkspaceListing,
 ) -> UiRpcState {
-    let mut state = state_from(
+    state_from(
         Arc::new(RecordingAttachments::default()),
         conversations,
         workspaces,
-    );
-    let mut rpc = (*state.rpc).clone();
-    rpc.orchestration_protocol_version = 2;
-    state.rpc = Arc::new(rpc);
-    state
+    )
 }
 
 fn state_from(
@@ -930,7 +932,6 @@ fn state_from(
             otlp_traces_enabled: false,
             attachment_uploads: true,
             usage_limit_sources: false,
-            orchestration_protocol_version: 1,
             scratch_workspace: None,
             linear_default_team: None,
         }),

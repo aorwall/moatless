@@ -1,8 +1,7 @@
 //! Linked pull requests.
 
 use super::harness::{
-    archived_snapshot, archived_thread_ids, defaults, parse, reads, thread, thread_ids,
-    thread_shell_row, viewer,
+    archived_snapshot, archived_thread_ids, parse, thread, thread_ids, thread_shell_row, viewer,
 };
 use super::seeding::{seed_live_project, seed_public_task, seed_task, unfollow};
 use crate::common::make_task_row;
@@ -11,8 +10,6 @@ use chrono::DateTime;
 use chrono::SubsecRound;
 use chrono::Utc;
 use moatless_loops::bindings::test_support as binding_fixtures;
-use moatless_t3code::Deployment;
-use moatless_t3code::thread_snapshot;
 use moatless_tasks::task::models::TaskPatch;
 use moatless_tasks::task::models::TaskStatus;
 use moatless_workspaces::compose;
@@ -350,17 +347,7 @@ async fn a_readable_conversation_opens_by_id_without_being_followed(pool: PgPool
     seed_public_task(&pool, "t-theirs", "user-2", Some("ws-live")).await;
 
     let viewer = viewer("user-1");
-    let snapshot = thread_snapshot(
-        &reads(&pool),
-        &Deployment {
-            model_defaults: &defaults(),
-            frontend_url: "http://localhost:3000",
-        },
-        &viewer,
-        "t-theirs",
-    )
-    .await
-    .unwrap();
+    let snapshot = thread_shell_row(&pool, &viewer, "t-theirs").await;
 
     assert!(
         snapshot.is_some(),
@@ -383,17 +370,7 @@ async fn an_unreadable_conversation_still_does_not_open_by_id(pool: PgPool) {
     seed_live_project(&pool).await;
     seed_task(&pool, "t-private", "user-2", Some("ws-live")).await;
 
-    let snapshot = thread_snapshot(
-        &reads(&pool),
-        &Deployment {
-            model_defaults: &defaults(),
-            frontend_url: "http://localhost:3000",
-        },
-        &viewer("user-1"),
-        "t-private",
-    )
-    .await
-    .unwrap();
+    let snapshot = thread_shell_row(&pool, &viewer("user-1"), "t-private").await;
 
     assert!(
         snapshot.is_none(),

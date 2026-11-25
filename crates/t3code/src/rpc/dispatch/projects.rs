@@ -51,7 +51,6 @@ pub(super) fn project_methods() -> MethodTable {
             Scope::OrchestrationRead,
             filesystem_get_metadata,
         )
-        .declared("projects.add", Scope::OrchestrationOperate)
         .detached(
             "projects.ensureScratch",
             Scope::OrchestrationRead,
@@ -77,7 +76,6 @@ pub(super) fn project_methods() -> MethodTable {
             Scope::OrchestrationRead,
             projects_read_file,
         )
-        .declared("projects.remove", Scope::OrchestrationOperate)
         .detached(
             "projects.searchContents",
             Scope::OrchestrationRead,

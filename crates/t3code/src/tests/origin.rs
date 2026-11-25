@@ -21,7 +21,6 @@ fn enabled_configuration_requires_an_origin() {
         otlp_traces_enabled: false,
         attachment_uploads: true,
         usage_limit_sources: false,
-        orchestration_protocol_version: 1,
         scratch_workspace: None,
         linear_default_team: None,
     };

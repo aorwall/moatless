@@ -3,7 +3,9 @@
 //! See the comment below for Decision 7's two guards and why the two tests
 //! below build real operational disasters instead of simulating them.
 
-use super::contract::{DESCRIPTOR_REQUIRED, assert_decodable_snapshot_item, assert_keys};
+use super::contract::{
+    DESCRIPTOR_OPTIONAL, DESCRIPTOR_REQUIRED, assert_decodable_snapshot_item, assert_keys,
+};
 use super::feed::{delivered, one_row, other_peoples_work, reconnect_to, start_turn, watching};
 use super::harness::{head, mounted_router, reads, thread_ids, viewer};
 use super::seeding::{seed_live_project, seed_task};
@@ -501,8 +503,9 @@ async fn the_environment_descriptor_reports_the_database_it_is_serving(pool: PgP
         &published,
         "ExecutionEnvironmentDescriptor",
         DESCRIPTOR_REQUIRED,
-        &[],
+        DESCRIPTOR_OPTIONAL,
     );
+    assert_eq!(published["orchestrationProtocolVersion"], 2);
     let reported = published["environmentId"].as_str().unwrap().to_string();
     assert_ne!(
         reported, "moatless",

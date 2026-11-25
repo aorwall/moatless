@@ -84,7 +84,7 @@ mod refusal {
     };
     use crate::transcript::Transcript;
     use async_trait::async_trait;
-    use moatless_core::change_feed::conversation::{ConversationChange, ConversationHead};
+    use moatless_core::change_feed::conversation::ConversationHead;
     use moatless_core::change_feed::listing::ListingChange;
     use moatless_tasks::conversation::transcript::TranscriptEntry;
     use moatless_types::access_control::ScopeContext;
@@ -253,33 +253,6 @@ mod refusal {
             task_ids: &[String],
         ) -> Result<Vec<(String, ConversationHead)>, sqlx::Error> {
             self.0.conversation_heads(task_ids).await
-        }
-
-        async fn conversation_changes(
-            &self,
-            task_id: &str,
-            from: i64,
-            limit: i64,
-        ) -> Result<Vec<ConversationChange>, sqlx::Error> {
-            self.0.conversation_changes(task_id, from, limit).await
-        }
-
-        async fn changed_messages(
-            &self,
-            task_id: &str,
-            uuids: &[String],
-            activity_ids: &[String],
-        ) -> Result<Transcript, sqlx::Error> {
-            self.0.changed_messages(task_id, uuids, activity_ids).await
-        }
-
-        async fn settled_turns(
-            &self,
-            task_id: &str,
-            above: Option<i32>,
-            limit: i64,
-        ) -> Result<Transcript, sqlx::Error> {
-            self.0.settled_turns(task_id, above, limit).await
         }
 
         async fn interactive_call(

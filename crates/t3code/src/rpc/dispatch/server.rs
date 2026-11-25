@@ -35,7 +35,6 @@ pub(super) fn server_methods() -> MethodTable {
             Scope::RelayRead,
             cloud_get_relay_client_status,
         )
-        .declared("cloud.installRelayClient", Scope::RelayWrite)
         .detached(
             "server.discoverSourceControl",
             Scope::OrchestrationRead,
@@ -57,33 +56,15 @@ pub(super) fn server_methods() -> MethodTable {
             Scope::OrchestrationOperate,
             server_refresh_providers,
         )
-        .declared("server.getSettings", Scope::OrchestrationRead)
-        .declared("server.removeKeybinding", Scope::OrchestrationOperate)
         .session(
             "server.reportClientActivity",
             Scope::OrchestrationRead,
             server_report_client_activity,
         )
-        .declared("server.reportHostPowerState", Scope::OrchestrationOperate)
-        .declared("server.retryResourceTelemetry", Scope::OrchestrationOperate)
-        .declared("server.signalProcess", Scope::OrchestrationOperate)
-        .declared("server.updateProvider", Scope::OrchestrationOperate)
-        .declared("server.updateServer", Scope::OrchestrationOperate)
-        .declared(
-            "server.updateServerWithProgress",
-            Scope::OrchestrationOperate,
-        )
         .session(
             "server.updateSettings",
             Scope::OrchestrationOperate,
             server_update_settings,
-        )
-        .declared("server.upsertKeybinding", Scope::OrchestrationOperate)
-        .declared("shell.openInEditor", Scope::OrchestrationOperate)
-        .declared("sourceControl.cloneRepository", Scope::OrchestrationOperate)
-        .declared(
-            "sourceControl.publishRepository",
-            Scope::OrchestrationOperate,
         )
 }
 

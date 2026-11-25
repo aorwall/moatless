@@ -43,8 +43,9 @@ fn a_script_that_cannot_fill_the_required_fields_is_left_out() {
 
 #[test]
 fn each_workspace_gets_a_distinct_root_so_groups_do_not_collapse() {
-    let snapshot = shell_snapshot(
+    let snapshot = shell_snapshot_v2(
         &[workspace("ws-a", "Alpha"), workspace("ws-b", "Beta")],
+        &[],
         &[],
         &AgentModelDefaults::default(),
         0,

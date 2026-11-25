@@ -1,22 +1,19 @@
 //! The wire shapes this directory builds, asserted field for field.
 
-use super::detail::*;
-use super::events::*;
 use super::model::*;
 use super::origin::*;
 use super::project::*;
 use super::scalar::*;
 use super::search::*;
-use super::shell::*;
+use super::subtask::*;
 use super::transcript::*;
 use super::turn::*;
+use super::v2::*;
 use crate::AgentModelDefaults;
 use crate::agent::catalog;
 use crate::dao::{Conversation, ConversationMatch, ConversationPullRequest};
 use crate::transcript::{Transcript, TranscriptEntry, TranscriptMessage};
 use chrono::{DateTime, Utc};
-use moatless_core::change_feed::conversation::{ConversationChange, EVENTS_PER_CHANGE};
-use moatless_ports::activity::SubagentUsage;
 use moatless_types::activity::Activity;
 use moatless_types::activity::ActivityKind;
 use moatless_types::activity::ActivityStatus;
@@ -31,14 +28,13 @@ use moatless_workspaces::test_support::make_workspace_row;
 use moatless_workspaces::workspace::models::ListedWorkspace;
 use serde_json::{Value, json};
 use sqlx::types::Json;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 mod contract;
 mod fixtures;
 
 mod attachments;
 mod checkpoints;
-mod events;
 mod model;
 mod origin;
 mod panels;

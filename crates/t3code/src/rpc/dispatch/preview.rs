@@ -11,9 +11,6 @@ use serde_json::Value;
 
 pub(super) fn preview_methods() -> MethodTable {
     MethodTable::new()
-        .declared("preview.automationConnect", Scope::OrchestrationOperate)
-        .declared("preview.automationFocusHost", Scope::OrchestrationOperate)
-        .declared("preview.automationRespond", Scope::OrchestrationOperate)
         .session("preview.close", Scope::OrchestrationOperate, preview_close)
         .detached("preview.list", Scope::OrchestrationRead, preview_list)
         .session(

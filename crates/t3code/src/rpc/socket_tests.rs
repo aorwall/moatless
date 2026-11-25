@@ -61,7 +61,7 @@ async fn overload_ends_a_connection_even_while_its_socket_write_is_blocked() {
             let closed = closed.clone();
             async move {
                 upgrade.on_upgrade(move |socket| async move {
-                    serve_websocket(socket, state, viewer(), OrchestrationProtocol::V1).await;
+                    serve_websocket(socket, state, viewer()).await;
                     closed.lock().unwrap().take().unwrap().send(()).unwrap();
                 })
             }

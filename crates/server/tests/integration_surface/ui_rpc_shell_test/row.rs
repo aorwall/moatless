@@ -283,12 +283,11 @@ async fn a_conversation_that_has_run_reports_its_turn_session_and_model(pool: Pg
     assert_decodable_thread(&thread);
 
     // The newest turn, not the first.
-    assert_eq!(thread["latestTurn"]["turnId"], "t-live:2");
-    assert_eq!(thread["latestTurn"]["state"], "running");
-    // An open turn is the session's active turn.
-    assert_eq!(thread["session"]["activeTurnId"], "t-live:2");
-    assert_eq!(thread["session"]["status"], "running");
-    assert_eq!(thread["session"]["providerInstanceId"], "claudeAgent");
+    assert_eq!(thread["latestRunId"], "t-live:2");
+    assert_eq!(thread["status"], "running");
+    // An open turn is the active run.
+    assert_eq!(thread["activeRunId"], "t-live:2");
+    assert_eq!(thread["providerInstanceId"], "claudeAgent");
     // What the agent said it was running beats any configured default.
     assert_eq!(
         thread["modelSelection"]["model"],
@@ -299,7 +298,7 @@ async fn a_conversation_that_has_run_reports_its_turn_session_and_model(pool: Pg
     // the `cwd` of every file request it makes for this thread.
     assert_eq!(thread["worktreePath"], "/moatless/tasks/t-live");
     assert_eq!(thread["runtimeMode"], "full-access");
-    assert_eq!(thread["hasPendingApprovals"], false);
+    assert!(thread["pendingRuntimeRequest"].is_null());
 }
 
 /// Nothing has run: no turn, no sandbox, no message. Every derived value is
@@ -316,9 +315,9 @@ async fn a_conversation_that_never_ran_still_decodes(pool: PgPool) {
     let thread = thread(&pool, &viewer("user-1"), "t-fresh").await;
     assert_decodable_thread(&thread);
 
-    assert!(thread["latestTurn"].is_null());
-    assert_eq!(thread["session"]["status"], "stopped");
-    assert!(thread["session"]["activeTurnId"].is_null());
+    assert!(thread["latestRunId"].is_null());
+    assert_eq!(thread["status"], "idle");
+    assert!(thread["activeRunId"].is_null());
     assert!(thread["latestUserMessageAt"].is_null());
     assert_eq!(thread["worktreePath"], "/moatless/tasks/t-fresh");
     // The deployment's configured default is the answer until something runs.
@@ -345,7 +344,7 @@ async fn a_codex_conversation_reports_the_codex_instance_and_default(pool: PgPoo
     assert_decodable_thread(&thread);
     assert_eq!(thread["modelSelection"]["instanceId"], "codex");
     assert_eq!(thread["modelSelection"]["model"], "gpt-5.6-sol");
-    assert_eq!(thread["session"]["providerInstanceId"], "codex");
+    assert_eq!(thread["providerInstanceId"], "codex");
 }
 
 /// An unanswered question from the agent is what "waiting on a person" means
@@ -382,7 +381,7 @@ async fn an_unanswered_question_is_pending_user_input(pool: PgPool) {
 
     let viewer = viewer("user-1");
     let waiting = thread(&pool, &viewer, "t-asking").await;
-    assert_eq!(waiting["hasPendingUserInput"], true);
+    assert_eq!(waiting["pendingRuntimeRequest"]["kind"], "user_input");
     assert_eq!(waiting["hasActionableProposedPlan"], false);
 
     // The answer settles the call the question wrote. There is no second
@@ -404,9 +403,8 @@ async fn an_unanswered_question_is_pending_user_input(pool: PgPool) {
         .await
         .unwrap();
 
-    assert_eq!(
-        thread(&pool, &viewer, "t-asking").await["hasPendingUserInput"],
-        false,
+    assert!(
+        thread(&pool, &viewer, "t-asking").await["pendingRuntimeRequest"].is_null(),
         "the question was answered"
     );
 }
@@ -446,8 +444,8 @@ async fn a_question_the_agent_called_past_is_no_longer_pending(pool: PgPool) {
 
     let viewer = viewer("user-1");
     assert_eq!(
-        thread(&pool, &viewer, "t-moved-on").await["hasPendingUserInput"],
-        true
+        thread(&pool, &viewer, "t-moved-on").await["pendingRuntimeRequest"]["kind"],
+        "user_input"
     );
 
     // A later turn that called a tool and said nothing at all — no Message row.
@@ -474,8 +472,8 @@ async fn a_question_the_agent_called_past_is_no_longer_pending(pool: PgPool) {
 
     let thread = thread(&pool, &viewer, "t-moved-on").await;
     assert_decodable_thread(&thread);
-    assert_eq!(
-        thread["hasPendingUserInput"], false,
+    assert!(
+        thread["pendingRuntimeRequest"].is_null(),
         "the question is not on the newest turn that did anything"
     );
 }

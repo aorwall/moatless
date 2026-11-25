@@ -610,6 +610,15 @@ mod tests {
         ) -> Result<(), crate::ports::CommandRefusal> {
             unreachable!("a git action never forks a thread")
         }
+        async fn merge_back(
+            &self,
+            _viewer: &ScopeContext,
+            _source: &str,
+            _target: &str,
+            _through_turn: i32,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!("a git action never merges a fork back")
+        }
         async fn link_pull_request(
             &self,
             _viewer: &ScopeContext,

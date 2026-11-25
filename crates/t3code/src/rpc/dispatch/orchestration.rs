@@ -1,7 +1,6 @@
 //! Methods that read or command the thread listing.
 
 use crate::authentication::viewer_scope;
-use crate::commands;
 use crate::dao::ArchiveCursor;
 use crate::dao::ConversationBrowse;
 use crate::oauth::Scope;
@@ -23,14 +22,9 @@ use serde_json::json;
 use tracing::error;
 use tracing::warn;
 
-/// The thread listing's reads and the V1 command path.
+/// The thread listing's reads.
 pub(super) fn orchestration_methods() -> MethodTable {
     MethodTable::new()
-        .session(
-            "orchestration.dispatchCommand",
-            Scope::OrchestrationOperate,
-            orchestration_dispatch_command,
-        )
         .detached(
             "orchestration.getArchivedShellSnapshot",
             Scope::OrchestrationRead,
@@ -76,49 +70,6 @@ pub(super) struct ThreadBrowseInput {
     owner_user_id: Option<String>,
     tag: Option<String>,
     include_closed: Option<bool>,
-}
-
-/// The one write. A refusal is a typed failure the composer renders, not a
-/// defect: "that action does not exist here" is true, "this server is broken"
-/// is not. The payload stays a `Value` so that a malformed command gets that
-/// refusal from [`commands::dispatch`] rather than a decode Die.
-pub(super) async fn orchestration_dispatch_command(request: Request<Value>) -> Vec<Value> {
-    let Request {
-        id,
-        tag,
-        payload,
-        state,
-        identity,
-        ..
-    } = request;
-    let ctx = commands::CommandContext {
-        conversations: state.reads.conversations(),
-        agents: state.agents.as_ref(),
-        sink: state.commands.as_ref(),
-        skills: state.skills.as_ref(),
-        caller: identity.user_id,
-    };
-    match commands::dispatch(&ctx, &viewer_scope(&identity), &payload).await {
-        Ok(result) => vec![success_exit(&id, result)],
-        Err(refusal) => {
-            // `warn!`, not `debug!`: this is the surface's only write, and at
-            // `RUST_LOG=info` a refused one would otherwise leave nothing behind
-            // at all.
-            warn!(
-                %tag,
-                user_id = %identity.user_id,
-                reason = %refusal.message(),
-                "T3 UI command refused"
-            );
-            vec![typed_failure_exit(
-                &id,
-                json!({
-                    "_tag": "OrchestrationDispatchCommandError",
-                    "message": refusal.message(),
-                }),
-            )]
-        }
-    }
 }
 
 pub(super) async fn orchestration_search_threads(
@@ -182,7 +133,6 @@ pub(super) async fn orchestration_get_archived_shell_snapshot(
         payload,
         state,
         identity,
-        shared,
         ..
     } = request;
     let viewer = viewer_scope(&identity);
@@ -198,15 +148,7 @@ pub(super) async fn orchestration_get_archived_shell_snapshot(
             }
         },
     };
-    match archived_shell_page(
-        &state.reads,
-        &state.model_defaults,
-        &viewer,
-        before,
-        shared.protocol,
-    )
-    .await
-    {
+    match archived_shell_page(&state.reads, &state.model_defaults, &viewer, before).await {
         Ok(snapshot) => vec![success_exit(&id, snapshot)],
         Err(error) => vec![shell_failure_exit(&id, &error, &identity)],
     }
@@ -224,16 +166,13 @@ pub(super) async fn threads_get_shell(request: Request<ThreadShellGetInput>) -> 
         payload: ThreadShellGetInput { thread_id: task_id },
         state,
         identity,
-        shared,
         ..
     } = request;
-    let protocol = shared.protocol;
     match thread_shell(
         &state.reads,
         &state.model_defaults,
         &viewer_scope(&identity),
         &task_id,
-        protocol,
     )
     .await
     {
@@ -257,7 +196,6 @@ pub(super) async fn threads_browse(request: Request<ThreadBrowseInput>) -> Vec<V
         payload,
         state,
         identity,
-        shared,
         ..
     } = request;
     let viewer = viewer_scope(&identity);
@@ -275,15 +213,7 @@ pub(super) async fn threads_browse(request: Request<ThreadBrowseInput>) -> Vec<V
             "threads.browse requires an ownerUserId or a tag",
         )];
     };
-    match browse_snapshot(
-        &state.reads,
-        &state.model_defaults,
-        &viewer,
-        &filter,
-        shared.protocol,
-    )
-    .await
-    {
+    match browse_snapshot(&state.reads, &state.model_defaults, &viewer, &filter).await {
         Ok(threads) => vec![success_exit(&id, threads)],
         Err(error) => vec![shell_failure_exit(&id, &error, &identity)],
     }

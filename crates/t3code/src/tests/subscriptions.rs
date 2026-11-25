@@ -30,31 +30,6 @@ async fn shell_subscription_chunks_snapshot_and_marker_then_waits_for_ack() {
     assert_eq!(session.streams.awaiting_ack("2"), Some(false));
 }
 
-#[test]
-fn thread_initial_values_put_synchronization_after_initial_projection() {
-    let snapshot = json!({
-        "kind": "snapshot",
-        "snapshot": {
-            "snapshotSequence": 0,
-            "thread": {
-                "messages": [{ "text": "Fix the build" }],
-                "activities": [{ "summary": "Thinking" }]
-            }
-        }
-    });
-    let values = thread_initial_values(vec![snapshot.clone()], true);
-    assert_eq!(values, vec![snapshot, json!({ "kind": "synchronized" })]);
-
-    let caught_up = thread_initial_values(Vec::new(), true);
-    assert_eq!(caught_up, vec![json!({ "kind": "synchronized" })]);
-
-    assert_eq!(
-        thread_initial_values(vec![json!({ "kind": "snapshot" })], false),
-        vec![json!({ "kind": "snapshot" })],
-        "the marker is emitted only when T3 requested it"
-    );
-}
-
 /// A resuming client is not sent the listing again; the completion marker alone
 /// arrives, so it stops showing as synchronizing. The stub's position 0 and
 /// empty feed model a client up to date.
@@ -119,12 +94,17 @@ async fn a_thread_subscription_that_cannot_be_opened_fails_rather_than_hangs() {
         )
         .await;
     assert_eq!(output.frames[0]["_tag"], "Exit");
-    assert_eq!(output.frames[0]["exit"]["cause"][0]["_tag"], "Die");
+    let cause = &output.frames[0]["exit"]["cause"][0];
+    assert_eq!(cause["_tag"], "Fail");
+    assert_eq!(
+        cause["error"]["_tag"],
+        "OrchestrationV2GetThreadProjectionError"
+    );
     assert!(!session.streams.contains("6"));
 }
 
-/// The same refusal for a returning client, whose replay is the feed's first
-/// poll: a conversation that did not move is still checked for access.
+/// The same refusal for a returning client: a position does not skip the
+/// access check.
 #[tokio::test]
 async fn a_resumed_thread_subscription_that_cannot_be_opened_fails() {
     let mut session = session();
@@ -140,7 +120,12 @@ async fn a_resumed_thread_subscription_that_cannot_be_opened_fails() {
         )
         .await;
     assert_eq!(output.frames[0]["_tag"], "Exit");
-    assert_eq!(output.frames[0]["exit"]["cause"][0]["_tag"], "Die");
+    let cause = &output.frames[0]["exit"]["cause"][0];
+    assert_eq!(cause["_tag"], "Fail");
+    assert_eq!(
+        cause["error"]["_tag"],
+        "OrchestrationV2GetThreadProjectionError"
+    );
     assert!(!session.streams.contains("6"));
 }
 

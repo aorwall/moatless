@@ -149,10 +149,6 @@ impl WorkspaceSnapshots {
 pub(crate) struct SharedSession {
     pub(crate) config_stream: ConfigStream,
     pub(crate) workspace_snapshots: WorkspaceSnapshots,
-    /// Fixed when the socket opens; see [`UiRpcConfig::protocol_for`].
-    ///
-    /// [`UiRpcConfig::protocol_for`]: crate::config::UiRpcConfig::protocol_for
-    pub(crate) protocol: crate::config::OrchestrationProtocol,
 }
 
 pub(crate) struct ProtocolSession {
@@ -199,11 +195,9 @@ impl ProtocolSession {
         if let Some(refusal) = self.refuse(&id, &tag, method, identity) {
             return Some(answered(span, label, identity, ready(refusal)).await);
         }
-        let Some((method, handler)) = method.and_then(|method| {
-            method
-                .handler(self.shared.protocol)
-                .map(|handler| (method, handler))
-        }) else {
+        let Some((method, handler)) =
+            method.and_then(|method| method.handler().map(|handler| (method, handler)))
+        else {
             let unsupported = vec![unsupported_exit(&id, &tag)];
             return Some(answered(span, label, identity, ready(unsupported)).await);
         };

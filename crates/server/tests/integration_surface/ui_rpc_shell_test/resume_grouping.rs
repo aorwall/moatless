@@ -4,11 +4,11 @@
 //! can group them. A resumed feed reconstructs only the grouping half.
 
 use super::contract::{
-    THREAD_REMOVED_REQUIRED, assert_decodable_snapshot_item, assert_decodable_upsert, assert_keys,
+    THREAD_REMOVED_REQUIRED, assert_decodable_snapshot_item, assert_decodable_update, assert_keys,
 };
 use super::feed::{
-    Held, delivered, ingress, one_item, one_row, other_peoples_work, reconnect, reconnect_v2,
-    recorded_after, start_turn, watching,
+    Held, delivered, ingress, one_item, one_row, other_peoples_work, reconnect, recorded_after,
+    start_turn, watching,
 };
 use super::harness::{head, reads, viewer};
 use super::restore::back_up_and_restore;
@@ -68,9 +68,9 @@ async fn a_resumed_client_watches_the_next_change_as_a_row_not_a_listing(pool: P
         1,
         "the burst on one conversation coalesces into one row, got {items:#?}"
     );
-    assert_decodable_upsert(&items[0]);
+    assert_decodable_update(&items[0]);
     assert_eq!(items[0]["thread"]["id"], "t-live");
-    assert_eq!(items[0]["thread"]["latestTurn"]["state"], "completed");
+    assert_eq!(items[0]["thread"]["status"], "completed");
 }
 
 /// Archiving reaches a resumed client, which is every client — the T3 web app
@@ -105,7 +105,7 @@ async fn archiving_reaches_a_resumed_client_as_the_row_it_archived(pool: PgPool)
         1,
         "archiving is one event on one conversation, got {items:#?}"
     );
-    assert_decodable_upsert(&items[0]);
+    assert_decodable_update(&items[0]);
     assert_eq!(items[0]["thread"]["id"], "t-live");
     assert!(
         !items[0]["thread"]["archivedAt"].is_null(),
@@ -129,7 +129,7 @@ async fn archiving_reaches_a_resumed_client_as_the_row_it_archived(pool: PgPool)
 
     let items = delivered(&pool, &mut feed, &viewer).await;
     assert_eq!(items.len(), 1, "got {items:#?}");
-    assert_decodable_upsert(&items[0]);
+    assert_decodable_update(&items[0]);
     assert_eq!(items[0]["thread"]["archivedAt"], Value::Null);
 }
 
@@ -231,8 +231,8 @@ async fn a_removal_after_a_resume_names_only_ids_that_client_was_sent(pool: PgPo
     );
     let items = delivered(&pool, &mut feed, &watcher_viewer).await;
     assert_eq!(items.len(), 1, "expected one removal, got {items:#?}");
-    assert_keys(&items[0], "thread-removed", THREAD_REMOVED_REQUIRED, &[]);
-    assert_eq!(items[0]["kind"], "thread-removed");
+    assert_keys(&items[0], "thread.removed", THREAD_REMOVED_REQUIRED, &[]);
+    assert_eq!(items[0]["kind"], "thread.removed");
     assert_eq!(items[0]["threadId"], "t-mine");
 }
 
@@ -380,7 +380,7 @@ async fn a_rebuilt_feed_describes_the_listing_it_sent_not_the_one_it_replaced(po
     );
     let items = delivered(&restored.pool, &mut feed, &watcher_viewer).await;
     assert_eq!(items.len(), 1, "expected one removal, got {items:#?}");
-    assert_eq!(items[0]["kind"], "thread-removed");
+    assert_eq!(items[0]["kind"], "thread.removed");
     assert_eq!(items[0]["threadId"], "t-restore-only");
 
     // A project only the rebuild introduced, deleted: the rebuilt feed holds
@@ -414,7 +414,7 @@ async fn a_resumed_v2_client_is_replayed_a_project_created_while_away(pool: PgPo
         .unwrap();
     seed_task(&pool, "t-new", "user-1", Some("ws-new")).await;
 
-    let (values, _feed) = reconnect_v2(&pool, &viewer, Some(held)).await;
+    let (values, _feed) = reconnect(&pool, &viewer, Some(held)).await;
     let kinds: Vec<&str> = values
         .iter()
         .map(|item| item["kind"].as_str().unwrap())
@@ -431,7 +431,7 @@ async fn a_resumed_v2_client_is_replayed_a_project_created_while_away(pool: PgPo
 async fn a_renamed_project_reaches_a_v2_client_once(pool: PgPool) {
     seed_live_project(&pool).await;
     let viewer = viewer("user-1");
-    let (_, mut feed) = reconnect_v2(&pool, &viewer, Some(head(&pool).await.position)).await;
+    let (_, mut feed) = reconnect(&pool, &viewer, Some(head(&pool).await.position)).await;
     let rename = WorkspacePatch {
         name: Some("Renamed".to_string()),
         ..WorkspacePatch::default()

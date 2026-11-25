@@ -1,5 +1,4 @@
 use crate::config::AgentModelDefaults;
-use crate::config::OrchestrationProtocol;
 use crate::dao::ArchiveCursor;
 use crate::dao::Conversation;
 use crate::dao::ConversationBrowse;
@@ -18,28 +17,17 @@ use moatless_types::task::TaskRelationType;
 use serde::Deserialize;
 use serde_json::Value;
 use serde_json::json;
-use tracing::info;
 use tracing::warn;
 
 /// Assemble the shell listing one viewer sees.
 ///
 /// Conversations are followed, readable, and open; a conversation whose
 /// workspace is missing from the viewer's readable set is silently dropped.
+/// `archivedThreads` is always empty: the archive is its own paged listing.
 pub async fn shell_snapshot(
     reads: &T3Reads,
     model_defaults: &AgentModelDefaults,
     viewer: &ScopeContext,
-) -> Result<ShellSnapshot, ListingError> {
-    shell_snapshot_in(reads, model_defaults, viewer, OrchestrationProtocol::V1).await
-}
-
-/// [`shell_snapshot`], in the wire shape `protocol` names. V2's
-/// `archivedThreads` is always empty: the archive is its own paged listing.
-pub(crate) async fn shell_snapshot_in(
-    reads: &T3Reads,
-    model_defaults: &AgentModelDefaults,
-    viewer: &ScopeContext,
-    protocol: OrchestrationProtocol,
 ) -> Result<ShellSnapshot, ListingError> {
     let conversations = reads.conversations();
     let workspaces = reads.workspaces();
@@ -55,18 +43,8 @@ pub(crate) async fn shell_snapshot_in(
     let workspaces = workspaces
         .list_readable_including(viewer, &referenced_workspace_ids)
         .await?;
-    let value = match protocol {
-        OrchestrationProtocol::V1 => {
-            projection::shell_snapshot(&workspaces, &conversations, model_defaults, sequence)
-        }
-        OrchestrationProtocol::V2 => projection::shell_snapshot_v2(
-            &workspaces,
-            &conversations,
-            &[],
-            model_defaults,
-            sequence,
-        ),
-    };
+    let value =
+        projection::shell_snapshot_v2(&workspaces, &conversations, &[], model_defaults, sequence);
     Ok(ShellSnapshot {
         value,
         sequence,
@@ -115,79 +93,39 @@ pub(crate) async fn readable_under_a_project(
 
 /// One conversation's listing row, by id.
 ///
-/// Resolved by access, not Follow, like [`thread_snapshot`]: the two are the
+/// Resolved by access, not Follow, like [`thread_detail_v2`]: the two are the
 /// same conversation at two levels of detail, so they must open together.
 pub async fn thread_shell(
     reads: &T3Reads,
     defaults: &AgentModelDefaults,
     viewer: &ScopeContext,
     task_id: &str,
-    protocol: OrchestrationProtocol,
 ) -> Result<Option<Value>, sqlx::Error> {
     Ok(readable_under_a_project(reads, viewer, task_id)
         .await?
-        .map(|(conversation, project_id)| match protocol {
-            OrchestrationProtocol::V1 => {
-                projection::thread_shell(&conversation, &project_id, defaults)
-            }
-            OrchestrationProtocol::V2 => projection::thread_shell_v2(
+        .map(|(conversation, project_id)| {
+            projection::thread_shell_v2(
                 &conversation,
                 &project_id,
                 defaults,
                 &projection::Lineage::listed(&conversation, &Default::default()),
-            ),
+            )
         }))
 }
 
-/// Assemble one conversation as the thread view carries it.
-///
-/// `Ok(None)` collapses every absence into one answer. Reads the change
-/// position before the rows, like [`shell_snapshot`], to avoid discarding a
-/// live change.
+/// [`thread_detail_v2`]'s snapshot alone, as the thread bootstrap answers it.
 pub async fn thread_snapshot(
     reads: &T3Reads,
     deployment: &Deployment<'_>,
+    relations: &dyn TaskRelationSource,
     viewer: &ScopeContext,
     task_id: &str,
-) -> Result<Option<ThreadSnapshot>, sqlx::Error> {
-    let conversations = reads.conversations();
-    let head = conversations.conversation_head(task_id).await?;
-    let Some((conversation, project_id)) = readable_under_a_project(reads, viewer, task_id).await?
-    else {
-        return Ok(None);
-    };
-    let project_id = project_id.as_str();
-    let transcript = conversations.transcript(task_id).await?;
-    if transcript.omitted > 0 {
-        info!(
-            task_id,
-            omitted = transcript.omitted,
-            "T3 UI thread snapshot left out the oldest messages of a long conversation"
-        );
-    }
-    let thread = projection::thread_detail(
-        &conversation,
-        project_id,
-        deployment.model_defaults,
-        &transcript,
-        &projection::OriginContext {
-            frontend_url: deployment.frontend_url,
-            source_task_names: &source_task_names(conversations, viewer, &transcript).await,
-        },
-    );
-    let checkpointed = thread["checkpoints"]
-        .as_array()
-        .and_then(|checkpoints| checkpoints.last())
-        .and_then(|checkpoint| checkpoint["checkpointTurnCount"].as_i64())
-        .and_then(|turn| i32::try_from(turn).ok());
-    Ok(Some(ThreadSnapshot {
-        value: json!({
-            "snapshotSequence": head.sequence(),
-            "thread": thread
-        }),
-        head,
-        checkpointed,
-    }))
+) -> Result<Option<Value>, sqlx::Error> {
+    Ok(
+        thread_detail_v2(reads, deployment, relations, viewer, task_id)
+            .await?
+            .map(|detail| detail.snapshot),
+    )
 }
 
 /// One conversation as an `OrchestrationV2ThreadDetailSnapshot`, with the
@@ -349,15 +287,6 @@ pub(crate) async fn source_task_names(
     }
 }
 
-/// One conversation as the client receives it, with the position it was built
-/// at — a subscription needs both, since the position is where its feed starts.
-pub struct ThreadSnapshot {
-    pub value: Value,
-    pub head: ConversationHead,
-    /// The newest turn `value` carries a checkpoint for.
-    pub checkpointed: Option<i32>,
-}
-
 /// A shell listing, the position it was read at, and the database it was read
 /// from. Bundled together so a caller can't split them and read the position in
 /// the wrong order relative to the listing.
@@ -426,7 +355,6 @@ pub async fn browse_snapshot(
     defaults: &AgentModelDefaults,
     viewer: &ScopeContext,
     filter: &ConversationBrowse,
-    protocol: OrchestrationProtocol,
 ) -> Result<Value, ListingError> {
     let mut conversations = reads.conversations().list_browsable(viewer, filter).await?;
     let truncated = conversations.len() as i64 > crate::dao::BROWSE_LIMIT;
@@ -435,14 +363,7 @@ pub async fn browse_snapshot(
         .workspaces()
         .list_readable_including(viewer, &[])
         .await?;
-    let threads = match protocol {
-        OrchestrationProtocol::V1 => {
-            projection::listed_threads(&workspaces, &conversations, defaults)
-        }
-        OrchestrationProtocol::V2 => {
-            projection::listed_threads_v2(&workspaces, &conversations, defaults)
-        }
-    };
+    let threads = projection::listed_threads_v2(&workspaces, &conversations, defaults);
     Ok(json!({
         "threads": threads,
         "truncated": truncated,
@@ -456,7 +377,7 @@ pub async fn archived_shell_snapshot(
     defaults: &AgentModelDefaults,
     viewer: &ScopeContext,
 ) -> Result<Value, ListingError> {
-    archived_shell_page(reads, defaults, viewer, None, OrchestrationProtocol::V1).await
+    archived_shell_page(reads, defaults, viewer, None).await
 }
 
 /// One page of closed conversations the viewer follows, newest first.
@@ -469,7 +390,6 @@ pub(crate) async fn archived_shell_page(
     defaults: &AgentModelDefaults,
     viewer: &ScopeContext,
     before: Option<ArchiveCursor>,
-    protocol: OrchestrationProtocol,
 ) -> Result<Value, ListingError> {
     let conversations = reads.conversations();
     let workspaces = reads.workspaces();
@@ -484,14 +404,8 @@ pub(crate) async fn archived_shell_page(
         .last()
         .filter(|_| truncated)
         .map(|last| ArchiveCursor::after(last).encode());
-    let mut snapshot = match protocol {
-        OrchestrationProtocol::V1 => {
-            projection::shell_snapshot(&workspaces, &archived, defaults, sequence)
-        }
-        OrchestrationProtocol::V2 => {
-            projection::archived_shell_snapshot_v2(&workspaces, &archived, defaults, sequence)
-        }
-    };
+    let mut snapshot =
+        projection::archived_shell_snapshot_v2(&workspaces, &archived, defaults, sequence);
     snapshot["nextCursor"] = json!(next_cursor);
     Ok(snapshot)
 }

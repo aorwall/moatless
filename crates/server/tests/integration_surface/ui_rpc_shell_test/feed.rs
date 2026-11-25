@@ -1,12 +1,11 @@
 //! Driving a watching client: opening a feed, making a change, and taking what
 //! it delivered.
 
-use super::contract::{assert_decodable_item, assert_decodable_upsert};
+use super::contract::{assert_decodable_item, assert_decodable_update};
 use super::harness::{defaults, reads};
 use chrono::Utc;
 use moatless_core::change_feed::listing::EnvironmentIdentity;
 use moatless_core::change_feed::listing::record_change;
-use moatless_t3code::OrchestrationProtocol;
 use moatless_t3code::ShellFeed;
 use moatless_t3code::shell_snapshot;
 use moatless_t3code::shell_subscription;
@@ -50,7 +49,7 @@ pub(super) async fn one_row(pool: &PgPool, feed: &mut ShellFeed, viewer: &ScopeC
         1,
         "expected exactly one delivered row, got {items:#?}"
     );
-    assert_decodable_upsert(&items[0]);
+    assert_decodable_update(&items[0]);
     items[0].clone()
 }
 
@@ -118,27 +117,6 @@ pub(super) async fn reconnect(
     reconnect_to(pool, &environment, viewer, after).await
 }
 
-/// [`reconnect`], for a client speaking orchestration V2 — the current web
-/// client.
-pub(super) async fn reconnect_v2(
-    pool: &PgPool,
-    viewer: &ScopeContext,
-    after: Option<i64>,
-) -> (Vec<Value>, ShellFeed) {
-    let environment = reads(pool).listing_head().await.unwrap().identity;
-    let subscription = shell_subscription(
-        &reads(pool),
-        &defaults(),
-        viewer,
-        &environment,
-        after,
-        OrchestrationProtocol::V2,
-    )
-    .await
-    .unwrap();
-    (subscription.values, subscription.feed)
-}
-
 /// The same reconnection, for a deployment that started against `environment`
 /// and is now reading `pool`.
 ///
@@ -150,16 +128,9 @@ pub(super) async fn reconnect_to(
     viewer: &ScopeContext,
     after: Option<i64>,
 ) -> (Vec<Value>, ShellFeed) {
-    let subscription = shell_subscription(
-        &reads(pool),
-        &defaults(),
-        viewer,
-        environment,
-        after,
-        OrchestrationProtocol::V1,
-    )
-    .await
-    .unwrap();
+    let subscription = shell_subscription(&reads(pool), &defaults(), viewer, environment, after)
+        .await
+        .unwrap();
     (subscription.values, subscription.feed)
 }
 
@@ -188,12 +159,11 @@ pub(super) async fn one_item(pool: &PgPool, feed: &mut ShellFeed, viewer: &Scope
     items[0].clone()
 }
 
-/// The ids a client holds after applying everything sent, folded exactly as
-/// `applyShellStreamEvent` does (`shellReducer.ts`); asserting on this says
-/// what is on screen.
+/// The ids a client holds after applying everything sent, folded as the
+/// client's V2 shell reducer does; asserting on this says what is on screen.
 ///
-/// `threads` is the sidebar: an archived conversation is cached but filtered
-/// out by `archivedAt`, and only the sidebar half is what these tests cover.
+/// `threads` is the sidebar: a row sent to the `archive` location leaves it,
+/// and only the sidebar half is what these tests cover.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(super) struct Held {
     pub(super) threads: Vec<String>,
@@ -244,23 +214,20 @@ impl Held {
             }
         };
         match item["kind"].as_str().unwrap() {
-            "thread-upserted" => {
+            "thread.updated" => {
                 let id = item["thread"]["id"].as_str().unwrap();
-                if item["thread"]["archivedAt"].is_null() {
+                if item["location"] == "active" {
                     upsert(&mut self.threads, id);
                 } else {
                     self.threads.retain(|held| held != id);
                 }
             }
-            "thread-removed" => self
+            "thread.removed" => self
                 .threads
                 .retain(|id| id != item["threadId"].as_str().unwrap()),
-            "project-upserted" => {
+            "project.updated" => {
                 upsert(&mut self.projects, item["project"]["id"].as_str().unwrap());
             }
-            "project-removed" => self
-                .projects
-                .retain(|id| id != item["projectId"].as_str().unwrap()),
             _ => unreachable!(),
         }
     }

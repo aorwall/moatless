@@ -13,7 +13,6 @@ use moatless_ports::sandbox::LiveStatus;
 use moatless_ports::sandbox::SandboxError;
 use moatless_ports::sandbox::SandboxPortPublisher;
 use moatless_t3code::AgentModelDefaults;
-use moatless_t3code::OrchestrationProtocol;
 use moatless_t3code::SandboxConnector;
 use moatless_t3code::SandboxIntentReader;
 use moatless_t3code::SandboxObserver;
@@ -172,19 +171,12 @@ impl SandboxPortPublisher for NoSandboxes {
 
 /// The compatibility router as `main` mounts it, past the environment gate.
 pub(super) async fn mounted_router(pool: &PgPool) -> axum::Router {
-    mounted_router_at(pool, 1).await
-}
-
-/// [`mounted_router`] for a deployment serving orchestration
-/// `protocol_version`.
-pub(super) async fn mounted_router_at(pool: &PgPool, protocol_version: u8) -> axum::Router {
     moatless_t3code::mount(
         &moatless_backend::t3code::t3_graph_over(pool),
         mounted_dependencies(pool),
         moatless_types::ui_rpc::T3UiRpcConfig {
             enabled: true,
             allowed_origins: moatless_types::auth::parse_allowed_origins("http://localhost:5733"),
-            orchestration_protocol_version: protocol_version,
             ..Default::default()
         },
     )
@@ -335,15 +327,9 @@ pub(super) async fn thread_shell_row(
     viewer: &ScopeContext,
     id: &str,
 ) -> Option<Value> {
-    thread_shell(
-        &reads(pool),
-        &defaults(),
-        viewer,
-        id,
-        OrchestrationProtocol::V1,
-    )
-    .await
-    .expect("the listing row query failed")
+    thread_shell(&reads(pool), &defaults(), viewer, id)
+        .await
+        .expect("the listing row query failed")
 }
 
 pub(super) async fn thread(pool: &PgPool, viewer: &ScopeContext, id: &str) -> Value {

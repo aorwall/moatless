@@ -33,10 +33,6 @@ pub(crate) struct UiRpcConfig {
     /// Reported as `capabilities.usageLimitSources`, which the client reads
     /// before it will accept the event at all.
     pub(crate) usage_limit_sources: bool,
-    /// `1` serves today's surface unchanged; `2` serves the orchestration V2
-    /// methods and reports `orchestrationProtocolVersion: 2` on the descriptor.
-    /// See [`UiRpcConfig::serves_orchestration_v2`].
-    pub(crate) orchestration_protocol_version: u8,
     /// See [`moatless_types::ui_rpc::T3UiRpcConfig::scratch_workspace`] and
     /// [`crate::scratch`].
     pub(crate) scratch_workspace: Option<String>,
@@ -98,36 +94,4 @@ impl UiRpcConfig {
         }
         Ok(())
     }
-
-    /// Whether this deployment serves the orchestration V2 surface at all.
-    pub(crate) fn serves_orchestration_v2(&self) -> bool {
-        self.orchestration_protocol_version >= 2
-    }
-
-    /// The protocol one connection or request is answered in: V2 only where
-    /// the deployment serves it and the client asked for it, so a V1 client
-    /// keeps working against a deployment that has V2 turned on.
-    pub(crate) fn protocol_for(&self, requested: Option<&str>) -> OrchestrationProtocol {
-        if self.serves_orchestration_v2() && requested.map(str::trim) == Some("2") {
-            OrchestrationProtocol::V2
-        } else {
-            OrchestrationProtocol::V1
-        }
-    }
 }
-
-/// Which orchestration wire protocol a connection speaks. The client names it
-/// with `?orchestrationProtocol=` on `/ws` and the
-/// [`ORCHESTRATION_PROTOCOL_HEADER`] on HTTP snapshot reads.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum OrchestrationProtocol {
-    #[default]
-    V1,
-    V2,
-}
-
-/// The header a V2 client sends on its HTTP snapshot reads.
-pub(crate) const ORCHESTRATION_PROTOCOL_HEADER: &str = "x-t3-orchestration-protocol";
-
-/// The `/ws` query parameter a V2 client names its protocol with.
-pub(crate) const ORCHESTRATION_PROTOCOL_QUERY_PARAM: &str = "orchestrationProtocol";

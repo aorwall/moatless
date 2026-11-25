@@ -3,7 +3,6 @@
 
 use super::fixtures::*;
 use super::*;
-use crate::config::OrchestrationProtocol;
 use crate::rpc::table::Handler;
 use crate::rpc::table::MethodTable;
 use crate::rpc::table::Request;
@@ -14,21 +13,10 @@ use std::sync::Mutex;
 struct RoutedMethod {
     tag: &'static str,
     scope: &'static str,
-    v1: &'static str,
-    v2: &'static str,
-    v2_handler: &'static str,
+    mode: &'static str,
 }
 
-impl RoutedMethod {
-    fn mode(&self, protocol: OrchestrationProtocol) -> &'static str {
-        match protocol {
-            OrchestrationProtocol::V1 => self.v1,
-            OrchestrationProtocol::V2 => self.v2,
-        }
-    }
-}
-
-const MODES: [&str; 5] = ["detached", "session", "stream", "unsupported", "declared"];
+const MODES: [&str; 4] = ["detached", "session", "stream", "declared"];
 
 fn routed_methods() -> Vec<RoutedMethod> {
     include_str!("methods.tsv")
@@ -36,63 +24,43 @@ fn routed_methods() -> Vec<RoutedMethod> {
         .filter(|line| !line.starts_with('#'))
         .map(|line| {
             let columns: Vec<&'static str> = line.split('\t').collect();
-            let [tag, scope, v1, v2, v2_handler] = columns[..] else {
+            let [tag, scope, mode] = columns[..] else {
                 panic!("methods.tsv row has the wrong column count: {line}");
             };
-            assert!(
-                MODES.contains(&v1) && MODES.contains(&v2),
-                "methods.tsv mode: {line}"
-            );
-            assert!(
-                ["own", "same", "-"].contains(&v2_handler),
-                "methods.tsv v2_handler: {line}"
-            );
-            RoutedMethod {
-                tag,
-                scope,
-                v1,
-                v2,
-                v2_handler,
-            }
+            assert!(MODES.contains(&mode), "methods.tsv mode: {line}");
+            RoutedMethod { tag, scope, mode }
         })
         .collect()
 }
 
-/// A tag with no handler in one protocol is refused for its scope when this
-/// deployment withholds it, and is a typed absence otherwise.
+/// A declared tag is refused for its scope when this deployment withholds it,
+/// and is a typed absence otherwise.
 #[tokio::test]
-async fn a_tag_without_a_handler_answers_for_its_scope_or_its_absence() {
+async fn a_declared_tag_answers_for_its_scope_or_its_absence() {
     let state = state();
     for method in routed_methods() {
-        for protocol in [OrchestrationProtocol::V1, OrchestrationProtocol::V2] {
-            if !matches!(method.mode(protocol), "unsupported" | "declared") {
-                continue;
-            }
-            let mut session = session();
-            session.shared.protocol = protocol;
-            let output = session
-                .handle_json(&request("1", method.tag, json!({})), &state, &viewer())
-                .await;
-            let error = &output.frames[0]["exit"]["cause"][0]["error"];
-            let scope = methods()
-                .get(method.tag)
-                .expect("every row is in the table")
-                .scope;
-            if scope.is_granted() {
-                assert_eq!(
-                    error["_tag"], "UnsupportedMethodError",
-                    "{} {protocol:?}",
-                    method.tag
-                );
-                assert_eq!(error["method"], method.tag);
-            } else {
-                assert_eq!(
-                    error["_tag"], "EnvironmentAuthorizationError",
-                    "{} {protocol:?}",
-                    method.tag
-                );
-                assert_eq!(error["requiredScope"], method.scope);
-            }
+        if method.mode != "declared" {
+            continue;
+        }
+        let mut session = session();
+        let output = session
+            .handle_json(&request("1", method.tag, json!({})), &state, &viewer())
+            .await;
+        let error = &output.frames[0]["exit"]["cause"][0]["error"];
+        let scope = methods()
+            .get(method.tag)
+            .expect("every row is in the table")
+            .scope;
+        if scope.is_granted() {
+            assert_eq!(error["_tag"], "UnsupportedMethodError", "{}", method.tag);
+            assert_eq!(error["method"], method.tag);
+        } else {
+            assert_eq!(
+                error["_tag"], "EnvironmentAuthorizationError",
+                "{}",
+                method.tag
+            );
+            assert_eq!(error["requiredScope"], method.scope);
         }
     }
 }
@@ -110,21 +78,8 @@ fn the_table_routes_exactly_the_snapshotted_set() {
     for row in snapshot {
         let method = methods().get(row.tag).expect("every row is in the table");
         assert_eq!(method.scope.as_str(), row.scope, "{}", row.tag);
-        for protocol in [OrchestrationProtocol::V1, OrchestrationProtocol::V2] {
-            let mode = method
-                .handler(protocol)
-                .map_or("unsupported", Handler::mode);
-            let recorded = match row.mode(protocol) {
-                "declared" => "unsupported",
-                recorded => recorded,
-            };
-            assert_eq!(mode, recorded, "{} {protocol:?}", row.tag);
-        }
-        match row.v2_handler {
-            "own" => assert!(method.v2_is_own(), "{}", row.tag),
-            "same" => assert!(!method.v2_is_own(), "{}", row.tag),
-            _ => {}
-        }
+        let mode = method.handler().map_or("declared", Handler::mode);
+        assert_eq!(mode, row.mode, "{}", row.tag);
     }
 }
 

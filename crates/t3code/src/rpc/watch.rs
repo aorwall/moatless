@@ -16,12 +16,9 @@ use crate::subscription;
 use crate::subscription::StreamFailure;
 use crate::subscription::StreamResult;
 use crate::subscriptions::SHELL_POLL_INTERVAL;
-use crate::subscriptions::THREAD_ACCESS_RECHECK_INTERVAL;
 use crate::subscriptions::THREAD_POLL_INTERVAL;
 use crate::subscriptions::VCS_STATUS_POLL_INTERVAL;
-use crate::subscriptions::poll_thread;
 use feed::ShellFeed;
-use feed::ThreadFeed;
 use moatless_core::change_feed::conversation::ConversationHead;
 use moatless_core::change_feed::listing::ListingHead;
 use moatless_types::access_control::ScopeContext;
@@ -134,71 +131,6 @@ pub(crate) async fn watch_shell(
     }
 }
 
-/// Mirrors [`watch_shell`] over the conversation's own change log, polling
-/// when the conversation or its listing row moves.
-///
-/// A poll can also answer `None` — the conversation is no longer readable
-/// (deleted, unfollowed, ungrouped) — and the subscription ends rather than
-/// idling on a stale snapshot.
-pub(crate) async fn watch_thread(
-    sink: subscription::StreamSink,
-    mut feed: ThreadFeed,
-    reads: T3Reads,
-    frontend_url: Arc<str>,
-    model_defaults: Arc<AgentModelDefaults>,
-    viewer: ScopeContext,
-    mut signals: watch::Receiver<Option<ThreadSignal>>,
-) -> StreamResult {
-    let _open = OpenThreadSubscription::count();
-    let deployment = Deployment {
-        model_defaults: &model_defaults,
-        frontend_url: &frontend_url,
-    };
-    let mut seen: Option<ThreadSignal> = None;
-    loop {
-        // Polled on the timeout too: access can end without a listing change,
-        // as when a Workspace membership does.
-        let changed = next_change(&mut signals, seen.as_ref(), |_| true);
-        let signal = match tokio::time::timeout(THREAD_ACCESS_RECHECK_INTERVAL, changed).await {
-            Ok(Some(signal)) => Some(signal),
-            Ok(None) => return Ok(()),
-            Err(_elapsed) => seen,
-        };
-        let polled = poll_thread(&mut feed, &reads, &deployment, &viewer);
-        let polled = reads.poll_gate().run(polled).await;
-        let values = match polled {
-            Ok(Some(values)) => values,
-            Ok(None) => {
-                return Err(StreamFailure::message("Conversation not found"));
-            }
-            Err(error) => {
-                // As in `watch_shell`: a failed poll leaves the cursor and
-                // `seen` where they were, so the next one covers the same
-                // ground and the subscription survives a transient database
-                // error.
-                warn!(
-                    %error,
-                    user_id = %viewer.user_id,
-                    "Failed to poll the T3 UI conversation"
-                );
-                tokio::time::sleep(THREAD_POLL_INTERVAL).await;
-                continue;
-            }
-        };
-        // A filled batch leaves the feed short of the head it was woken for.
-        // Forgetting `seen` makes the next pass read the rest one interval
-        // from now, rather than at the next move or access recheck.
-        let behind = signal.is_some_and(|signal| feed.is_behind(signal.head));
-        seen = if behind { None } else { signal };
-        if !values.is_empty() && !sink.send_values(values).await {
-            return Ok(());
-        }
-        if behind {
-            tokio::time::sleep(THREAD_POLL_INTERVAL).await;
-        }
-    }
-}
-
 /// What a V2 thread subscription re-reads on each pass.
 pub(crate) struct WatchedThreadV2 {
     pub(crate) reads: T3Reads,
@@ -223,8 +155,8 @@ pub(crate) fn thread_snapshot_item(detail: &mut ThreadDetailV2, shape: SnapshotS
     detail.take_shaped(json!({ "kind": "snapshot" }), shape)
 }
 
-/// Mirrors [`watch_thread`], answering every move of the conversation's head
-/// with the whole projection rather than the events between.
+/// Answers every move of the conversation's head with the whole projection
+/// rather than the events between.
 pub(crate) async fn watch_thread_v2(
     sink: subscription::StreamSink,
     mut watched: WatchedThreadV2,
@@ -254,8 +186,8 @@ pub(crate) async fn watch_thread_v2(
             Ok(Some(detail)) => detail,
             Ok(None) => return Err(StreamFailure::message("Conversation not found")),
             Err(error) => {
-                // As in `watch_thread`: the head is not advanced, so the next
-                // pass rebuilds the same snapshot.
+                // The head is not advanced, so the next pass rebuilds the
+                // same snapshot.
                 warn!(%error, user_id = %watched.viewer.user_id, "Failed to assemble the T3 UI conversation");
                 tokio::time::sleep(THREAD_POLL_INTERVAL).await;
                 continue;

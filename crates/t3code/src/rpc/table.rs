@@ -1,10 +1,9 @@
-//! The one table naming every method this surface answers: its scope, where it
-//! runs, and which protocol answers it.
+//! The one table naming every method this surface answers: its scope and
+//! where it runs.
 //!
 //! [`crate::rpc::dispatch::methods`] merges each `dispatch/*.rs` group into the
 //! table a connection answers from.
 
-use crate::config::OrchestrationProtocol;
 use crate::oauth::Scope;
 use crate::rpc::envelope::RequestId;
 use crate::rpc::envelope::failure_exit;
@@ -128,72 +127,31 @@ where
     open
 }
 
-/// What one group registered for a method.
-enum Registration {
-    Answered(Handler),
-    /// Answers `UnsupportedMethodError` once the scope check passes.
-    Declared,
-}
-
 /// One method's entry.
 pub(crate) struct Method {
     pub(crate) tag: &'static str,
     pub(crate) scope: Scope,
-    /// Registered by a [`MethodTable::new`] group: answers both protocols.
-    any: Option<Registration>,
-    /// Registered by a [`MethodTable::v2`] group: replaces `any` on a V2
-    /// connection.
-    v2: Option<Registration>,
+    /// `None` for a method the contract declares and this surface does not
+    /// answer: see [`MethodTable::declared`].
+    handler: Option<Handler>,
 }
 
 impl Method {
-    /// What answers this method on a connection speaking `protocol`.
-    pub(crate) fn handler(&self, protocol: OrchestrationProtocol) -> Option<&Handler> {
-        let registered = match protocol {
-            OrchestrationProtocol::V1 => self.any.as_ref(),
-            OrchestrationProtocol::V2 => self.v2.as_ref().or(self.any.as_ref()),
-        };
-        match registered {
-            Some(Registration::Answered(handler)) => Some(handler),
-            Some(Registration::Declared) | None => None,
-        }
+    /// What answers this method, if anything does.
+    pub(crate) fn handler(&self) -> Option<&Handler> {
+        self.handler.as_ref()
     }
-
-    /// Whether a V2 connection is answered by its own registration.
-    #[cfg(test)]
-    pub(crate) fn v2_is_own(&self) -> bool {
-        self.v2.is_some()
-    }
-}
-
-/// Which protocol a group's registrations answer.
-#[derive(Clone, Copy)]
-enum Since {
-    Any,
-    V2,
 }
 
 /// Methods by tag, built one group at a time.
 pub(crate) struct MethodTable {
-    since: Since,
     methods: BTreeMap<&'static str, Method>,
 }
 
 impl MethodTable {
-    /// A group whose methods answer both protocols.
     pub(crate) fn new() -> Self {
         Self {
-            since: Since::Any,
             methods: BTreeMap::new(),
-        }
-    }
-
-    /// A group whose methods answer a V2 connection only, replacing a
-    /// [`Self::new`] group's registration of the same tag there.
-    pub(crate) fn v2() -> Self {
-        Self {
-            since: Since::V2,
-            ..Self::new()
         }
     }
 
@@ -203,14 +161,7 @@ impl MethodTable {
         F: Fn(Request<P>) -> A + Send + Sync + 'static,
         A: Future<Output = Vec<Value>> + Send + 'static,
     {
-        let respond = decoded(handler);
-        let since = self.since;
-        self.register(
-            tag,
-            scope,
-            since,
-            Registration::Answered(Handler::Detached(respond)),
-        )
+        self.register(tag, scope, Some(Handler::Detached(decoded(handler))))
     }
 
     pub(crate) fn session<P, F, A>(self, tag: &'static str, scope: Scope, handler: F) -> Self
@@ -219,14 +170,7 @@ impl MethodTable {
         F: Fn(Request<P>) -> A + Send + Sync + 'static,
         A: Future<Output = Vec<Value>> + Send + 'static,
     {
-        let respond = decoded(handler);
-        let since = self.since;
-        self.register(
-            tag,
-            scope,
-            since,
-            Registration::Answered(Handler::Session(respond)),
-        )
+        self.register(tag, scope, Some(Handler::Session(decoded(handler))))
     }
 
     pub(crate) fn stream<P: DeserializeOwned + 'static>(
@@ -239,64 +183,38 @@ impl MethodTable {
             Ok(request) => handler(session, request),
             Err(died) => Box::pin(std::future::ready(died)),
         }));
-        let since = self.since;
-        self.register(
-            tag,
-            scope,
-            since,
-            Registration::Answered(Handler::Stream(open)),
-        )
+        self.register(tag, scope, Some(Handler::Stream(open)))
     }
 
-    /// A method the contract declares and this group does not answer.
+    /// A method the contract declares and this surface does not answer.
     ///
     /// Registered for its scope, so a withheld surface is refused for the scope
     /// rather than told it does not exist; only the first is actionable.
     pub(crate) fn declared(self, tag: &'static str, scope: Scope) -> Self {
-        let since = self.since;
-        self.register(tag, scope, since, Registration::Declared)
+        self.register(tag, scope, None)
     }
 
     /// Add every registration of `group`.
     ///
-    /// Panics on a tag two groups register for the same protocol, or register
-    /// under two scopes: either is a table that cannot say what answers it.
+    /// Panics on a tag two groups both register: that is a table that cannot
+    /// say what answers it.
     pub(crate) fn merge(mut self, group: MethodTable) -> Self {
         for (tag, method) in group.methods {
-            if let Some(any) = method.any {
-                self = self.register(tag, method.scope, Since::Any, any);
-            }
-            if let Some(v2) = method.v2 {
-                self = self.register(tag, method.scope, Since::V2, v2);
-            }
+            self = self.register(tag, method.scope, method.handler);
         }
         self
     }
 
-    fn register(
-        mut self,
-        tag: &'static str,
-        scope: Scope,
-        since: Since,
-        registration: Registration,
-    ) -> Self {
-        let method = self.methods.entry(tag).or_insert(Method {
+    fn register(mut self, tag: &'static str, scope: Scope, handler: Option<Handler>) -> Self {
+        let previous = self.methods.insert(
             tag,
-            scope,
-            any: None,
-            v2: None,
-        });
-        assert!(
-            method.scope == scope,
-            "{tag} is registered under {} and {scope}",
-            method.scope
+            Method {
+                tag,
+                scope,
+                handler,
+            },
         );
-        let slot = match since {
-            Since::Any => &mut method.any,
-            Since::V2 => &mut method.v2,
-        };
-        assert!(slot.is_none(), "{tag} is registered twice");
-        *slot = Some(registration);
+        assert!(previous.is_none(), "{tag} is registered twice");
         self
     }
 
@@ -320,45 +238,9 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "registered twice")]
-    fn two_groups_answering_one_tag_for_the_same_protocol_are_refused() {
+    fn two_groups_registering_one_tag_are_refused() {
         let _ = MethodTable::new()
             .session("server.probe", Scope::OrchestrationRead, answer)
-            .merge(MethodTable::new().detached("server.probe", Scope::OrchestrationRead, answer));
-    }
-
-    #[test]
-    #[should_panic(expected = "registered under")]
-    fn one_tag_under_two_scopes_is_refused() {
-        let _ = MethodTable::new()
-            .session("vcs.switchRef", Scope::OrchestrationOperate, answer)
-            .merge(MethodTable::v2().declared("vcs.switchRef", Scope::OrchestrationRead));
-    }
-
-    /// A V2 registration replaces the shared one on V2 only, and a V2-only
-    /// tag is absent on V1.
-    #[test]
-    fn a_v2_group_answers_v2_connections_only() {
-        let table = MethodTable::new()
-            .session("test.replay", Scope::OrchestrationRead, answer)
-            .merge(
-                MethodTable::v2()
-                    .declared("test.replay", Scope::OrchestrationRead)
-                    .detached(
-                        "orchestration.getTurnItem",
-                        Scope::OrchestrationRead,
-                        answer,
-                    ),
-            );
-        let replay = table.get("test.replay").expect("registered");
-        assert!(replay.handler(OrchestrationProtocol::V1).is_some());
-        assert!(replay.handler(OrchestrationProtocol::V2).is_none());
-        let turn_item = table.get("orchestration.getTurnItem").expect("registered");
-        assert!(turn_item.handler(OrchestrationProtocol::V1).is_none());
-        assert_eq!(
-            turn_item
-                .handler(OrchestrationProtocol::V2)
-                .map(Handler::mode),
-            Some("detached")
-        );
+            .merge(MethodTable::new().declared("server.probe", Scope::OrchestrationRead));
     }
 }

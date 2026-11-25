@@ -4,6 +4,7 @@
 //! shows moving, and the two directions ticket 04 could not express: a row
 //! *entering* a listing, and a row *leaving* one.
 
+use super::contract::assert_decodable_item;
 use super::feed::{Held, delivered, one_item, one_row, recorded_after, watcher, watching};
 use super::harness::{head, project, reads, thread_shell_row, viewer};
 use super::seeding::{
@@ -62,7 +63,7 @@ async fn following_a_conversation_makes_it_appear_and_unfollowing_removes_it(poo
 
     unfollow(&pool, "user-1", "t-live").await;
     let item = one_item(&pool, &mut feed, &viewer).await;
-    assert_eq!(item["kind"], "thread-removed");
+    assert_eq!(item["kind"], "thread.removed");
     assert_eq!(item["threadId"], "t-live");
     held.apply(&item);
     assert!(held.threads.is_empty(), "unfollowing takes it off again");
@@ -132,7 +133,7 @@ async fn deleting_a_conversation_removes_it_from_a_watching_client(pool: PgPool)
     );
 
     let item = one_item(&pool, &mut feed, &viewer).await;
-    assert_eq!(item["kind"], "thread-removed");
+    assert_eq!(item["kind"], "thread.removed");
     assert_eq!(item["threadId"], "t-live");
     held.apply(&item);
     assert!(held.threads.is_empty());
@@ -165,6 +166,7 @@ async fn closing_a_conversation_removes_it_from_a_watching_client(pool: PgPool) 
 
     let item = one_row(&pool, &mut feed, &viewer).await;
     assert_eq!(item["thread"]["id"], "t-live");
+    assert_eq!(item["location"], "archive");
     assert!(!item["thread"]["archivedAt"].is_null());
     held.apply(&item);
     assert!(held.threads.is_empty());
@@ -221,7 +223,7 @@ async fn a_conversation_that_stops_being_readable_is_removed(pool: PgPool) {
     .unwrap();
 
     let item = one_item(&pool, &mut feed, &watcher_viewer).await;
-    assert_eq!(item["kind"], "thread-removed");
+    assert_eq!(item["kind"], "thread.removed");
     assert_eq!(item["threadId"], "t-shared");
     held.apply(&item);
     assert!(held.threads.is_empty());
@@ -241,8 +243,8 @@ async fn every_remaining_change_kind_moves_the_row(pool: PgPool) {
     let viewer = viewer("user-1");
     let owner = viewer.clone();
 
-    // Each case: what a person did, and what the delivered row must say
-    // afterwards. `None` asserts only that the row was delivered — the tag set
+    // Each case: what a person did, and the JSON pointer into the delivered row
+    // with the value it must hold afterwards. `None` asserts only that the row was delivered — the tag set
     // and the expiry are not values the shell row carries, and a change to them
     // still has to move the conversation in the sidebar.
     #[allow(clippy::type_complexity)]
@@ -264,7 +266,7 @@ async fn every_remaining_change_kind_moves_the_row(pool: PgPool) {
                         .unwrap();
                 })
             },
-            Some(("title", json!("a new name"))),
+            Some(("/title", json!("a new name"))),
         ),
         (
             "described",
@@ -340,9 +342,8 @@ async fn every_remaining_change_kind_moves_the_row(pool: PgPool) {
                     .await;
                 })
             },
-            // The activity timestamp T3 orders the sidebar by. It was null on
-            // a conversation nobody had written to yet.
-            Some(("hasPendingUserInput", json!(false))),
+            // A person writing leaves nothing waiting on them.
+            Some(("/pendingRuntimeRequest", Value::Null)),
         ),
         (
             "asked a question",
@@ -362,7 +363,7 @@ async fn every_remaining_change_kind_moves_the_row(pool: PgPool) {
                     .await;
                 })
             },
-            Some(("hasPendingUserInput", json!(true))),
+            Some(("/pendingRuntimeRequest/kind", json!("user_input"))),
         ),
     ];
 
@@ -388,7 +389,8 @@ async fn every_remaining_change_kind_moves_the_row(pool: PgPool) {
         );
         if let Some((key, value)) = expected {
             assert_eq!(
-                event["thread"][key], *value,
+                event["thread"].pointer(key),
+                Some(value),
                 "a conversation `{what}` delivered a row whose `{key}` had not moved"
             );
         }
@@ -430,7 +432,7 @@ async fn writing_to_a_conversation_the_author_did_not_follow_adds_the_row(pool: 
 
     let items = held.poll(&pool, &mut feed, &author).await;
     assert_eq!(items.len(), 1, "one row, carrying both changes: {items:#?}");
-    assert_eq!(items[0]["kind"], "thread-upserted");
+    assert_eq!(items[0]["kind"], "thread.updated");
     assert_eq!(held.threads, ["t-theirs"]);
     assert_eq!(
         items[0]["thread"]["projectId"], "ws-shared",
@@ -446,7 +448,7 @@ async fn writing_to_a_conversation_the_author_did_not_follow_adds_the_row(pool: 
 /// delta.
 ///
 /// Two events at one position collapse into one, so the feed sends the listing
-/// whole instead of a bare `thread-upserted` a real client would silently drop.
+/// whole instead of a bare `thread.updated` a real client would silently drop.
 #[sqlx::test]
 async fn a_conversation_entering_a_project_the_client_lacks_arrives_as_a_listing(pool: PgPool) {
     seed_workspaces(&pool).await;
@@ -546,9 +548,9 @@ async fn a_long_agent_turn_does_not_reorder_the_sidebar(pool: PgPool) {
 // Projects
 // -------------------------------------------------------------------------
 
-/// A V1 client has no project item, so a rename reaches it as the listing.
+/// A rename reaches a watching client as the one project, not the listing.
 #[sqlx::test]
-async fn renaming_a_project_sends_a_v1_client_the_listing(pool: PgPool) {
+async fn renaming_a_project_sends_the_project(pool: PgPool) {
     seed_live_project(&pool).await;
     seed_task(&pool, "t-live", "user-1", Some("ws-live")).await;
 
@@ -574,12 +576,10 @@ async fn renaming_a_project_sends_a_v1_client_the_listing(pool: PgPool) {
 
     assert_eq!(recorded_after(&pool, watched_from).await, 1);
     let items = delivered(&pool, &mut feed, &viewer).await;
-    assert_eq!(items.len(), 1, "expected one rebuild, got {items:#?}");
-    assert_eq!(items[0]["kind"], "snapshot");
-    assert_eq!(
-        items[0]["snapshot"]["projects"][0]["title"],
-        "Renamed project"
-    );
+    assert_eq!(items.len(), 1, "expected one project, got {items:#?}");
+    assert_decodable_item(&items[0]);
+    assert_eq!(items[0]["kind"], "project.updated");
+    assert_eq!(items[0]["project"]["title"], "Renamed project");
 
     // Durable, not just delivered: a client opening a fresh subscription reads
     // the same title out of the database.

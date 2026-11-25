@@ -205,26 +205,25 @@ fn an_overlong_name_is_cut_to_what_the_contract_takes() {
     assert!(long.starts_with(name));
 }
 
-/// A Message with no uploads is byte-identical to one projected before this
-/// surface read them — `attachments` is an optional key, and an empty array is
-/// not the same as its absence.
+/// `attachments` is required on a V2 message, so one with no uploads carries
+/// an empty array rather than leaving the key out.
 #[test]
-fn a_message_without_uploads_carries_no_attachments_key() {
-    let thread = detail(&transcript(
+fn a_message_without_uploads_carries_an_empty_attachments_array() {
+    let projection = detail(&transcript(
         vec![message(1, MessageType::User, "no files here")],
         Vec::new(),
     ));
-    let bubble = &thread["messages"][0];
+    let bubble = &projection["messages"][0];
 
     assert_eq!(bubble["role"], "user");
-    assert!(bubble.get("attachments").is_none());
+    assert_eq!(bubble["attachments"], json!([]));
 }
 
 /// Only the person attaches things. An assistant row carrying uploads would be
 /// the agent claiming the person sent them.
 #[test]
 fn only_a_user_bubble_carries_attachments() {
-    let thread = detail(&transcript(
+    let projection = detail(&transcript(
         vec![
             with_files(
                 message(1, MessageType::User, "look at this"),
@@ -237,8 +236,10 @@ fn only_a_user_bubble_carries_attachments() {
         ],
         Vec::new(),
     ));
-    let messages = thread["messages"].as_array().unwrap();
+    let messages = projection["messages"].as_array().unwrap();
 
+    assert_eq!(messages[0]["role"], "user");
     assert_eq!(messages[0]["attachments"].as_array().unwrap().len(), 1);
-    assert!(messages[1].get("attachments").is_none());
+    assert_eq!(messages[1]["role"], "assistant");
+    assert_eq!(messages[1]["attachments"], json!([]));
 }

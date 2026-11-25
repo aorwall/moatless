@@ -153,7 +153,7 @@ async fn read(
     // A narrowed read is a key lookup whatever the ids, so it takes the cached
     // generic plan. Under `auto` Postgres never switches to one for this
     // statement and plans its ~25 relations on every call, 5-400 ms against
-    // ~1 ms to execute, once a second per open thread via `ThreadFeed::poll`.
+    // ~1 ms to execute, on every move of every open thread.
     let (setting, value) = match task_ids {
         Some(_) => ("plan_cache_mode", "force_generic_plan"),
         None => ("statement_timeout", FULL_LISTING_STATEMENT_TIMEOUT),

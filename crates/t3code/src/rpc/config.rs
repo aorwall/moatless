@@ -49,7 +49,12 @@ pub(crate) fn descriptor(config: &UiRpcConfig) -> Value {
             "arch": platform_arch()
         },
         "serverVersion": T3_CLIENT_CONTRACT_VERSION,
+        // A client that reads no key here assumes protocol 1, which this
+        // server does not speak, and refuses to connect.
+        "orchestrationProtocolVersion": 2,
         "capabilities": {
+            // `message.dispatch` may omit the model and runtime context.
+            "serverResolvedCommandContext": true,
             "sideChats": true,
             "repositoryIdentity": false,
             "connectionProbe": true,
@@ -183,18 +188,6 @@ pub(crate) fn descriptor(config: &UiRpcConfig) -> Value {
         }
     }
 
-    // `optionalKey` in the contract, so a V1 deployment omits it rather than
-    // sending `1`: a client that reads no key at all falls back to V1 the same
-    // way one that predates negotiation entirely does.
-    if config.serves_orchestration_v2() {
-        descriptor["orchestrationProtocolVersion"] = json!(2);
-        // Whether `message.dispatch` may omit the model and runtime context:
-        // a V2 client that reads this sends the server-resolved dispatch modes.
-        if let Some(capabilities) = descriptor["capabilities"].as_object_mut() {
-            capabilities.insert("serverResolvedCommandContext".into(), json!(true));
-        }
-    }
-
     descriptor
 }
 
@@ -284,15 +277,11 @@ pub(crate) async fn server_config(
         "observability": observability,
         "settings": crate::server_settings::viewer_settings(state, identity).await,
         "shellResumeCompletionMarker": true,
-        "threadResumeCompletionMarker": true
+        "threadResumeCompletionMarker": true,
+        "threadFind": true,
+        "threadFindProgressive": true,
+        "threadLinkMetadata": true
     });
-    // `optionalKey`, and only V2 answers the methods behind them
-    // (`thread_reads`), so a V1 deployment leaves them out.
-    if state.rpc.serves_orchestration_v2() {
-        config["threadFind"] = json!(true);
-        config["threadFindProgressive"] = json!(true);
-        config["threadLinkMetadata"] = json!(true);
-    }
     // `optionalKey`: absent, the client offers no way to start a thread
     // without a project.
     if let Some(workspace_id) = scratch::scratch_workspace(

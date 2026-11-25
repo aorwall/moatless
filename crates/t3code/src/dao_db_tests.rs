@@ -1,27 +1,16 @@
-//! What a batch of conversation changes is read as: a change names the row it
-//! is about, and for an agent's own writes the named rows are complete.
-//!
-//! The `tool_result` case: it arrives on its own Message but settles the
-//! *call*'s activity on an earlier row, and the change is recorded against the
-//! calling Message. A person's answer does not: it lands on a Message of its
-//! own, so `changed_messages` recovers the call it settles.
-//!
-//! Held against a real database: a property of `append_activities` and
-//! `changed_messages` together.
+//! The conversation read model held against a real database: what the write
+//! path stores, and what `PgConversationDao` and the archive page read back.
 
 use crate::dao::{ConversationDao, PgConversationDao};
 use moatless_api_schemas::task::{FileContextData, MessageContextInput, PreviewUrlContextData};
 use moatless_core::change_feed::conversation::ConversationHead;
 use moatless_core::change_feed::conversation::changes_from;
 use moatless_core::change_feed::conversation::current_head;
+use moatless_tasks::activities::mapping::ActivityKind;
 use moatless_tasks::activities::mapping::BlockContext;
 use moatless_tasks::activities::mapping::ConversationWrite;
-use moatless_tasks::activities::mapping::ToolOutcome;
-use moatless_tasks::activities::mapping::context_window_updated;
 use moatless_tasks::activities::mapping::map_content;
 use moatless_tasks::activities::mapping::sandbox_activity;
-use moatless_tasks::activities::mapping::user_input_resolved;
-use moatless_tasks::activities::mapping::{ActivityKind, ActivityStatus};
 use moatless_tasks::message::contexts::message_context_input_to_row;
 use moatless_tasks::message::models::MessageType;
 use moatless_tasks::message::test_support as message_fixtures;
@@ -87,114 +76,6 @@ async fn append(pool: &PgPool, uuid: &str, content: serde_json::Value) -> i32 {
 
 fn tool_use(id: &str) -> serde_json::Value {
     serde_json::json!([{ "type": "tool_use", "id": id, "name": "Bash", "input": {} }])
-}
-
-fn tool_result(id: &str) -> serde_json::Value {
-    serde_json::json!([{ "type": "tool_result", "tool_use_id": id, "content": "ok" }])
-}
-
-/// A result reaches the reader as a change to the row it answers.
-///
-/// No text of its own; it settles the call's activity and names the *calling*
-/// Message, so no run before it is needed.
-#[sqlx::test]
-async fn a_result_is_read_as_a_change_to_the_call_it_answers(pool: PgPool) {
-    seed_task(&pool).await;
-
-    let rewritten = append(
-        &pool,
-        "old-text",
-        serde_json::json!([{"type": "text", "text": "hi"}]),
-    )
-    .await;
-    let call = append(&pool, "the-call", tool_use("toolu_1")).await;
-
-    // The result arrives later, on its own source event, and settles in place.
-    moatless_tasks::message::test_support::seed_activities(
-        &pool,
-        TASK,
-        "the-call",
-        &write("the-result", MessageType::User, &tool_result("toolu_1")),
-    )
-    .await
-    .unwrap();
-
-    let dao = conversations_over(&pool);
-
-    let window = dao
-        .changed_messages(
-            TASK,
-            &[message_fixtures::seeded_uuid("the-call").to_string()],
-            &[],
-        )
-        .await
-        .unwrap();
-
-    let ids: Vec<i32> = window.messages.iter().map(|m| m.id).collect();
-    assert_eq!(
-        ids,
-        vec![call],
-        "the change names the call, so exactly that row is read — not a run \
-         reaching back over {rewritten}"
-    );
-    assert_eq!(
-        window.activities.len(),
-        1,
-        "the call's activity comes with it"
-    );
-    assert_eq!(
-        window.activities[0].status,
-        ActivityStatus::Completed,
-        "the result settled the activity rather than arriving as a row of its own"
-    );
-    assert!(
-        window.activities[0].result().is_some(),
-        "the outcome is on the activity the reader already has"
-    );
-}
-
-/// Only the rows a batch names are read.
-///
-/// Every change describes the row it names — no lookback, no row dragged along
-/// for context.
-#[sqlx::test]
-async fn a_batch_is_read_as_the_rows_it_names(pool: PgPool) {
-    seed_task(&pool).await;
-
-    append(
-        &pool,
-        "first",
-        serde_json::json!([{"type": "text", "text": "one"}]),
-    )
-    .await;
-    append(
-        &pool,
-        "second",
-        serde_json::json!([{"type": "text", "text": "two"}]),
-    )
-    .await;
-    let third = append(
-        &pool,
-        "third",
-        serde_json::json!([{"type": "text", "text": "three"}]),
-    )
-    .await;
-
-    let window = conversations_over(&pool)
-        .changed_messages(
-            TASK,
-            &[message_fixtures::seeded_uuid("third").to_string()],
-            &[],
-        )
-        .await
-        .unwrap();
-
-    let ids: Vec<i32> = window.messages.iter().map(|m| m.id).collect();
-    assert_eq!(
-        ids,
-        vec![third],
-        "a change must not drag the rows before it along"
-    );
 }
 
 /// A question is stored twice: as the call, and as the question the panel is
@@ -281,121 +162,6 @@ async fn a_question_is_stored_as_a_call_and_as_the_question_it_asked(pool: PgPoo
         .expect("the call is stored");
     assert_eq!(call.tool_name, "AskUserQuestion");
     assert!(!call.settled, "nobody has answered it yet");
-}
-
-/// A question re-presented on a later Message is read as settled, though that
-/// Message holds no call.
-///
-/// The call is stored once (unique on `(task_id, tool_use_id)`); the panel row
-/// is rewritten on the new Message, so a client waiting on settlement needs
-/// this read to find it.
-#[sqlx::test]
-async fn a_re_presented_question_is_read_as_settled_without_its_call(pool: PgPool) {
-    seed_task(&pool).await;
-
-    let asked = serde_json::json!([{
-        "type": "tool_use",
-        "id": "toolu_ask",
-        "name": "AskUserQuestion",
-        "input": { "questions": [{
-            "question": "Which store?",
-            "options": [{ "label": "Postgres" }, { "label": "Redis" }]
-        }] }
-    }]);
-    append(&pool, "the-question", asked.clone()).await;
-
-    // Answered, wherever from: the call comes back.
-    moatless_tasks::message::test_support::seed_activities(
-        &pool,
-        TASK,
-        "the-question",
-        &write("the-answer", MessageType::User, &tool_result("toolu_ask")),
-    )
-    .await
-    .unwrap();
-
-    // The session resumes and presents the same call again, on a new Message.
-    append(&pool, "the-resume", asked).await;
-
-    let dao = conversations_over(&pool);
-    let window = dao
-        .changed_messages(
-            TASK,
-            &[message_fixtures::seeded_uuid("the-resume").to_string()],
-            &[],
-        )
-        .await
-        .unwrap();
-
-    assert!(
-        window
-            .activities
-            .iter()
-            .all(|activity| activity.kind != ActivityKind::ToolCall),
-        "the call stayed on the Message it was first presented on: {:?}",
-        window
-            .activities
-            .iter()
-            .map(|activity| (activity.activity_id.as_str(), activity.kind))
-            .collect::<Vec<_>>()
-    );
-    assert!(
-        window.activities.iter().any(|activity| {
-            activity.kind == ActivityKind::UserInputRequested
-                && activity.payload["requestId"] == "toolu_ask"
-        }),
-        "the panel row was written again"
-    );
-    assert!(
-        window.settled_requests.contains("toolu_ask"),
-        "the request is read as settled from the call, wherever it is stored"
-    );
-}
-
-/// An activity that happened on no Message is named by the change, and read
-/// back by that name.
-///
-/// A context-window reading is the live case: written through the standalone
-/// path, read back by activity id.
-#[sqlx::test]
-async fn a_standalone_activity_change_names_the_activity_and_reads_back(pool: PgPool) {
-    seed_task(&pool).await;
-
-    let reading = context_window_updated("evt-window", TASK, 1_000, Some(200_000));
-    let written =
-        moatless_tasks::message::test_support::record_standalone_activity(&pool, &reading)
-            .await
-            .unwrap();
-    assert!(written, "the first reading is a new row");
-
-    let changes = changes_from(&pool, TASK, 0, 10).await.unwrap();
-    assert_eq!(changes.len(), 1, "one change, for the one reading");
-    assert_eq!(
-        changes[0].activity_id,
-        Some(message_fixtures::seeded_activity_id("evt-window")),
-        "the change names the activity, not a Message"
-    );
-    assert!(changes[0].message_uuid.is_none());
-
-    let window = conversations_over(&pool)
-        .changed_messages(
-            TASK,
-            &[],
-            &[message_fixtures::seeded_activity_id("evt-window")],
-        )
-        .await
-        .unwrap();
-    assert!(window.messages.is_empty(), "it happened on no Message");
-    assert_eq!(window.activities.len(), 1);
-    assert_eq!(
-        window.activities[0].activity_id,
-        message_fixtures::seeded_activity_id("evt-window")
-    );
-    assert_eq!(
-        window.activities[0].kind,
-        ActivityKind::ContextWindowUpdated
-    );
-    assert_eq!(window.activities[0].payload["usedTokens"], 1_000);
 }
 
 /// A Sandbox status that restates the one before it writes nothing and spends
@@ -513,96 +279,6 @@ async fn a_message_carries_the_uploads_attached_to_it(pool: PgPool) {
     );
 }
 
-/// The window a plan's answer names holds the call it answers, though that call
-/// is on an earlier Message that recorded no change of its own.
-///
-/// Without the call the projection has no plan to read, so a client is never
-/// told the plan was answered.
-#[sqlx::test]
-async fn a_windowed_answer_reaches_the_plan_call_it_settles(pool: PgPool) {
-    seed_task(&pool).await;
-
-    append(
-        &pool,
-        "the-plan",
-        serde_json::json!([{
-            "type": "tool_use",
-            "id": "toolu_plan",
-            "name": "ExitPlanMode",
-            "input": { "plan": "1. Do the thing" }
-        }]),
-    )
-    .await;
-
-    // The answer, exactly as `message::send` writes one: the resolved row on a
-    // Message of its own, and an outcome that settles the call where it lives.
-    let answer = serde_json::json!([{ "answer": "Approve" }]);
-    let msg = make_message_row(TASK, "the-answer");
-    let conversation = ConversationWrite {
-        outcomes: vec![ToolOutcome {
-            task_id: TASK.to_string(),
-            tool_use_id: "toolu_plan".to_string(),
-            status: ActivityStatus::Completed,
-            result: answer.clone(),
-            typed_result: None,
-            is_error: false,
-        }],
-        activities: vec![user_input_resolved(
-            TASK,
-            "the-answer",
-            "toolu_plan",
-            &answer,
-        )],
-        ..Default::default()
-    };
-    message_fixtures::seed_message(&pool, &msg, &[], &conversation)
-        .await
-        .unwrap();
-
-    let dao = conversations_over(&pool);
-    let window = dao
-        .changed_messages(
-            TASK,
-            &[message_fixtures::seeded_uuid("the-answer").to_string()],
-            &[],
-        )
-        .await
-        .unwrap();
-
-    let call = window
-        .activities
-        .iter()
-        .find(|activity| activity.tool_use_id.as_deref() == Some("toolu_plan"))
-        .expect("the call the answer settles");
-    assert_eq!(call.summary, "ExitPlanMode");
-    assert_eq!(
-        call.tool_input()["plan"],
-        "1. Do the thing",
-        "the plan the card renders came back with the call"
-    );
-    assert!(call.is_settled(), "the answer settled it");
-
-    // The call's own Message, which the card's `turnId` and `createdAt` are
-    // read off: without it the projection falls back to the conversation's
-    // newest Turn and the call's insert time, and a reload disagrees.
-    let anchor = call.message_uuid.as_deref().expect("the call's Message");
-    assert!(
-        window.messages.iter().any(|message| message.uuid == anchor),
-        "the call's Message came back with it, got {:?}",
-        window
-            .messages
-            .iter()
-            .map(|message| message.uuid.as_str())
-            .collect::<Vec<_>>()
-    );
-    assert!(
-        window.activities.windows(2).all(|pair| {
-            (pair[0].position, pair[0].ordinal) <= (pair[1].position, pair[1].ordinal)
-        }),
-        "the widened window is still oldest first"
-    );
-}
-
 /// Seed closed Tasks `archived-{from}` to `archived-{to - 1}`, owned and so
 /// followed by `USER_1`, each a minute older than the one before it.
 async fn seed_archived(pool: &PgPool, from: i64, to: i64) {
@@ -639,15 +315,9 @@ async fn the_archive_pages_through_every_closed_task_newest_first(pool: PgPool) 
     let page = |before: Option<crate::dao::ArchiveCursor>| {
         let (graph, defaults, viewer) = (&graph, &defaults, &viewer);
         async move {
-            crate::snapshots::archived_shell_page(
-                graph.reads(),
-                defaults,
-                viewer,
-                before,
-                crate::config::OrchestrationProtocol::V1,
-            )
-            .await
-            .unwrap()
+            crate::snapshots::archived_shell_page(graph.reads(), defaults, viewer, before)
+                .await
+                .unwrap()
         }
     };
     let ids = |snapshot: &serde_json::Value| -> Vec<String> {

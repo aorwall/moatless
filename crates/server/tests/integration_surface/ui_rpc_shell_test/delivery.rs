@@ -34,7 +34,7 @@ async fn starting_a_turn_moves_the_row_in_a_watching_client(pool: PgPool) {
     assert_eq!(event["thread"]["id"], "t-live");
     assert_eq!(event["thread"]["projectId"], "ws-live");
     assert_eq!(
-        event["thread"]["latestTurn"]["state"], "running",
+        event["thread"]["status"], "running",
         "a turn that just started is running"
     );
 }
@@ -50,7 +50,7 @@ async fn every_way_a_turn_ends_moves_the_row(pool: PgPool) {
     let endings: &[(&str, &str, &str, &str)] = &[
         ("t-completed", "taskTurn", "completed", "completed"),
         ("t-agent-completed", "agent", "completed", "completed"),
-        ("t-error", "agent", "error", "error"),
+        ("t-error", "agent", "error", "failed"),
         ("t-stopped", "agent", "stopped", "interrupted"),
         ("t-interrupted", "taskTurn", "turn_interrupted", "running"),
     ];
@@ -71,7 +71,7 @@ async fn every_way_a_turn_ends_moves_the_row(pool: PgPool) {
             "{event_type}.{sub_type} delivered someone else's row"
         );
         assert_eq!(
-            event["thread"]["latestTurn"]["state"], *expected,
+            event["thread"]["status"], *expected,
             "{event_type}.{sub_type} should reach the client as `{expected}`"
         );
     }
@@ -104,7 +104,7 @@ async fn a_burst_on_one_conversation_delivers_one_row(pool: PgPool) {
 
     // The row is re-read whole at the burst's last position, so it carries the
     // end state and not the state of whichever change was collapsed last.
-    assert_eq!(event["thread"]["latestTurn"]["state"], "completed");
+    assert_eq!(event["thread"]["status"], "completed");
     assert_eq!(
         event["sequence"],
         watched_from + 4,
@@ -212,7 +212,7 @@ async fn a_poll_that_fails_after_reading_its_changes_delivers_them_on_the_next_o
     let row = one_row(&pool, &mut feed, &viewer).await;
     assert_eq!(row["thread"]["id"], "t-live");
     assert_eq!(
-        row["thread"]["latestTurn"]["state"], "completed",
+        row["thread"]["status"], "completed",
         "the turn ending was recorded, read, and then dropped by the poll that \
          failed after moving past it"
     );
@@ -246,7 +246,7 @@ async fn a_poll_that_fails_after_reading_its_changes_delivers_them_on_the_next_o
     );
 
     let item = one_item(&pool, &mut feed, &viewer).await;
-    assert_eq!(item["kind"], "thread-upserted");
+    assert_eq!(item["kind"], "thread.updated");
     assert_eq!(item["thread"]["title"], "Renamed");
     held.apply(&item);
 }

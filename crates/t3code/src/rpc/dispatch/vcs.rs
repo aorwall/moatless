@@ -86,10 +86,6 @@ pub(super) fn vcs_methods() -> MethodTable {
             Scope::OrchestrationRead,
             pull_requests_diff_file_contents,
         )
-        .declared(
-            "pullRequests.generateReviewGuide",
-            Scope::OrchestrationOperate,
-        )
         .detached(
             "pullRequests.linkedThreads",
             Scope::OrchestrationRead,
@@ -130,7 +126,6 @@ pub(super) fn vcs_methods() -> MethodTable {
             Scope::OrchestrationOperate,
             pull_requests_request_reviewers,
         )
-        .declared("pullRequests.reviewGuide", Scope::OrchestrationRead)
         .detached(
             "pullRequests.reviewerCandidates",
             Scope::OrchestrationRead,
@@ -196,17 +191,12 @@ pub(super) fn vcs_methods() -> MethodTable {
             Scope::ReviewWrite,
             review_get_diff_preview,
         )
-        .declared("vcs.createRef", Scope::OrchestrationOperate)
-        .declared("vcs.createWorktree", Scope::OrchestrationOperate)
-        .declared("vcs.init", Scope::OrchestrationOperate)
         .detached("vcs.listRefs", Scope::OrchestrationRead, vcs_list_refs)
-        .declared("vcs.pull", Scope::OrchestrationOperate)
         .detached(
             "vcs.refreshStatus",
             Scope::OrchestrationRead,
             vcs_refresh_status,
         )
-        .declared("vcs.removeWorktree", Scope::OrchestrationOperate)
         .session("vcs.switchRef", Scope::OrchestrationOperate, vcs_switch_ref)
 }
 

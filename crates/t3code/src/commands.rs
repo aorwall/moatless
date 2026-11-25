@@ -1,4 +1,5 @@
-//! `orchestration.dispatchCommand` — the one write the T3 client makes.
+//! The `thread.*` command union [`crate::v2_commands::translate`] rewrites
+//! every `orchestration.dispatchCommand` into.
 //!
 //! T3's command union is wider than Moatless's: this module states, per
 //! command, whether it is carried out, discarded, or refused — the two look

@@ -1,4 +1,3 @@
-use crate::config::OrchestrationProtocol;
 use crate::rpc::dispatch::methods;
 use crate::rpc::metrics::CONNECTION_BLOCKED;
 use crate::rpc::outbound::{self, QueuedFrame};
@@ -30,15 +29,13 @@ pub(crate) async fn serve_websocket(
     socket: WebSocket,
     state: UiRpcState,
     identity: UiRpcAuthIdentity,
-    protocol: OrchestrationProtocol,
 ) {
-    debug!(user_id = %identity.user_id, ?protocol, "T3 UI WebSocket connected");
+    debug!(user_id = %identity.user_id, "T3 UI WebSocket connected");
     let (mut sink, mut incoming) = socket.split();
     let (frames, mut pushed) = outbound::channel(OUTBOUND_FRAMES);
     let frames = frames.owned_by(&identity.user_id.to_string());
     let disconnect = frames.disconnected();
     let mut session = ProtocolSession::new(frames, methods());
-    session.shared.protocol = protocol;
     let opened_stream = session.opened_stream.clone();
 
     // Messages that arrived while a frame was being answered, in arrival order.

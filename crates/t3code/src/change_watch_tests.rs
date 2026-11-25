@@ -7,7 +7,7 @@ use moatless_types::access_control::ScopeContext;
 use serde_json::json;
 
 use super::*;
-use crate::config::{AgentModelDefaults, OrchestrationProtocol};
+use crate::config::AgentModelDefaults;
 use crate::dao::MockConversationDao;
 use crate::feed::ShellFeed;
 use crate::reads::T3Reads;
@@ -107,7 +107,7 @@ async fn reads_with(subscribers: usize) -> Arc<Database> {
     let mut streams = StreamSet::new(frames);
     let mut threads = Vec::new();
     for subscriber in 0..subscribers {
-        let feed = ShellFeed::resuming_from(identity(), 7).speaking(OrchestrationProtocol::V2);
+        let feed = ShellFeed::resuming_from(identity(), 7);
         let reads = db.reads();
         let listing = changes.listing();
         streams.start_produced(&request_id(subscriber), None, move |sink| {
@@ -248,7 +248,7 @@ async fn a_shell_behind_by_more_than_one_batch_reads_the_rest_without_another_mo
     let poller = ChangePoller::new(changes.clone(), db.dao()).spawn(cancel.clone());
     let (frames, _pushed) = crate::rpc::outbound::channel(16);
     let mut streams = StreamSet::new(frames);
-    let feed = ShellFeed::resuming_from(identity(), 7).speaking(OrchestrationProtocol::V2);
+    let feed = ShellFeed::resuming_from(identity(), 7);
     let reads = db.reads();
     let listing = changes.listing();
     streams.start_produced(&request_id(0), None, move |sink| {

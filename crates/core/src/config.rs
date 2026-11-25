@@ -735,7 +735,6 @@ fn t3_ui_rpc_from_env() -> Result<T3UiRpcConfig, ConfigError> {
         cliproxy_url: env_opt("T3_UI_RPC_CLIPROXY_URL"),
         cliproxy_management_key: env_opt("T3_UI_RPC_CLIPROXY_MANAGEMENT_KEY"),
         cliproxy_label: env_opt("T3_UI_RPC_CLIPROXY_LABEL"),
-        orchestration_protocol_version: orchestration_protocol_version_from_env()?,
         scratch_workspace: env_opt("T3_UI_RPC_SCRATCH_WORKSPACE")
             .map(|id| id.trim().to_string())
             .filter(|id| !id.is_empty()),
@@ -743,18 +742,6 @@ fn t3_ui_rpc_from_env() -> Result<T3UiRpcConfig, ConfigError> {
             .map(|team| team.trim().to_ascii_uppercase())
             .filter(|team| !team.is_empty()),
     })
-}
-
-/// Reads [`T3UiRpcConfig::orchestration_protocol_version`], which names the
-/// values.
-fn orchestration_protocol_version_from_env() -> Result<u8, ConfigError> {
-    match env_str("T3_UI_RPC_ORCHESTRATION_PROTOCOL_VERSION", "1").trim() {
-        "" | "1" => Ok(1),
-        "2" => Ok(2),
-        other => Err(ConfigError::Invalid(format!(
-            "T3_UI_RPC_ORCHESTRATION_PROTOCOL_VERSION must be 1 or 2, got `{other}`"
-        ))),
-    }
 }
 
 fn parse_enabled(key: &str, value: &str) -> Result<bool, ConfigError> {

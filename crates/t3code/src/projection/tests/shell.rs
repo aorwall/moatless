@@ -54,16 +54,8 @@ fn shell_and_detail_rows_carry_the_same_settlement_and_snooze_state() {
     };
 
     let shell = one_thread(&conversation);
-    let detail = thread_detail(
-        &conversation,
-        "ws-a",
-        &AgentModelDefaults::default(),
-        &transcript(Vec::new(), Vec::new()),
-        &OriginContext {
-            frontend_url: "http://localhost:3000",
-            source_task_names: &HashMap::new(),
-        },
-    );
+    let detail =
+        detail_of(conversation.clone(), &transcript(Vec::new(), Vec::new()))["thread"].clone();
     for key in ["settledOverride", "settledAt", "snoozedUntil", "snoozedAt"] {
         assert_eq!(shell[key], detail[key], "{key}");
     }
@@ -79,16 +71,8 @@ fn shell_and_detail_rows_carry_the_task_visibility() {
         visibility: moatless_types::task::Visibility::Public,
         ..running_conversation("task-a", "ws-a")
     };
-    let detail = thread_detail(
-        &conversation,
-        "ws-a",
-        &AgentModelDefaults::default(),
-        &transcript(Vec::new(), Vec::new()),
-        &OriginContext {
-            frontend_url: "http://localhost:3000",
-            source_task_names: &HashMap::new(),
-        },
-    );
+    let detail =
+        detail_of(conversation.clone(), &transcript(Vec::new(), Vec::new()))["thread"].clone();
     assert_eq!(one_thread(&conversation)["visibility"], json!("public"));
     assert_eq!(detail["visibility"], json!("public"));
     assert_eq!(
@@ -112,65 +96,25 @@ fn a_row_names_its_owner_only_when_the_listing_read_one() {
     );
 }
 
-/// Both tools park the run on a person, and the client reads one boolean for
-/// both: its sidebar status, its snooze rule and its awareness phase all key on
-/// `hasPendingUserInput`. `hasActionableProposedPlan` stays the narrower answer,
-/// naming which of the two is waiting.
+/// A parked plan and a parked question are told apart: the plan by
+/// `hasActionableProposedPlan`, the question by a blocking `user_input`
+/// request.
 #[test]
-fn a_parked_plan_reads_as_pending_user_input_the_way_a_parked_question_does() {
+fn a_parked_plan_and_a_parked_question_each_name_themselves() {
     let mut row = running_conversation("task-a", "ws-a");
-    assert_eq!(one_thread(&row)["hasPendingUserInput"], false);
+    assert_eq!(one_thread(&row)["hasActionableProposedPlan"], false);
+    assert_eq!(one_thread(&row)["pendingRuntimeRequest"], Value::Null);
 
     row.pending_plan = true;
-    assert_eq!(one_thread(&row)["hasPendingUserInput"], true);
     assert_eq!(one_thread(&row)["hasActionableProposedPlan"], true);
+    assert_eq!(one_thread(&row)["pendingRuntimeRequest"], Value::Null);
 
     row.pending_plan = false;
     row.pending_question = true;
-    assert_eq!(one_thread(&row)["hasPendingUserInput"], true);
     assert_eq!(one_thread(&row)["hasActionableProposedPlan"], false);
-}
-
-#[test]
-fn a_running_moat_cmd_command_makes_the_row_read_as_working() {
-    let thread = one_thread(&Conversation {
-        running_commands: 1,
-        running_command_labels: Vec::new(),
-        ..conversation("task-a", "ws-a")
-    });
-
-    assert_eq!(
-        thread["backgroundLiveness"],
-        Value::String("working".into())
-    );
-}
-
-#[test]
-fn a_row_with_no_running_command_reports_no_background_liveness() {
-    // Null rather than absent: the sidebar reads the key to decide the row
-    // is resting, and a Task that just finished its last command has to say
-    // so rather than leave the client on its previous answer.
-    let thread = one_thread(&conversation("task-a", "ws-a"));
-
-    assert_eq!(thread["backgroundLiveness"], Value::Null);
-}
-
-#[test]
-fn background_liveness_reports_the_axis_not_the_count() {
-    // The contract has two literals and neither is a number: a second
-    // command must not change what the row says.
-    let one = one_thread(&Conversation {
-        running_commands: 1,
-        running_command_labels: Vec::new(),
-        ..conversation("task-a", "ws-a")
-    });
-    let many = one_thread(&Conversation {
-        running_commands: 7,
-        running_command_labels: Vec::new(),
-        ..conversation("task-a", "ws-a")
-    });
-
-    assert_eq!(one["backgroundLiveness"], many["backgroundLiveness"]);
+    let request = one_thread(&row)["pendingRuntimeRequest"].clone();
+    assert_eq!(request["kind"], "user_input");
+    assert_eq!(request["blocking"], true);
 }
 
 /// The instance id is a branded slug, and an id that does not match is refused

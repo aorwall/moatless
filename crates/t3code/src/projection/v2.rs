@@ -357,8 +357,8 @@ pub(crate) fn thread_updated_v2(
     })
 }
 
-/// One conversation leaving the V2 listing. Built under the same rule as
-/// [`super::thread_removed`]: only for a conversation the viewer was sent.
+/// One conversation leaving the V2 listing; built only for a conversation the
+/// viewer was sent (see [`ShellFeed`](crate::feed::ShellFeed)).
 pub(crate) fn thread_removed_v2(task_id: &str, sequence: i64) -> Value {
     json!({
         "kind": "thread.removed",

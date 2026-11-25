@@ -633,6 +633,7 @@ async fn the_thread_snapshot_carries_the_message_id_that_was_sent(pool: PgPool) 
     let snapshot = thread_snapshot(
         moatless_backend::t3code::t3_graph_over(&pool).reads(),
         &deployment(&defaults()),
+        test_app_state(pool.clone()).task_relations.as_ref(),
         &viewer(USER_1),
         "t-snap",
     )
@@ -640,7 +641,7 @@ async fn the_thread_snapshot_carries_the_message_id_that_was_sent(pool: PgPool) 
     .unwrap()
     .expect("the thread opens");
 
-    let ids: Vec<&str> = snapshot.value["thread"]["messages"]
+    let ids: Vec<&str> = snapshot["projection"]["messages"]
         .as_array()
         .expect("the snapshot carries a message list")
         .iter()

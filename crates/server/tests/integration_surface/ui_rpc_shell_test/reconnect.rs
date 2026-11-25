@@ -7,7 +7,7 @@
 //! same empty result unless they are made different, and a client that cannot
 //! tell them apart renders a stale sidebar forever while reporting itself live.
 
-use super::contract::{assert_decodable_snapshot_item, assert_decodable_upsert};
+use super::contract::{assert_decodable_snapshot_item, assert_decodable_update};
 use super::feed::{ingress, one_row, other_peoples_work, reconnect, recorded_after, start_turn};
 use super::harness::{reads, viewer};
 use super::seeding::{seed_live_project, seed_task};
@@ -47,10 +47,10 @@ async fn a_client_that_missed_changes_is_replayed_rather_than_rebuilt(pool: PgPo
         1,
         "the burst on one conversation coalesces into one row, got {values:#?}"
     );
-    assert_decodable_upsert(&values[0]);
+    assert_decodable_update(&values[0]);
     assert_eq!(values[0]["thread"]["id"], "t-live");
     assert_eq!(
-        values[0]["thread"]["latestTurn"]["state"], "completed",
+        values[0]["thread"]["status"], "completed",
         "the row carries the state the client missed, not the state it left"
     );
     assert!(values[0]["sequence"].as_i64().unwrap() > held);
@@ -96,7 +96,7 @@ async fn a_caught_up_client_is_replayed_nothing_and_still_hears_what_comes_next(
         1,
         "replaying from a position with a change past it returned nothing: {now:#?}"
     );
-    assert_decodable_upsert(&now[0]);
+    assert_decodable_update(&now[0]);
 
     // And the feed the first reconnection was handed is live: the same change
     // reaches it without a second subscription.

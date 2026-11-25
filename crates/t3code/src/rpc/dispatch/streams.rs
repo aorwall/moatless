@@ -9,7 +9,6 @@ use crate::oauth::Scope;
 use crate::rpc::config::descriptor;
 use crate::rpc::config::server_config;
 use crate::rpc::config::sources_event;
-use crate::rpc::envelope::failure_exit;
 use crate::rpc::errors::sandbox_failure_exit;
 use crate::rpc::errors::shell_failure_exit;
 use crate::rpc::errors::terminal_failure_exit;
@@ -20,9 +19,7 @@ use crate::rpc::watch;
 use crate::sandbox;
 use crate::snapshots::workspace_cwd;
 use crate::subscriptions::OrchestrationV2SubscribeShellInput;
-use crate::subscriptions::OrchestrationV2SubscribeThreadInput;
 use crate::subscriptions::shell_subscription;
-use crate::subscriptions::thread_subscription;
 use crate::terminal;
 use crate::terminal::TerminalInput;
 use serde::Deserialize;
@@ -30,7 +27,6 @@ use serde::de::IgnoredAny;
 use serde_json::Value;
 use serde_json::json;
 use tokio::sync::broadcast;
-use tracing::error;
 
 pub(super) fn stream_methods() -> MethodTable {
     MethodTable::new()
@@ -42,11 +38,6 @@ pub(super) fn stream_methods() -> MethodTable {
             "orchestration.subscribeShell",
             Scope::OrchestrationRead,
             |session, request| Box::pin(session.orchestration_subscribe_shell(request)),
-        )
-        .stream(
-            "orchestration.subscribeThread",
-            Scope::OrchestrationRead,
-            |session, request| Box::pin(session.orchestration_subscribe_thread(request)),
         )
         .stream(
             "pullRequests.subscribeRefreshes",
@@ -236,7 +227,6 @@ impl ProtocolSession {
             payload,
             state,
             identity,
-            shared,
             ..
         } = request;
         let viewer = viewer_scope(&identity);
@@ -246,7 +236,6 @@ impl ProtocolSession {
             &viewer,
             &state.environment,
             payload.after_sequence,
-            shared.protocol,
         );
         let subscription = match state.reads.poll_gate().run(subscription).await {
             Ok(subscription) => subscription,
@@ -272,60 +261,6 @@ impl ProtocolSession {
                 model_defaults,
                 viewer,
                 listing,
-            )
-        })
-    }
-
-    pub(super) async fn orchestration_subscribe_thread(
-        &mut self,
-        request: Request<OrchestrationV2SubscribeThreadInput>,
-    ) -> Vec<Value> {
-        let Request {
-            id,
-            payload,
-            state,
-            identity,
-            ..
-        } = request;
-        let viewer = viewer_scope(&identity);
-        let task_id = payload.thread_id;
-        let deployment = state.deployment();
-        let opened = thread_subscription(
-            &state.reads,
-            &deployment,
-            &viewer,
-            &task_id,
-            payload.after_sequence,
-            payload.request_completion_marker.unwrap_or(false),
-        );
-        let opened = match state.reads.poll_gate().run(opened).await {
-            Ok(opened) => opened,
-            Err(error) => {
-                error!(
-                    %error,
-                    user_id = %identity.user_id,
-                    task_id = %task_id,
-                    "Failed to assemble T3 UI thread snapshot"
-                );
-                return vec![failure_exit(&id, "Failed to assemble the conversation")];
-            }
-        };
-        let Some((values, feed)) = opened else {
-            return vec![failure_exit(&id, "Conversation not found")];
-        };
-        let reads = state.reads.clone();
-        let frontend_url = state.frontend_url.clone();
-        let model_defaults = state.model_defaults.clone();
-        let signals = state.changes.thread(&task_id);
-        self.streams.start_produced(&id, Some(values), move |sink| {
-            watch::watch_thread(
-                sink,
-                feed,
-                reads,
-                frontend_url,
-                model_defaults,
-                viewer,
-                signals,
             )
         })
     }

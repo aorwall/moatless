@@ -1,150 +1,144 @@
-# Every method tag UI-RPC answers or the contract declares, as routed when
-# `rpc/dispatch/routing.rs` held two `match`es. One row per tag:
-#   tag  scope  v1  v2  v2_handler
-# A mode is `detached`, `session` (ordered, no connection state), `stream`
-# (ordered, opens a stream on the connection), `unsupported` (answers
-# `UnsupportedMethodError`) or `declared` (no handler in either protocol; the
-# row exists for its scope). `v2_handler` is `own` when V2 answers with a
-# different function than V1, `same` when both share one, `-` otherwise.
-artifacts.setVisibility	orchestration:operate	session	session	same
-assets.createUrl	orchestration:read	session	session	same
-attachments.createUploadUrl	orchestration:operate	session	session	same
-attachments.delete	orchestration:operate	session	session	same
-cloud.getRelayClientStatus	relay:read	session	session	same
-cloud.installRelayClient	relay:write	declared	declared	-
-filesystem.getMetadata	orchestration:read	detached	detached	same
-git.preparePullRequestThread	orchestration:operate	detached	detached	same
-git.resolvePullRequest	orchestration:operate	detached	detached	same
-git.runStackedAction	orchestration:operate	session	session	same
-issueTrackers.bindProject	orchestration:operate	declared	declared	-
-issueTrackers.connect	orchestration:operate	declared	declared	-
-issueTrackers.list	orchestration:read	detached	detached	same
-issues.candidates	orchestration:read	detached	detached	same
-issues.comment	orchestration:operate	detached	detached	same
-issues.comments	orchestration:read	detached	detached	same
-issues.create	orchestration:operate	detached	detached	same
-issues.detail	orchestration:read	detached	detached	same
-issues.linkedThreads	orchestration:read	detached	detached	same
-issues.list	orchestration:read	detached	detached	same
-issues.react	orchestration:operate	declared	declared	-
-issues.setState	orchestration:operate	detached	detached	same
-issues.templates	orchestration:read	detached	detached	same
-issues.update	orchestration:operate	detached	detached	same
-orchestration.dispatchCommand	orchestration:operate	session	session	own
-orchestration.forceStopThread	orchestration:operate	unsupported	detached	-
-orchestration.getArchivedShellSnapshot	orchestration:read	detached	detached	same
-orchestration.getThreadLinkMetadata	orchestration:read	unsupported	detached	-
-orchestration.getThreadProjection	orchestration:read	unsupported	detached	-
-orchestration.getThreadTitles	orchestration:read	unsupported	detached	-
-orchestration.getTurnItem	orchestration:read	unsupported	detached	-
-orchestration.launchThread	orchestration:operate	unsupported	session	-
-orchestration.searchThread	orchestration:read	unsupported	detached	-
-orchestration.searchThreadStream	orchestration:read	unsupported	stream	-
-orchestration.searchThreads	orchestration:read	detached	detached	same
-orchestration.subscribeShell	orchestration:read	stream	stream	same
-orchestration.subscribeThread	orchestration:read	stream	stream	own
-preview.automationConnect	orchestration:operate	declared	declared	-
-preview.automationFocusHost	orchestration:operate	declared	declared	-
-preview.automationRespond	orchestration:operate	declared	declared	-
-preview.close	orchestration:operate	session	session	same
-preview.list	orchestration:read	detached	detached	same
-preview.navigate	orchestration:operate	session	session	same
-preview.open	orchestration:operate	session	session	same
-preview.reportStatus	orchestration:operate	session	session	same
-preview.resize	orchestration:operate	session	session	same
-projects.add	orchestration:operate	declared	declared	-
-projects.ensureScratch	orchestration:read	detached	detached	same
-projects.goToDefinition	orchestration:read	detached	detached	same
-projects.listEntries	orchestration:read	detached	detached	same
-projects.mutate	orchestration:operate	session	session	same
-projects.readFile	orchestration:read	detached	detached	same
-projects.remove	orchestration:operate	declared	declared	-
-projects.searchContents	orchestration:read	detached	detached	same
-projects.searchEntries	orchestration:read	detached	detached	same
-projects.writeFile	orchestration:operate	session	session	same
-pullRequests.activity	orchestration:read	detached	detached	same
-pullRequests.changeBreakdown	orchestration:read	detached	detached	same
-pullRequests.checks	orchestration:read	detached	detached	same
-pullRequests.comment	orchestration:operate	detached	detached	same
-pullRequests.detail	orchestration:read	detached	detached	same
-pullRequests.diffFileContents	orchestration:read	detached	detached	same
-pullRequests.generateReviewGuide	orchestration:operate	declared	declared	-
-pullRequests.invalidate	orchestration:read	detached	detached	same
-pullRequests.labelCandidates	orchestration:read	detached	detached	same
-pullRequests.linkedThreads	orchestration:read	detached	detached	same
-pullRequests.list	orchestration:read	detached	detached	same
-pullRequests.listStats	orchestration:read	detached	detached	same
-pullRequests.preview	orchestration:read	detached	detached	same
-pullRequests.replyToThread	orchestration:operate	detached	detached	same
-pullRequests.requestReviewers	orchestration:operate	detached	detached	same
-pullRequests.reviewGuide	orchestration:read	declared	declared	-
-pullRequests.reviewerCandidates	orchestration:read	detached	detached	same
-pullRequests.runAction	orchestration:operate	detached	detached	same
-pullRequests.setLabels	orchestration:operate	detached	detached	same
-pullRequests.setReaction	orchestration:operate	detached	detached	same
-pullRequests.setThreadResolution	orchestration:operate	detached	detached	same
-pullRequests.stack	orchestration:read	detached	detached	same
-pullRequests.submitReview	orchestration:operate	detached	detached	same
-pullRequests.subscribeRefreshes	orchestration:read	stream	stream	same
-pullRequests.summary	orchestration:read	detached	detached	same
-pullRequests.threadComments	orchestration:read	detached	detached	same
-pullRequests.update	orchestration:operate	detached	detached	same
-pullRequests.updateComment	orchestration:operate	detached	detached	same
-review.getDiffFileContents	review:write	detached	detached	same
-review.getDiffPreview	review:write	detached	detached	same
-sandbox.cleanup	orchestration:operate	session	session	same
-sandbox.redeploy	orchestration:operate	session	session	same
-sandbox.restart	orchestration:operate	session	session	same
-sandbox.setIdleTimeout	orchestration:operate	session	session	same
-sandbox.start	orchestration:read	session	session	same
-sandbox.status	orchestration:read	detached	detached	same
-sandbox.stop	orchestration:read	session	session	same
-sandbox.subscribeDetail	orchestration:read	stream	stream	same
-sandbox.subscribeStatus	orchestration:read	stream	stream	same
-scripts.listForThread	orchestration:read	detached	detached	same
-scripts.run	orchestration:read	session	session	same
-secrets.answerRequest	orchestration:operate	session	session	same
-server.discoverSourceControl	orchestration:read	detached	detached	same
-server.getConfig	orchestration:read	detached	detached	same
-server.getSettings	orchestration:read	declared	declared	-
-server.getUsageSummary	orchestration:read	detached	detached	same
-server.probe	orchestration:read	session	session	same
-server.refreshProviders	orchestration:operate	detached	detached	same
-server.removeKeybinding	orchestration:operate	declared	declared	-
-server.reportClientActivity	orchestration:read	session	session	same
-server.reportHostPowerState	orchestration:operate	declared	declared	-
-server.retryResourceTelemetry	orchestration:operate	declared	declared	-
-server.signalProcess	orchestration:operate	declared	declared	-
-server.updateProvider	orchestration:operate	declared	declared	-
-server.updateServer	orchestration:operate	declared	declared	-
-server.updateServerWithProgress	orchestration:operate	declared	declared	-
-server.updateSettings	orchestration:operate	session	session	same
-server.upsertKeybinding	orchestration:operate	declared	declared	-
-shell.openInEditor	orchestration:operate	declared	declared	-
-sourceControl.cloneRepository	orchestration:operate	declared	declared	-
-sourceControl.publishRepository	orchestration:operate	declared	declared	-
-subscribeAuthAccess	access:read	stream	stream	same
-subscribePreviewEvents	orchestration:read	stream	stream	same
-subscribeServerConfig	orchestration:read	stream	stream	same
-subscribeServerLifecycle	orchestration:read	stream	stream	same
-subscribeTerminalMetadata	terminal:operate	stream	stream	same
-subscribeVcsStatus	orchestration:read	stream	stream	same
-subscribeWorktreeSetup	orchestration:read	stream	stream	same
-subtasks.list	orchestration:read	detached	detached	same
-terminal.attach	terminal:operate	stream	stream	same
-terminal.clear	terminal:operate	session	session	same
-terminal.close	terminal:operate	session	session	same
-terminal.open	terminal:operate	session	session	same
-terminal.resize	terminal:operate	session	session	same
-terminal.write	terminal:operate	session	session	same
-threads.browse	orchestration:read	detached	detached	same
-threads.getShell	orchestration:read	detached	detached	same
-vcs.createRef	orchestration:operate	declared	declared	-
-vcs.createWorktree	orchestration:operate	declared	declared	-
-vcs.init	orchestration:operate	declared	declared	-
-vcs.listRefs	orchestration:read	detached	detached	same
-vcs.pull	orchestration:operate	declared	declared	-
-vcs.refreshStatus	orchestration:read	detached	detached	same
-vcs.removeWorktree	orchestration:operate	declared	declared	-
-vcs.switchRef	orchestration:operate	session	session	same
-worktreeSetup.cancel	orchestration:operate	session	session	same
+# Every method tag UI-RPC answers or the contract declares. One row per tag:
+#   tag  scope  mode
+artifacts.setVisibility	orchestration:operate	session
+assets.createUrl	orchestration:read	session
+attachments.createUploadUrl	orchestration:operate	session
+attachments.delete	orchestration:operate	session
+cloud.getRelayClientStatus	relay:read	session
+cloud.installRelayClient	relay:write	declared
+filesystem.getMetadata	orchestration:read	detached
+git.preparePullRequestThread	orchestration:operate	detached
+git.resolvePullRequest	orchestration:operate	detached
+git.runStackedAction	orchestration:operate	session
+issueTrackers.bindProject	orchestration:operate	declared
+issueTrackers.connect	orchestration:operate	declared
+issueTrackers.list	orchestration:read	detached
+issues.candidates	orchestration:read	detached
+issues.comment	orchestration:operate	detached
+issues.comments	orchestration:read	detached
+issues.create	orchestration:operate	detached
+issues.detail	orchestration:read	detached
+issues.linkedThreads	orchestration:read	detached
+issues.list	orchestration:read	detached
+issues.react	orchestration:operate	declared
+issues.setState	orchestration:operate	detached
+issues.templates	orchestration:read	detached
+issues.update	orchestration:operate	detached
+orchestration.dispatchCommand	orchestration:operate	session
+orchestration.forceStopThread	orchestration:operate	detached
+orchestration.getArchivedShellSnapshot	orchestration:read	detached
+orchestration.getThreadLinkMetadata	orchestration:read	detached
+orchestration.getThreadProjection	orchestration:read	detached
+orchestration.getThreadTitles	orchestration:read	detached
+orchestration.getTurnItem	orchestration:read	detached
+orchestration.launchThread	orchestration:operate	session
+orchestration.searchThread	orchestration:read	detached
+orchestration.searchThreadStream	orchestration:read	stream
+orchestration.searchThreads	orchestration:read	detached
+orchestration.subscribeShell	orchestration:read	stream
+orchestration.subscribeThread	orchestration:read	stream
+preview.automationConnect	orchestration:operate	declared
+preview.automationFocusHost	orchestration:operate	declared
+preview.automationRespond	orchestration:operate	declared
+preview.close	orchestration:operate	session
+preview.list	orchestration:read	detached
+preview.navigate	orchestration:operate	session
+preview.open	orchestration:operate	session
+preview.reportStatus	orchestration:operate	session
+preview.resize	orchestration:operate	session
+projects.add	orchestration:operate	declared
+projects.ensureScratch	orchestration:read	detached
+projects.goToDefinition	orchestration:read	detached
+projects.listEntries	orchestration:read	detached
+projects.mutate	orchestration:operate	session
+projects.readFile	orchestration:read	detached
+projects.remove	orchestration:operate	declared
+projects.searchContents	orchestration:read	detached
+projects.searchEntries	orchestration:read	detached
+projects.writeFile	orchestration:operate	session
+pullRequests.activity	orchestration:read	detached
+pullRequests.changeBreakdown	orchestration:read	detached
+pullRequests.checks	orchestration:read	detached
+pullRequests.comment	orchestration:operate	detached
+pullRequests.detail	orchestration:read	detached
+pullRequests.diffFileContents	orchestration:read	detached
+pullRequests.generateReviewGuide	orchestration:operate	declared
+pullRequests.invalidate	orchestration:read	detached
+pullRequests.labelCandidates	orchestration:read	detached
+pullRequests.linkedThreads	orchestration:read	detached
+pullRequests.list	orchestration:read	detached
+pullRequests.listStats	orchestration:read	detached
+pullRequests.preview	orchestration:read	detached
+pullRequests.replyToThread	orchestration:operate	detached
+pullRequests.requestReviewers	orchestration:operate	detached
+pullRequests.reviewGuide	orchestration:read	declared
+pullRequests.reviewerCandidates	orchestration:read	detached
+pullRequests.runAction	orchestration:operate	detached
+pullRequests.setLabels	orchestration:operate	detached
+pullRequests.setReaction	orchestration:operate	detached
+pullRequests.setThreadResolution	orchestration:operate	detached
+pullRequests.stack	orchestration:read	detached
+pullRequests.submitReview	orchestration:operate	detached
+pullRequests.subscribeRefreshes	orchestration:read	stream
+pullRequests.summary	orchestration:read	detached
+pullRequests.threadComments	orchestration:read	detached
+pullRequests.update	orchestration:operate	detached
+pullRequests.updateComment	orchestration:operate	detached
+review.getDiffFileContents	review:write	detached
+review.getDiffPreview	review:write	detached
+sandbox.cleanup	orchestration:operate	session
+sandbox.redeploy	orchestration:operate	session
+sandbox.restart	orchestration:operate	session
+sandbox.setIdleTimeout	orchestration:operate	session
+sandbox.start	orchestration:read	session
+sandbox.status	orchestration:read	detached
+sandbox.stop	orchestration:read	session
+sandbox.subscribeDetail	orchestration:read	stream
+sandbox.subscribeStatus	orchestration:read	stream
+scripts.listForThread	orchestration:read	detached
+scripts.run	orchestration:read	session
+secrets.answerRequest	orchestration:operate	session
+server.discoverSourceControl	orchestration:read	detached
+server.getConfig	orchestration:read	detached
+server.getSettings	orchestration:read	declared
+server.getUsageSummary	orchestration:read	detached
+server.probe	orchestration:read	session
+server.refreshProviders	orchestration:operate	detached
+server.removeKeybinding	orchestration:operate	declared
+server.reportClientActivity	orchestration:read	session
+server.reportHostPowerState	orchestration:operate	declared
+server.retryResourceTelemetry	orchestration:operate	declared
+server.signalProcess	orchestration:operate	declared
+server.updateProvider	orchestration:operate	declared
+server.updateServer	orchestration:operate	declared
+server.updateServerWithProgress	orchestration:operate	declared
+server.updateSettings	orchestration:operate	session
+server.upsertKeybinding	orchestration:operate	declared
+shell.openInEditor	orchestration:operate	declared
+sourceControl.cloneRepository	orchestration:operate	declared
+sourceControl.publishRepository	orchestration:operate	declared
+subscribeAuthAccess	access:read	stream
+subscribePreviewEvents	orchestration:read	stream
+subscribeServerConfig	orchestration:read	stream
+subscribeServerLifecycle	orchestration:read	stream
+subscribeTerminalMetadata	terminal:operate	stream
+subscribeVcsStatus	orchestration:read	stream
+subscribeWorktreeSetup	orchestration:read	stream
+subtasks.list	orchestration:read	detached
+terminal.attach	terminal:operate	stream
+terminal.clear	terminal:operate	session
+terminal.close	terminal:operate	session
+terminal.open	terminal:operate	session
+terminal.resize	terminal:operate	session
+terminal.write	terminal:operate	session
+threads.browse	orchestration:read	detached
+threads.getShell	orchestration:read	detached
+vcs.createRef	orchestration:operate	declared
+vcs.createWorktree	orchestration:operate	declared
+vcs.init	orchestration:operate	declared
+vcs.listRefs	orchestration:read	detached
+vcs.pull	orchestration:operate	declared
+vcs.refreshStatus	orchestration:read	detached
+vcs.removeWorktree	orchestration:operate	declared
+vcs.switchRef	orchestration:operate	session
+worktreeSetup.cancel	orchestration:operate	session

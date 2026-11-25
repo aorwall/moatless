@@ -184,48 +184,6 @@ fn a_subject_key_that_is_not_owner_repo_number_yields_no_url() {
     assert_eq!(github_pr_url(None, None), None);
 }
 
-/// The `message-sent` event carries the same origin as the snapshot bubble, so
-/// a delta and a rebuild render one message the same way.
-#[test]
-fn the_message_sent_event_carries_the_same_origin_as_the_snapshot_bubble() {
-    let mut msg = message(1, MessageType::User, "From Slack");
-    msg.external_adapter = Some("slack".into());
-    msg.external_source_name = Some("#eng".into());
-    msg.binding_url = Some("https://acme.slack.com/archives/C1".into());
-    msg.external_author = Some("ada".into());
-    let bubble = message_bubble(
-        &msg,
-        &Value::Null,
-        "2026-07-01T10:00:00.000Z",
-        &OriginContext {
-            frontend_url: "https://moatless.example",
-            source_task_names: &HashMap::new(),
-        },
-    )
-    .expect("a user bubble");
-    assert!(bubble.get("origin").is_some());
-    let payload = message_sent_payload("task-a", &bubble);
-    assert_eq!(payload["origin"], bubble["origin"]);
-}
-
-/// A composer bubble has no origin, so neither does its event.
-#[test]
-fn a_plain_message_sent_event_carries_no_origin() {
-    let bubble = message_bubble(
-        &message(1, MessageType::User, "Hi"),
-        &Value::Null,
-        "2026-07-01T10:00:00.000Z",
-        &OriginContext {
-            frontend_url: "https://moatless.example",
-            source_task_names: &HashMap::new(),
-        },
-    )
-    .expect("a user bubble");
-    assert!(bubble.get("origin").is_none());
-    let payload = message_sent_payload("task-a", &bubble);
-    assert!(payload.get("origin").is_none());
-}
-
 /// Only a person's bubble can carry an origin; the agent's own reply never
 /// does, even on a row that happens to hold adapter columns.
 #[test]

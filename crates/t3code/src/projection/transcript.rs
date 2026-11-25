@@ -1,25 +1,17 @@
-//! The transcript: one window of messages and activities as the client renders
-//! it.
-
-use std::collections::HashSet;
+//! The transcript: one window of messages and activities as the client renders//! it.
 
 use chrono::{DateTime, Utc};
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 
-use super::detail::elision_notice;
 use super::origin::OriginContext;
 use super::origin::message_origin;
 use super::scalar::created_at;
 use super::scalar::instant;
 use super::turn::turn_id;
 use super::turn::turn_reference;
-use crate::activity::T3ActivityViewExt;
 use crate::dao::Conversation;
 use crate::transcript::{Transcript, TranscriptMessage};
-use moatless_core::change_feed::conversation::EVENTS_PER_CHANGE;
 use moatless_types::activity::Activity;
-use moatless_types::activity::ActivityKind;
-use moatless_types::activity::ActivityView;
 use moatless_types::message::MessageType;
 use moatless_types::message::TOOL_RESPONSE_USER_TYPE;
 
@@ -39,96 +31,6 @@ const ATTACHMENT_MIME_MAX_CHARS: usize = 100;
 pub(super) use crate::attachments::MAX_FILE_BYTES as ATTACHMENT_MAX_FILE_BYTES;
 pub(super) use crate::attachments::MAX_IMAGE_BYTES as ATTACHMENT_MAX_IMAGE_BYTES;
 use crate::attachments::SUPPORTED_IMAGE_MIME_TYPES;
-
-/// The two collections a conversation's transcript becomes.
-///
-/// T3 splits what somebody *said* (a message) from what the agent *did* to say
-/// it (activities); one Moatless Message can therefore produce both, or only
-/// activities.
-pub(super) struct RenderedTranscript {
-    pub(super) messages: Vec<Value>,
-    pub(super) activities: Vec<Value>,
-}
-
-/// Split a Task's stored rows into the messages and activities T3 renders.
-///
-/// Two walks, not one: an activity belongs to a Message by provenance, not
-/// containment, and a turn that only called tools has activities and no Message
-/// at all.
-pub(super) fn rendered_transcript(
-    conversation: &Conversation,
-    transcript: &Transcript,
-    origins: &OriginContext<'_>,
-) -> RenderedTranscript {
-    let mut rendered = RenderedTranscript {
-        messages: Vec::new(),
-        activities: Vec::new(),
-    };
-    if transcript.omitted > 0 {
-        rendered
-            .messages
-            .push(elision_notice(conversation, transcript));
-    }
-
-    for message in &transcript.messages {
-        let at = instant(message_instant(conversation, message));
-        let turn = turn_reference(conversation, message);
-        rendered
-            .messages
-            .extend(message_bubble(message, &turn, &at, origins));
-    }
-    let surviving = surviving_context_windows(transcript);
-    for activity in &transcript.activities {
-        if activity.kind == ActivityKind::ContextWindowUpdated
-            && !surviving.contains(activity.activity_id.as_str())
-        {
-            continue;
-        }
-        let (turn, at) = activity_anchor(conversation, transcript, activity);
-        rendered
-            .activities
-            .push(activity_row(activity, &turn, &at, transcript));
-    }
-
-    rendered
-}
-
-/// Which context-window readings a snapshot carries: the newest per turn.
-///
-/// The client reads the meter off the newest reading it holds, so earlier ones
-/// in the same turn render nothing; per turn, not per conversation, so a
-/// finished turn's ending reading stays legible beside it.
-fn surviving_context_windows(transcript: &Transcript) -> HashSet<&str> {
-    let mut newest: std::collections::HashMap<Value, &Activity> = std::collections::HashMap::new();
-    for activity in &transcript.activities {
-        if activity.kind != ActivityKind::ContextWindowUpdated {
-            continue;
-        }
-        let turn = transcript
-            .messages
-            .iter()
-            .rev()
-            .find(|message| {
-                message
-                    .created_at
-                    .is_some_and(|created| created <= activity.created_at)
-            })
-            .and_then(|message| message.turn_number)
-            .map_or(Value::Null, |number| json!(number));
-        newest
-            .entry(turn)
-            .and_modify(|held| {
-                if (held.position, held.ordinal) <= (activity.position, activity.ordinal) {
-                    *held = activity;
-                }
-            })
-            .or_insert(activity);
-    }
-    newest
-        .into_values()
-        .map(|activity| activity.activity_id.as_str())
-        .collect()
-}
 
 /// The bubble one Message contributes to the conversation, or `None` when it
 /// contributes none.
@@ -369,103 +271,6 @@ fn message_row(
     }
     row
 }
-
-/// One stored activity as the work-log row the contract carries.
-///
-/// The preview is cut once, in its own column, when the result arrived, rather
-/// than on every send; full `input`/`result`/`typedResult` stay in storage
-/// since this contract re-sends its whole snapshot on every move. `sequence`
-/// matches [`activity_sequence`].
-pub(super) fn activity_row(
-    activity: &Activity,
-    turn: &Value,
-    at: &str,
-    window: &Transcript,
-) -> Value {
-    let view = ActivityView::new(activity);
-    let mut payload = view.t3_payload();
-    stamp_subagent_usage(&mut payload, window);
-
-    json!({
-        "id": view.activity_id(),
-        "tone": view.t3_tone(),
-        "kind": panel_kind(activity, &window.settled_requests).unwrap_or_else(|| view.t3_kind()),
-        "summary": view.t3_summary(),
-        "payload": Value::Object(payload),
-        "turnId": turn,
-        "sequence": activity_sequence(activity),
-        "createdAt": at
-    })
-}
-
-/// What the subagent this row spawned has spent, on the row that names it.
-///
-/// Stamped here, not in the payload projection, because the numbers are summed
-/// across Messages the transcript excludes; keyed by the `taskId` already
-/// stamped, so a row naming no subagent is left alone.
-fn stamp_subagent_usage(payload: &mut Map<String, Value>, window: &Transcript) {
-    let Some(usage) = payload
-        .get("taskId")
-        .and_then(Value::as_str)
-        .and_then(|task_id| window.subagent_usage.get(task_id))
-    else {
-        return;
-    };
-    payload.insert(
-        "typedUsage".into(),
-        json!({
-            "totalTokens": usage.input_tokens + usage.output_tokens,
-            "inputTokens": usage.input_tokens,
-            "outputTokens": usage.output_tokens
-        }),
-    );
-}
-
-/// The requests whose call has come back — [`Transcript::settled_requests`].
-type SettledCalls = HashSet<String>;
-
-/// What a question's panel row is, once its call has come back.
-///
-/// The panel row is written beside the call, not as it, so its own status never
-/// moves; left at `requested` the client would keep it open forever, however
-/// the call was actually settled.
-fn panel_kind(activity: &Activity, settled: &SettledCalls) -> Option<&'static str> {
-    if activity.kind != ActivityKind::UserInputRequested {
-        return None;
-    }
-    let request_id = activity.payload.get("requestId").and_then(Value::as_str)?;
-    settled
-        .contains(request_id)
-        .then_some(crate::activity::USER_INPUT_RESOLVED_KIND)
-}
-
-/// Where one activity sits in the conversation's event numbering.
-///
-/// Matches what [`ConversationChange::sequence`] computes for the same row, so
-/// a client sees the same value whether it arrived in a snapshot or as an
-/// event; slot 0 is always the Message's bubble, whether or not one is emitted.
-pub(super) fn activity_sequence(activity: &Activity) -> i64 {
-    activity.position * EVENTS_PER_CHANGE + activity_slot(activity) + 1
-}
-
-/// The slot a row owns inside its change, above the bubble's slot 0.
-///
-/// A panel row is written beside its call at the same block, so block-only
-/// numbering would collide and drop it; derived rows take a band above every
-/// block a Message can hold. Read off the row, not stored, so old and new rows
-/// agree.
-pub(super) fn activity_slot(activity: &Activity) -> i64 {
-    let ordinal = i64::from(activity.ordinal);
-    match activity.kind {
-        ActivityKind::UserInputRequested | ActivityKind::PlanUpdated => DERIVED_SLOT_BASE + ordinal,
-        _ => ordinal,
-    }
-}
-
-/// Where the derived rows' slots begin. Above any block count a Message
-/// reaches, and below `PLAN_CARD_SLOT_BASE`, which is where the band stops: a
-/// Message holding 256 blocks or more puts a derived row on a plan card's slot.
-const DERIVED_SLOT_BASE: i64 = 512;
 
 /// When a Message happened.
 ///

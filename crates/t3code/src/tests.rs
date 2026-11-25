@@ -40,7 +40,6 @@ use crate::scripts::ScriptsError;
 use crate::scripts::ScriptsState;
 use crate::state::UiRpcState;
 use crate::subscriptions::OrchestrationV2SubscribeShellInput;
-use crate::subscriptions::thread_initial_values;
 use crate::subtasks::SubtasksState;
 use crate::terminal;
 use crate::workspace::WorkspaceAccessError;

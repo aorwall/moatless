@@ -1,7 +1,4 @@
 use crate::authentication::viewer_scope;
-use crate::config::ORCHESTRATION_PROTOCOL_HEADER;
-use crate::config::ORCHESTRATION_PROTOCOL_QUERY_PARAM;
-use crate::config::OrchestrationProtocol;
 use crate::dao::ListingError;
 use crate::oauth::invalid_request;
 use crate::projection;
@@ -19,7 +16,7 @@ use crate::scripts;
 use crate::scripts::ScriptsError;
 use crate::snapshots::SnapshotShape;
 use crate::snapshots::ThreadDetailV2;
-use crate::snapshots::shell_snapshot_in;
+use crate::snapshots::shell_snapshot;
 use crate::snapshots::thread_detail_v2;
 use crate::snapshots::thread_snapshot;
 use crate::state::UiRpcState;
@@ -27,7 +24,6 @@ use axum::Json;
 use axum::extract::Extension;
 use axum::extract::Path;
 use axum::extract::Query;
-use axum::extract::RawQuery;
 use axum::extract::State;
 use axum::extract::ws::WebSocketUpgrade;
 use axum::http::HeaderMap;
@@ -63,14 +59,12 @@ pub(crate) async fn auth_session(
 pub(crate) async fn shell_snapshot_http(
     State(state): State<UiRpcState>,
     Extension(identity): Extension<UiRpcAuthIdentity>,
-    headers: HeaderMap,
 ) -> Response {
     debug!(user_id = %identity.user_id, "T3 UI shell snapshot bootstrap");
-    match shell_snapshot_in(
+    match shell_snapshot(
         &state.reads,
         &state.model_defaults,
         &viewer_scope(&identity),
-        header_protocol(&state, &headers),
     )
     .await
     {
@@ -119,26 +113,16 @@ pub(crate) async fn thread_snapshot_http(
     State(state): State<UiRpcState>,
     Extension(identity): Extension<UiRpcAuthIdentity>,
     Path(thread_id): Path<String>,
-    headers: HeaderMap,
 ) -> Response {
     debug!(user_id = %identity.user_id, task_id = %thread_id, "T3 UI thread snapshot bootstrap");
-    let viewer = viewer_scope(&identity);
-    let snapshot = match header_protocol(&state, &headers) {
-        OrchestrationProtocol::V1 => {
-            thread_snapshot(&state.reads, &state.deployment(), &viewer, &thread_id)
-                .await
-                .map(|snapshot| snapshot.map(|snapshot| snapshot.value))
-        }
-        OrchestrationProtocol::V2 => thread_detail_v2(
-            &state.reads,
-            &state.deployment(),
-            state.subtasks.relations.as_ref(),
-            &viewer,
-            &thread_id,
-        )
-        .await
-        .map(|detail| detail.map(|detail| detail.snapshot)),
-    };
+    let snapshot = thread_snapshot(
+        &state.reads,
+        &state.deployment(),
+        state.subtasks.relations.as_ref(),
+        &viewer_scope(&identity),
+        &thread_id,
+    )
+    .await;
     match snapshot {
         Ok(Some(snapshot)) => Json(snapshot).into_response(),
         Ok(None) => conversation_not_found(),
@@ -189,9 +173,8 @@ pub(crate) async fn thread_bounded_snapshot_http(
     Extension(identity): Extension<UiRpcAuthIdentity>,
     Path(thread_id): Path<String>,
     Query(query): Query<BoundedSnapshotQuery>,
-    headers: HeaderMap,
 ) -> Response {
-    let mut detail = match readable_detail_v2(&state, &identity, &thread_id, &headers).await {
+    let mut detail = match readable_detail_v2(&state, &identity, &thread_id).await {
         Ok(detail) => detail,
         Err(response) => return *response,
     };
@@ -213,9 +196,8 @@ pub(crate) async fn thread_history_http(
     Extension(identity): Extension<UiRpcAuthIdentity>,
     Path(thread_id): Path<String>,
     Query(query): Query<HistoryPageQuery>,
-    headers: HeaderMap,
 ) -> Response {
-    let detail = match readable_detail_v2(&state, &identity, &thread_id, &headers).await {
+    let detail = match readable_detail_v2(&state, &identity, &thread_id).await {
         Ok(detail) => detail,
         Err(response) => return *response,
     };
@@ -236,17 +218,13 @@ pub(crate) async fn thread_history_http(
 }
 
 /// One readable thread's whole V2 projection, or the response that says it
-/// is absent: a V1 request names no route here, so it is absent too.
+/// is absent.
 async fn readable_detail_v2(
     state: &UiRpcState,
     identity: &UiRpcAuthIdentity,
     thread_id: &str,
-    headers: &HeaderMap,
 ) -> Result<ThreadDetailV2, Box<Response>> {
     debug!(user_id = %identity.user_id, task_id = %thread_id, "T3 UI bounded thread read");
-    if header_protocol(state, headers) != OrchestrationProtocol::V2 {
-        return Err(Box::new(conversation_not_found()));
-    }
     let detail = thread_detail_v2(
         &state.reads,
         &state.deployment(),
@@ -489,7 +467,6 @@ pub(crate) async fn websocket_upgrade(
     Extension(identity): Extension<UiRpcAuthIdentity>,
     method: Option<Extension<UiRpcAuthMethod>>,
     headers: HeaderMap,
-    RawQuery(query): RawQuery,
     websocket: WebSocketUpgrade,
 ) -> Response {
     if origin_checked(method) && !origin_allowed(&headers, &state.rpc.allowed_origins) {
@@ -505,32 +482,10 @@ pub(crate) async fn websocket_upgrade(
             .into_response();
     }
 
-    let protocol = state
-        .rpc
-        .protocol_for(requested_protocol(query.as_deref()).as_deref());
     websocket
         .max_message_size(MAX_FRAME_BYTES)
         .max_frame_size(MAX_FRAME_BYTES)
-        .on_upgrade(move |socket| serve_websocket(socket, state, identity, protocol))
-}
-
-/// The protocol an HTTP snapshot read is answered in.
-fn header_protocol(state: &UiRpcState, headers: &HeaderMap) -> OrchestrationProtocol {
-    state.rpc.protocol_for(
-        headers
-            .get(ORCHESTRATION_PROTOCOL_HEADER)
-            .and_then(|value| value.to_str().ok()),
-    )
-}
-
-/// The protocol version a `/ws` query string asks for, if it names one.
-pub(crate) fn requested_protocol(query: Option<&str>) -> Option<String> {
-    // Unescaped: the only value a client sends is a bare version number.
-    query?
-        .split('&')
-        .filter_map(|pair| pair.split_once('='))
-        .find(|(key, _)| *key == ORCHESTRATION_PROTOCOL_QUERY_PARAM)
-        .map(|(_, value)| value.to_string())
+        .on_upgrade(move |socket| serve_websocket(socket, state, identity))
 }
 
 /// Whether this upgrade's `Origin` has to be one we allow.
