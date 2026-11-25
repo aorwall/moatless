@@ -14,8 +14,8 @@ use crate::backend_client::{BackendClient, PluginFetch};
 use crate::config::Config;
 
 /// Fetch each of the task owner's plugins from the backend into
-/// [`Config::plugins_dir`], remove the skills they did not pick, and remove the
-/// plugins [`Config::removed_plugins`] names.
+/// [`Config::plugins_dir`], set aside the skills they did not pick, and remove
+/// the plugins [`Config::removed_plugins`] names.
 ///
 /// Non-fatal per plugin: one the backend cannot serve keeps the restored copy,
 /// pruned like a fresh one. Returns the plugins that are current.
@@ -52,7 +52,7 @@ pub async fn fetch_plugins(config: &Config, backend: &dyn BackendClient) -> Vec<
 
         let dropped = super::plugin_skills::keep_only(&dest, name, &plugin.skill_names);
         if dropped > 0 {
-            info!(name = %name, dropped, "Removed skills this task's owner did not pick");
+            info!(name = %name, dropped, "Set aside skills this task's owner did not pick");
         }
     }
 
@@ -63,7 +63,8 @@ pub async fn fetch_plugins(config: &Config, backend: &dyn BackendClient) -> Vec<
 #[derive(Debug, Serialize, Deserialize)]
 struct Installed {
     version: String,
-    /// The picks it was pruned to; a skill outside them is no longer on disk.
+    /// The picks it was pruned to; a skill outside them is no longer in its
+    /// skills root.
     skills: Vec<String>,
 }
 

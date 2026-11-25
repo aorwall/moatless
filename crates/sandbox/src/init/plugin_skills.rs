@@ -102,16 +102,24 @@ fn stage_single_plugin(plugin_path: &Path, plugin_name: &str, codex_skills_root:
         .sum()
 }
 
-/// Remove every skill directory in a fetched plugin that is not in `picked`
-/// (identified by directory name), returning how many went.
+/// Where [`keep_only`] moves a plugin's unpicked skills, inside the plugin
+/// copy so a fresh archive replaces it with the rest.
 ///
-/// Deletes unpicked skills, leaving manifest, commands, hooks and agents
-/// untouched; non-fatal — a failed removal just stays visible.
+/// Outside every skills root, so neither the Skill tool, the listing nor the
+/// Codex staging sees what is here; `agent::skill_refs` points an agent at it.
+const UNPICKED_DIR: &str = ".unpicked";
+
+/// Move each skill directory not in `picked` to [`UNPICKED_DIR`], expanding
+/// its `SKILL.md` placeholders since no Skill tool load will; returns how many.
+///
+/// Non-fatal: a skill that cannot be moved is deleted, and one that cannot be
+/// deleted stays visible.
 pub(super) fn keep_only(plugin_path: &Path, plugin_name: &str, picked: &[String]) -> usize {
     let mut dropped = 0usize;
 
     for (name, root) in plugin_components(plugin_path, plugin_name) {
         let skills_dir = root.join(resolve_plugin_skills_subdir(&root));
+        let unpicked_dir = unpicked_dir(plugin_path, &skills_dir);
         let entries = match std::fs::read_dir(&skills_dir) {
             Ok(entries) => entries,
             // No skills directory at all is the ordinary case for a plugin that
@@ -127,27 +135,56 @@ pub(super) fn keep_only(plugin_path: &Path, plugin_name: &str, picked: &[String]
             let Some(skill) = path.file_name().and_then(|n| n.to_str()) else {
                 continue;
             };
-            if picked.iter().any(|p| p == skill) {
+            // A skills path of `./` makes the plugin root the skills root, so
+            // `.unpicked` itself is listed here.
+            if skill.starts_with('.') || picked.iter().any(|p| p == skill) {
                 continue;
             }
-            match std::fs::remove_dir_all(&path) {
+            let target = unpicked_dir.join(skill);
+            match stash(&path, &target) {
                 Ok(()) => {
-                    debug!(plugin = %name, skill = %skill, "Removed unpicked skill");
+                    expand_staged_skill_md(&target, &root);
+                    debug!(plugin = %name, skill = %skill, "Set aside unpicked skill");
                     dropped += 1;
                 }
                 Err(e) => {
-                    warn!(
-                        plugin = %name,
-                        skill = %skill,
-                        error = %e,
-                        "Failed to remove unpicked skill (non-fatal)"
-                    );
+                    warn!(plugin = %name, skill = %skill, error = %e, "Failed to set aside unpicked skill; deleting it");
+                    match std::fs::remove_dir_all(&path) {
+                        Ok(()) => dropped += 1,
+                        Err(e) => warn!(
+                            plugin = %name,
+                            skill = %skill,
+                            error = %e,
+                            "Failed to remove unpicked skill (non-fatal)"
+                        ),
+                    }
                 }
             }
         }
     }
 
     dropped
+}
+
+/// The [`UNPICKED_DIR`] counterpart of `skills_dir`, mirroring its path in the
+/// plugin repository.
+fn unpicked_dir(plugin_path: &Path, skills_dir: &Path) -> PathBuf {
+    plugin_path.join(UNPICKED_DIR).join(
+        skills_dir
+            .strip_prefix(plugin_path)
+            .unwrap_or(Path::new("")),
+    )
+}
+
+/// Move `from` to `to`, replacing what a previous prune left there.
+fn stash(from: &Path, to: &Path) -> std::io::Result<()> {
+    if to.exists() {
+        std::fs::remove_dir_all(to)?;
+    }
+    if let Some(parent) = to.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::rename(from, to)
 }
 
 /// The `(name, root)` pairs a fetched plugin directory contains. A repo carrying
@@ -256,6 +293,8 @@ pub(crate) struct PluginNamespace {
     /// Where the namespace's skills live in the plugin's repository.
     pub(crate) repo_skills_dir: String,
     pub(crate) skills_dir: PathBuf,
+    /// Where [`keep_only`] set aside the namespace's unpicked skills.
+    pub(crate) unpicked_dir: PathBuf,
 }
 
 /// Every namespace an installed plugin under `plugins_root` declares, whether
@@ -283,6 +322,7 @@ pub(crate) fn plugin_namespaces(
                 plugin: plugin.name.clone(),
                 git_url: plugin.git_url.clone(),
                 repo_skills_dir,
+                unpicked_dir: unpicked_dir(&path, &skills_dir),
                 skills_dir,
             });
         }
@@ -786,11 +826,14 @@ mod tests {
     // ---- Pruning to the picked set ----
 
     #[test]
-    fn keep_only_removes_the_skills_nobody_picked() {
+    fn keep_only_sets_aside_the_skills_nobody_picked() {
         let root = tempdir().unwrap();
         let plugin = root.path().join("plugin-a");
         write(&plugin.join("skills/alpha/SKILL.md"), "alpha");
-        write(&plugin.join("skills/beta/SKILL.md"), "beta");
+        write(
+            &plugin.join("skills/beta/SKILL.md"),
+            "run ${CLAUDE_SKILL_DIR}/x.sh from ${CLAUDE_PLUGIN_ROOT}",
+        );
         write(&plugin.join("skills/beta/reference.md"), "ref");
 
         let dropped = keep_only(&plugin, "plugin-a", &["alpha".to_string()]);
@@ -800,6 +843,12 @@ mod tests {
         assert!(
             !plugin.join("skills/beta").exists(),
             "every file of an unpicked skill goes, not just its SKILL.md"
+        );
+        let aside = plugin.join(".unpicked/skills/beta");
+        assert!(aside.join("reference.md").exists());
+        assert_eq!(
+            std::fs::read_to_string(aside.join("SKILL.md")).unwrap(),
+            format!("run {}/x.sh from {}", aside.display(), plugin.display())
         );
     }
 
@@ -880,6 +929,11 @@ mod tests {
         assert!(plugin.join("plugins/one/skills/alpha/SKILL.md").exists());
         assert!(!plugin.join("plugins/one/skills/beta").exists());
         assert!(!plugin.join("plugins/two/skills/gamma").exists());
+        assert!(
+            plugin
+                .join(".unpicked/plugins/two/skills/gamma/SKILL.md")
+                .exists()
+        );
     }
 
     #[test]
@@ -907,5 +961,22 @@ mod tests {
             "a re-started sandbox re-runs the prune over an already-cloned plugin"
         );
         assert!(plugin.join("skills/alpha/SKILL.md").exists());
+        assert!(plugin.join(".unpicked/skills/beta/SKILL.md").exists());
+    }
+
+    #[test]
+    fn keep_only_does_not_set_aside_its_own_stash_under_a_root_skills_path() {
+        let root = tempdir().unwrap();
+        let plugin = root.path().join("plugin-r");
+        write(
+            &plugin.join(".claude-plugin/plugin.json"),
+            r#"{"name":"plugin-r","skills":"./"}"#,
+        );
+        write(&plugin.join("alpha/SKILL.md"), "alpha");
+        write(&plugin.join("beta/SKILL.md"), "beta");
+
+        assert_eq!(keep_only(&plugin, "plugin-r", &["alpha".to_string()]), 1);
+        assert_eq!(keep_only(&plugin, "plugin-r", &["alpha".to_string()]), 0);
+        assert!(plugin.join(".unpicked/beta/SKILL.md").exists());
     }
 }

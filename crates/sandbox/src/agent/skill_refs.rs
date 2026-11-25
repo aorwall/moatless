@@ -2,14 +2,17 @@
 //! this sandbox was not given.
 //!
 //! A plugin's activation records can pick a subset of its skills, and
-//! `init::workspace::fetch_plugins` deletes the rest. A LOOP.md, a brief or an
-//! `AGENTS.md` that names `factory:spec` then points at nothing, and the agent
-//! only finds out when the Skill tool answers "Unknown skill".
+//! `init::plugin_skills::keep_only` sets the rest aside where the Skill tool
+//! does not look. A LOOP.md, a brief, an `AGENTS.md` or a repository skill that
+//! names `factory:spec` then points at nothing, and the agent only finds out
+//! when the Skill tool answers "Unknown skill". The notice names the set-aside
+//! `SKILL.md` to read instead.
 
 use std::collections::{BTreeMap, HashSet};
 use std::fmt::Write as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use moatless_workspace_types::plugin::REPO_SKILL_ROOTS;
 use tracing::warn;
 
 use crate::config::Config;
@@ -54,7 +57,7 @@ pub(crate) async fn unresolved_notice(
     Some(notice(&missing))
 }
 
-/// One reference that resolves to no skill on disk.
+/// One reference that resolves to no delivered skill.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Missing {
     reference: String,
@@ -62,10 +65,16 @@ struct Missing {
     plugin: String,
     git_url: String,
     skill_path: String,
+    /// The set-aside `SKILL.md`; `None` when the plugin has no such skill.
+    unpicked: Option<PathBuf>,
 }
 
-/// Each checkout's root instruction files as `(label, text)`, a file reached
-/// twice through a symlink read once.
+/// Each checkout's root instruction files and repository skills as
+/// `(label, text)`, a file reached twice through a symlink read once.
+///
+/// A repository skill is read rather than left to its own turn: a
+/// Prerequisites line naming `infra:prod-change` is followed when the skill
+/// loads, and no notice reaches that turn.
 fn instruction_files(repo_dirs: &[String]) -> Vec<(String, String)> {
     let mut seen = HashSet::new();
     let mut files = Vec::new();
@@ -74,8 +83,10 @@ fn instruction_files(repo_dirs: &[String]) -> Vec<(String, String)> {
         let repo_name = repo
             .file_name()
             .map_or_else(|| repo_dir.clone(), |n| n.to_string_lossy().into_owned());
-        for file in INSTRUCTION_FILES {
-            let path = repo.join(file);
+        let mut paths: Vec<String> = INSTRUCTION_FILES.iter().map(|f| (*f).to_string()).collect();
+        paths.extend(repo_skill_files(repo));
+        for file in paths {
+            let path = repo.join(&file);
             let Ok(canonical) = std::fs::canonicalize(&path) else {
                 continue;
             };
@@ -87,6 +98,24 @@ fn instruction_files(repo_dirs: &[String]) -> Vec<(String, String)> {
                 Err(e) => warn!(path = %path.display(), error = %e, "Cannot read instructions"),
             }
         }
+    }
+    files
+}
+
+/// Every `<root>/<skill>/SKILL.md` under `repo`'s [`REPO_SKILL_ROOTS`],
+/// relative to `repo`, sorted within each root.
+fn repo_skill_files(repo: &Path) -> Vec<String> {
+    let mut files = Vec::new();
+    for root in REPO_SKILL_ROOTS {
+        let Ok(entries) = std::fs::read_dir(repo.join(root)) else {
+            continue;
+        };
+        let mut names: Vec<String> = entries
+            .filter_map(Result::ok)
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        files.extend(names.into_iter().map(|n| format!("{root}/{n}/SKILL.md")));
     }
     files
 }
@@ -110,12 +139,14 @@ fn unresolved(namespaces: &[PluginNamespace], sources: &[(String, String)]) -> V
             if ns.skills_dir.join(skill).join("SKILL.md").is_file() {
                 continue;
             }
+            let unpicked = ns.unpicked_dir.join(skill).join("SKILL.md");
             missing.push(Missing {
                 reference,
                 source: source.clone(),
                 plugin: ns.plugin.clone(),
                 git_url: ns.git_url.clone(),
                 skill_path: format!("{}/{skill}/SKILL.md", ns.repo_skills_dir),
+                unpicked: unpicked.is_file().then_some(unpicked),
             });
         }
     }
@@ -163,17 +194,26 @@ fn references(text: &str) -> Vec<(&str, &str)> {
 
 fn notice(missing: &[Missing]) -> String {
     let mut out = String::from(
-        "Named but not delivered to this sandbox: the plugin is installed, but its activation \
-         records for this Workspace and run-as user leave these skills out, so the Skill tool \
-         will not find them. Tell the user which are missing before you work without them; an \
-         admin turns one on with `moat plugins enable`.\n",
+        "Named but not delivered to this sandbox: the activation records for this Workspace and \
+         run-as user leave these plugin skills out, so the Skill tool will not find them. Where a \
+         path is given, read that `SKILL.md` and follow it as the Skill tool would have loaded \
+         it. Tell the user which were missing; an admin turns one on with `moat plugins enable`.\n",
     );
     for m in missing {
-        let _ = writeln!(
-            out,
-            "- `{}`, named in {}: plugin `{}`, {} at {}",
-            m.reference, m.source, m.plugin, m.git_url, m.skill_path
-        );
+        let _ = match &m.unpicked {
+            Some(path) => writeln!(
+                out,
+                "- `{}`, named in {}: read {}",
+                m.reference,
+                m.source,
+                path.display()
+            ),
+            None => writeln!(
+                out,
+                "- `{}`, named in {}: not in this sandbox's copy of plugin `{}`, {} at {}",
+                m.reference, m.source, m.plugin, m.git_url, m.skill_path
+            ),
+        };
     }
     out.push('\n');
     out
@@ -182,7 +222,6 @@ fn notice(missing: &[Missing]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     fn namespace(root: &Path, name: &str) -> PluginNamespace {
         PluginNamespace {
@@ -191,6 +230,7 @@ mod tests {
             git_url: "https://github.com/acme/skills".to_string(),
             repo_skills_dir: format!("plugins/{name}/skills"),
             skills_dir: root.join(name),
+            unpicked_dir: root.join(".unpicked").join(name),
         }
     }
 
@@ -239,8 +279,26 @@ mod tests {
                 plugin: "soaplabs".to_string(),
                 git_url: "https://github.com/acme/skills".to_string(),
                 skill_path: "plugins/factory/skills/spec/SKILL.md".to_string(),
+                unpicked: None,
             }]
         );
+    }
+
+    #[test]
+    fn a_set_aside_skill_is_reported_with_the_path_to_read() {
+        let tmp = tempfile::tempdir().unwrap();
+        with_skill(&tmp.path().join(".unpicked"), "factory", "build");
+        let namespaces = [namespace(tmp.path(), "factory")];
+        let sources = [("this message".to_string(), "Use factory:build.".to_string())];
+
+        let missing = unresolved(&namespaces, &sources);
+        let path = tmp.path().join(".unpicked/factory/build/SKILL.md");
+
+        assert_eq!(missing[0].unpicked.as_deref(), Some(path.as_path()));
+        assert!(notice(&missing).contains(&format!(
+            "- `factory:build`, named in this message: read {}",
+            path.display()
+        )));
     }
 
     #[test]
@@ -283,10 +341,31 @@ mod tests {
 
         let first = first.expect("a notice for the pruned skill");
         assert!(first.contains(
-            "- `soaplabs:verify-app`, named in AGENTS.md in repo: plugin `soaplabs`, \
-             https://github.com/acme/skills at skills/verify-app/SKILL.md"
+            "- `soaplabs:verify-app`, named in AGENTS.md in repo: not in this sandbox's copy of \
+             plugin `soaplabs`, https://github.com/acme/skills at skills/verify-app/SKILL.md"
         ));
         assert!(!first.contains("soaplabs:kept"));
         assert_eq!(again, None);
+    }
+
+    #[test]
+    fn a_repository_skill_is_read_once_through_its_symlinked_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("soap-app-gitops");
+        let skill = repo.join(".agents/skills/release-train");
+        std::fs::create_dir_all(&skill).unwrap();
+        std::fs::write(skill.join("SKILL.md"), "Load infra:prod-change first.").unwrap();
+        std::fs::create_dir_all(repo.join(".claude")).unwrap();
+        std::os::unix::fs::symlink("../.agents/skills", repo.join(".claude/skills")).unwrap();
+
+        let files = instruction_files(&[repo.display().to_string()]);
+
+        assert_eq!(
+            files,
+            [(
+                ".claude/skills/release-train/SKILL.md in soap-app-gitops".to_string(),
+                "Load infra:prod-change first.".to_string(),
+            )]
+        );
     }
 }
