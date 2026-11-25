@@ -1076,7 +1076,7 @@ def cmd_destroy(args: argparse.Namespace) -> None:
         raise ProvisionError("rendered infrastructure changed after destroy plan; create a new plan")
     if command_exists("kubectl"):
         context = update_kubeconfig(config)
-        run(["helm", "uninstall", "moatless-vibe", "--namespace", config["app_namespace"], "--kube-context", context], check=False)
+        run(["helm", "uninstall", "moatless", "--namespace", config["app_namespace"], "--kube-context", context], check=False)
         run(["kubectl", "--context", context, "-n", config["app_namespace"], "delete", "ingress", "--all", "--ignore-not-found"], check=False)
         run(["helm", "uninstall", "traefik", "--namespace", config["app_namespace"], "--kube-context", context], check=False)
         run(["helm", "uninstall", "aws-load-balancer-controller", "--namespace", "kube-system", "--kube-context", context], check=False)

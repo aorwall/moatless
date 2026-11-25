@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🚀 Moatless Vibe Docker Compose Setup"
+echo "🚀 Moatless Docker Compose Setup"
 echo "======================================"
 echo ""
 

@@ -1,6 +1,6 @@
 # Set all three image tags to the same release before deployment.
 # Requires an external Postgres and the Traefik preview service/CRDs.
-# Minimal AKS values for moatless-vibe.
+# Minimal AKS values for moatless.
 # Edit the domain/proxyDomain placeholders, then `moat k8s install`.
 sandboxImage:
   tag: latest

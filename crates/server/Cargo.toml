@@ -3,7 +3,7 @@ name = "moatless-backend"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-description = "Backend service for Moatless Vibe (sandbox orchestration, auth, tasks, agent)"
+description = "Backend service for Moatless (sandbox orchestration, auth, tasks, agent)"
 
 [dependencies]
 moatless-workspace-types = { workspace = true, features = ["schemas", "openapi"] }

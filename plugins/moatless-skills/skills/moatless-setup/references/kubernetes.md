@@ -72,13 +72,13 @@ Preparation is complete when preflight passes and `values.local.yaml` contains t
    moat k8s install \
      --context <handoff-context> \
      --namespace <namespace> \
-     --release moatless-vibe \
+     --release moatless \
      --values values.local.yaml \
      --wait
    moat k8s status \
      --context <handoff-context> \
      --namespace <namespace> \
-     --release moatless-vibe \
+     --release moatless \
      --json
    ```
 

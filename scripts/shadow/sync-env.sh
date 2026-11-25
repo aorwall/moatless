@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # sync-env.sh — Reproduce the "env sync" half of mirrord natively.
 #
-# Reads the live `moatless-vibe-backend` Deployment's container env (literal
+# Reads the live backend Deployment's container env (literal
 # values + secretKeyRef references) from the cluster we are already running in,
 # resolves the referenced Secrets, applies a few dev-only overrides, and writes
 # a sourceable env file for the shadow backend.
@@ -12,7 +12,7 @@
 # Usage: scripts/shadow/sync-env.sh [output-file]
 set -euo pipefail
 
-DEPLOY="${SHADOW_BACKEND_DEPLOY:-moatless-vibe-backend}"
+DEPLOY="${SHADOW_BACKEND_DEPLOY:-}"
 CONTAINER="${SHADOW_BACKEND_CONTAINER:-backend}"
 RUNTIME_DIR="${RUNTIME_DIR:-/run/moatless}"
 OUT="${1:-${SHADOW_ENV_FILE:-${RUNTIME_DIR}/shadow/backend.env}}"
@@ -40,6 +40,12 @@ done
 
 mkdir -p "$(dirname "$OUT")"
 
+# The release name prefixes the Deployment, so find it by its component label.
+if [ -z "$DEPLOY" ]; then
+  DEPLOY="$(kubectl get deploy -n "$NS" -l app.kubernetes.io/component=backend \
+    -o jsonpath='{.items[0].metadata.name}')"
+  [ -n "$DEPLOY" ] || { echo "no backend Deployment in ${NS}; set SHADOW_BACKEND_DEPLOY" >&2; exit 1; }
+fi
 echo "==> Reading env from ${NS}/deploy/${DEPLOY} (container: ${CONTAINER})" >&2
 
 DEPLOY_JSON="$(kubectl get deploy "$DEPLOY" -n "$NS" -o json)"

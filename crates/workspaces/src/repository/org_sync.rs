@@ -434,7 +434,7 @@ impl OrgSync {
     async fn get(&self, path: &str, token: &str) -> Result<reqwest::Response, RepositoryError> {
         self.http
             .get(format!("{}/{path}", self.github_api_base))
-            .header("User-Agent", "moatless-vibe-backend")
+            .header("User-Agent", moatless_core::USER_AGENT)
             .header("Accept", "application/vnd.github+json")
             .header("Authorization", format!("Bearer {token}"))
             .send()

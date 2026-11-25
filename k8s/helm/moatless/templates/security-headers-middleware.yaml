@@ -1,0 +1,24 @@
+{{- if and .Values.proxy.traefikIngressRoute.enabled .Values.proxy.securityHeaders.enabled }}
+# Edge security-response headers for the main app domain.
+#
+# HSTS is set here (not only in the frontend nginx) so it covers every response
+# on the origin — including backend API responses — rather than just the static
+# SPA shell. This closes the "Strict-Transport-Security header missing" finding
+# uniformly across the domain. Wired into every route in app-ingressroute.yaml.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ include "moatless.fullname" . }}-security-headers
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "moatless.labels" . | nindent 4 }}
+spec:
+  headers:
+    {{- if gt (int .Values.proxy.securityHeaders.stsSeconds) 0 }}
+    stsSeconds: {{ .Values.proxy.securityHeaders.stsSeconds }}
+    stsIncludeSubdomains: {{ .Values.proxy.securityHeaders.stsIncludeSubdomains }}
+    stsPreload: {{ .Values.proxy.securityHeaders.stsPreload }}
+    {{- end }}
+    # Content sniffing protection at the edge (mirrors the frontend nginx).
+    contentTypeNosniff: true
+{{- end }}

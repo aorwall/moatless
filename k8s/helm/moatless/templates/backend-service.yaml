@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "moatless.fullname" . }}-backend
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "moatless.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: http
+      protocol: TCP
+      name: http
+    - port: 9090
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+    - port: {{ .Values.backend.grpcPort | default 50051 }}
+      targetPort: grpc
+      protocol: TCP
+      name: grpc
+  selector:
+    {{- include "moatless.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: backend

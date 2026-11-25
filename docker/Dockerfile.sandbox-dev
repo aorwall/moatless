@@ -2,10 +2,10 @@
 # Dockerfile.sandbox-dev — precompiled dev sandbox image (published as moatless-dev).
 #
 # Extends the runtime sandbox image with WARM dependency caches for the
-# moatless-vibe shadow-dev servers (scripts/shadow/up.sh + the frontend dev
+# moatless shadow-dev servers (scripts/shadow/up.sh + the frontend dev
 # server), so a fresh provision recompiles/relinks only what actually changed
 # instead of downloading + building the whole world (~6-10 min cold). Used only
-# by the dedicated "moatless-vibe (shadow)" dev repo — not the default sandbox.
+# by the dedicated "moatless (shadow)" dev repo — not the default sandbox.
 #
 # Three caches are baked, all OUTSIDE the /opt/moatless workspace mount (wiped on
 # every provision) so they persist as image layers:
@@ -60,7 +60,7 @@ USER root
 # crates/, tooling/, scripts/) plus every workspace package.json +
 # bun.lock, and strips **/target/ and **/node_modules/ — so this copies clean
 # sources/manifests with no build artifacts.
-COPY . /tmp/moatless-vibe-src
+COPY . /tmp/moatless-src
 
 # Warm the cargo caches. Compile the backend once, then bake the compiled deps
 # into a real layer (the target cache mount doesn't persist into the image, so
@@ -68,11 +68,11 @@ COPY . /tmp/moatless-vibe-src
 # mounted, so cargo downloads sources straight into the real /opt/cargo/registry,
 # which persists as a layer.
 RUN --mount=type=cache,id=moatless-dev-target,target=/tmp/dev-target \
-    cd /tmp/moatless-vibe-src \
+    cd /tmp/moatless-src \
     && cargo build --release -p moatless-backend --target-dir /tmp/dev-target \
     && mkdir -p /opt/cargo-target \
     && cp -a /tmp/dev-target/. /opt/cargo-target/ \
-    && printf '%s\n' "$SOURCE_COMMIT" > /opt/cargo-target/.moatless-vibe-source-commit \
+    && printf '%s\n' "$SOURCE_COMMIT" > /opt/cargo-target/.moatless-source-commit \
     && rm -rf /opt/cargo-target/incremental
 
 # Warm the bun global install cache. Installing bun to a build-only location is
@@ -87,7 +87,7 @@ RUN --mount=type=cache,id=moatless-dev-target,target=/tmp/dev-target \
 # downloaded-dependency cache; the provision-time `bun install` runs those scripts
 # against the full clone.
 RUN curl -fsSL https://bun.sh/install | BUN_INSTALL=/opt/bun bash \
-    && cd /tmp/moatless-vibe-src \
+    && cd /tmp/moatless-src \
     && /opt/bun/bin/bun install --no-progress --ignore-scripts
 
 # Vite+ (`vp`) — https://viteplus.dev/guide/. sandbox-base installs it, but this
@@ -104,7 +104,7 @@ RUN curl -fsSL https://vite.plus | VP_VERSION="${VITE_PLUS_VERSION}" VP_NODE_MAN
     && ln -sf "$VP_HOME/bin/vp" /usr/local/bin/vp
 
 # Drop the sources and hand the warm caches to the runtime user.
-RUN rm -rf /tmp/moatless-vibe-src \
+RUN rm -rf /tmp/moatless-src \
     && chown -R moatless:moatless /opt/cargo-target /opt/cargo /opt/bun-cache /opt/bun /opt/vite-plus
 
 USER moatless

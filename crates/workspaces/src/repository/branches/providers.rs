@@ -30,7 +30,7 @@ pub(super) async fn fetch_github_branches(
                 "https://api.github.com/repos/{owner}/{repo}/branches?per_page=100&page={page}"
             ))
             .header("Authorization", format!("Bearer {token}"))
-            .header("User-Agent", "moatless-vibe-backend")
+            .header("User-Agent", moatless_core::USER_AGENT)
             .header("Accept", "application/vnd.github+json")
             .send()
             .await
@@ -95,7 +95,7 @@ pub(super) async fn fetch_github_branches(
     let default_branch = match client
         .get(format!("https://api.github.com/repos/{owner}/{repo}"))
         .header("Authorization", format!("Bearer {token}"))
-        .header("User-Agent", "moatless-vibe-backend")
+        .header("User-Agent", moatless_core::USER_AGENT)
         .header("Accept", "application/vnd.github+json")
         .send()
         .await

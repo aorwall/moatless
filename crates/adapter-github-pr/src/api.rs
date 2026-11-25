@@ -308,7 +308,7 @@ impl GithubPrApi {
         self.client
             .request(method, url)
             .header("Authorization", format!("Bearer {}", self.token))
-            .header("User-Agent", "moatless-vibe")
+            .header("User-Agent", moatless_core::USER_AGENT)
             .header("Accept", "application/vnd.github+json")
             .header("X-GitHub-Api-Version", "2022-11-28")
     }

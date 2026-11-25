@@ -3,7 +3,7 @@ name = "moatless-t3code"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-description = "T3 Code compatibility surface for Moatless Vibe"
+description = "T3 Code compatibility surface for Moatless"
 
 [dependencies]
 moatless-workspace-types = { workspace = true, features = ["schemas"] }

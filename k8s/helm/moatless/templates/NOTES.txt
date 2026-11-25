@@ -1,0 +1,60 @@
+Moatless has been deployed!
+
+{{- if .Values.ingress.enabled }}
+Access your application at:
+{{- range $host := .Values.ingress.hosts }}
+  http{{ if or $.Values.ingress.tls (hasKey $.Values.ingress.annotations "alb.ingress.kubernetes.io/certificate-arn") }}s{{ end }}://{{ $host.host }}
+{{- end }}
+{{- else }}
+Get the application URL by running:
+  export KUBE_CONTEXT="<target-context>"
+
+  # Frontend (nginx)
+  export POD_NAME=$(kubectl --context "$KUBE_CONTEXT" get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "moatless.name" . }},app.kubernetes.io/instance={{ .Release.Name }},app.kubernetes.io/component=app" -o jsonpath="{.items[0].metadata.name}")
+  kubectl --context "$KUBE_CONTEXT" --namespace {{ .Release.Namespace }} port-forward "$POD_NAME" 8080:80
+  echo "Visit http://localhost:8080"
+
+  # Backend API
+  export BACKEND_POD=$(kubectl --context "$KUBE_CONTEXT" get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "moatless.name" . }},app.kubernetes.io/instance={{ .Release.Name }},app.kubernetes.io/component=backend" -o jsonpath="{.items[0].metadata.name}")
+  kubectl --context "$KUBE_CONTEXT" --namespace {{ .Release.Namespace }} port-forward "$BACKEND_POD" 8080:8080
+{{- end }}
+
+{{- if and .Values.kubernetes.enabled (ne (.Values.kubernetes.computeMode | default "standard") "fargate") }}
+
+Kubernetes Execution Mode is ENABLED
+Sandbox pods will be created in namespace: {{ include "moatless.sandboxNamespace" . }}
+Sandbox image: {{ include "moatless.sandboxImage" . }}
+{{- end }}
+
+{{- if not .Values.externalSecrets.enabled }}
+{{- if not .Values.secrets.create }}
+
+IMPORTANT: You need to create secrets!
+
+Create the app Secret ({{ if .Values.postgres.enabled }}DATABASE_URL is set from the bundled Postgres, so omit it here{{ else }}point DATABASE_URL at your database{{ end }}):
+  kubectl create secret generic {{ include "moatless.secretsName" . }} \
+    --namespace {{ .Release.Namespace }} \
+    {{ if not .Values.postgres.enabled }}--from-literal=DATABASE_URL='postgres://user:pass@host:5432/db' \
+    {{ end }}--from-literal=SECRETS_ENCRYPTION_KEY="$(openssl rand -base64 32)" \
+    --from-literal=TASK_TOKEN_SECRET="$(openssl rand -hex 32)"
+{{- end }}
+{{- end }}
+
+{{- if and .Values.kubernetes.enabled (ne (.Values.kubernetes.computeMode | default "standard") "fargate") }}
+
+Recommended Node-Level Tuning (EKS)
+Set on nodes via Karpenter userData, DaemonSet, or launch template:
+
+  Required sysctls:
+    sysctl -w fs.inotify.max_user_watches=524288  # Vite/Next.js file watchers exhaust default 8192
+    sysctl -w vm.max_map_count=1048576             # V8 + esbuild mmap usage during heavy builds
+
+  Optional (needs kubelet --allowed-unsafe-sysctls on nodes):
+    net.core.somaxconn=1024        # HMR WebSocket burst connections (default 128)
+    net.ipv4.tcp_syn_retries=3     # Faster failure for in-cluster service calls
+
+  To add unsafe sysctls, set kubernetes.sandboxSysctls in values.yaml after
+  configuring kubelet --allowed-unsafe-sysctls=net.core.somaxconn,net.ipv4.tcp_syn_retries
+{{- end }}
+
+For more information, visit: https://github.com/soaplabs/moatless

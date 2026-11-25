@@ -15,7 +15,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.e2e
-    image: ${E2E_IMAGE:-moatless-vibe-e2e:latest}
+    image: ${E2E_IMAGE:-moatless-e2e:latest}
     container_name: moatless-e2e
     labels:
       - "created-by=moatless"

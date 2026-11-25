@@ -77,8 +77,8 @@ TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 # The inherited request and limit are whatever the backend was deployed with, so
 # prefer the live values over any constant compiled in here.
 backend_env() {
-  kubectl -n "$NAMESPACE" get deploy moatless-vibe-backend \
-    -o jsonpath="{.spec.template.spec.containers[0].env[?(@.name==\"$1\")].value}" \
+  kubectl -n "$NAMESPACE" get deploy -l app.kubernetes.io/component=backend \
+    -o jsonpath="{.items[0].spec.template.spec.containers[0].env[?(@.name==\"$1\")].value}" \
     2>/dev/null || true
 }
 

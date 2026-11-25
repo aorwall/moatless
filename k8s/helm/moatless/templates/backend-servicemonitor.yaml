@@ -1,0 +1,19 @@
+{{- if .Values.monitoring.prometheus.enabled -}}
+apiVersion: {{ .Values.monitoring.prometheus.apiVersion }}
+kind: ServiceMonitor
+metadata:
+  name: {{ include "moatless.fullname" . }}-backend
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "moatless.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+spec:
+  selector:
+    matchLabels:
+      {{- include "moatless.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: backend
+  endpoints:
+    - port: metrics
+      interval: {{ .Values.monitoring.prometheus.scrapeInterval }}
+      path: /metrics
+{{- end }}

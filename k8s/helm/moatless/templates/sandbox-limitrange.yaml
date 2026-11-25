@@ -1,0 +1,35 @@
+{{- /*
+LimitRange for the sandbox namespace. Ensures any pod scheduled into the
+sandbox namespace without explicit resource specs still gets sane defaults,
+and caps per-pod maxima to prevent a single workspace from exhausting the quota.
+Off by default — opt in via kubernetes.limitRange.enabled=true.
+*/ -}}
+{{- if and .Values.kubernetes.enabled .Values.kubernetes.limitRange .Values.kubernetes.limitRange.enabled -}}
+{{- $lr := .Values.kubernetes.limitRange -}}
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: {{ include "moatless.fullname" . }}-sandbox-limits
+  namespace: {{ include "moatless.sandboxNamespace" . }}
+  labels:
+    {{- include "moatless.labels" . | nindent 4 }}
+spec:
+  limits:
+    - type: Container
+      {{- with $lr.defaultRequest }}
+      defaultRequest:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $lr.default }}
+      default:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $lr.max }}
+      max:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $lr.min }}
+      min:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

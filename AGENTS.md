@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Moatless Vibe runs coding agents (Claude Code, Codex) in on-demand sandboxes
+Moatless runs coding agents (Claude Code, Codex) in on-demand sandboxes
 against git repositories, driven by a person or on a schedule by a Loop.
 `CONTEXT.md` is the glossary. `packages/` holds the shared TypeScript packages,
 `crates/` the Rust backend and sandbox, `tests/` the E2E suite, and `docker/`,

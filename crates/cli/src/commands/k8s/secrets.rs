@@ -22,7 +22,7 @@ use crate::output;
 
 #[derive(Subcommand)]
 pub enum SecretsAction {
-    /// Collect app secrets and apply them as `vibe-secrets` in the cluster
+    /// Collect app secrets and apply them as `moatless-secrets` in the cluster
     Bootstrap(BootstrapArgs),
 
     /// Show which keys are set in the cluster (values masked)
@@ -135,7 +135,7 @@ const CORE_KEYS: &[KeySpec] = &[
     KeySpec {
         key: "DATABASE_URL",
         required: true,
-        hint: "PostgreSQL URL, e.g. postgres://user:pass@host:5432/vibe",
+        hint: "PostgreSQL URL, e.g. postgres://user:pass@host:5432/moatless",
         secret: true,
     },
     KeySpec {
@@ -677,8 +677,8 @@ mod tests {
     fn renders_secret_manifest() {
         let mut data = BTreeMap::new();
         data.insert("K".to_string(), "v".to_string());
-        let yaml = render_secret_manifest("vibe", "vibe-secrets", &data);
-        assert!(yaml.contains("namespace: vibe"));
+        let yaml = render_secret_manifest("moatless", "moatless-secrets", &data);
+        assert!(yaml.contains("namespace: moatless"));
         assert!(yaml.contains("K: dg==")); // base64 of "v"
     }
 

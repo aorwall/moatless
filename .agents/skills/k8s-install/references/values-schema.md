@@ -1,6 +1,6 @@
 # Values review
 
-The [chart defaults](../../../../k8s/helm/moatless-vibe/values.yaml) and templates
+The [chart defaults](../../../../k8s/helm/moatless/values.yaml) and templates
 own the schema. `moat k8s init` generates the starting file; review it before apply.
 
 | Setting | Check |
@@ -25,7 +25,7 @@ interfaces. Read the workspace schema for `pvcEnabled`/`s3Enabled` overrides.
 Render a provider example without applying it:
 
 ```bash
-helm template skill-check k8s/helm/moatless-vibe \
+helm template skill-check k8s/helm/moatless \
   --namespace <namespace> -f .agents/skills/k8s-install/examples/values-eks-minimal.yaml
 ```
 

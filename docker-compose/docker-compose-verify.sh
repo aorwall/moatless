@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔍 Moatless Vibe Health Check"
+echo "🔍 Moatless Health Check"
 echo "=============================="
 echo ""
 

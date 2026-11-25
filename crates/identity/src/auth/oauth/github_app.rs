@@ -134,7 +134,7 @@ impl OAuthProvider for GitHubAppOAuthProvider {
             .http
             .get("https://api.github.com/user")
             .header("Authorization", format!("Bearer {}", tokens.access_token))
-            .header("User-Agent", "moatless-vibe-backend")
+            .header("User-Agent", moatless_core::USER_AGENT)
             .header("Accept", "application/vnd.github+json")
             .send()
             .await
@@ -170,7 +170,7 @@ impl OAuthProvider for GitHubAppOAuthProvider {
                     "https://api.github.com/user/orgs?per_page=100&page={page}"
                 ))
                 .header("Authorization", format!("Bearer {access_token}"))
-                .header("User-Agent", "moatless-vibe-backend")
+                .header("User-Agent", moatless_core::USER_AGENT)
                 .header("Accept", "application/vnd.github+json")
                 .send()
                 .await

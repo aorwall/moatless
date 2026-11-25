@@ -71,7 +71,7 @@ pub struct GitRepo {
     pub abs_path: String,
     /// Path prefix relative to the workspace dir. Empty when the workspace root
     /// is itself a repo, otherwise the subdirectory name (e.g.
-    /// `"moatless-vibe"`).
+    /// `"moatless"`).
     pub prefix: String,
 }
 

@@ -22,7 +22,11 @@ pub const PAGE_COLLECTION_ROUTE: &str = "/api/artifact-data/{token}/collections/
 /// Long enough for a page left open through a working day.
 const TTL_SECS: i64 = 12 * 60 * 60;
 
-const ISSUER: &str = "moatless-vibe-backend/artifact-page";
+const ISSUER: &str = "moatless-backend/artifact-page";
+
+/// Issuer before the rename to [`ISSUER`]. Still accepted for one [`TTL_SECS`],
+/// so open pages keep working through the rollout.
+const LEGACY_ISSUER: &str = "moatless-vibe-backend/artifact-page";
 
 /// What a token authorizes: one reader, on one Artifact, until `exp`.
 ///
@@ -70,7 +74,7 @@ pub fn mint(
 /// The claims of a token this deployment signed and that has not expired.
 pub fn verify(token: &str, signing_key: &str) -> Result<PageClaims, jsonwebtoken::errors::Error> {
     let mut validation = jsonwebtoken::Validation::default();
-    validation.set_issuer(&[ISSUER]);
+    validation.set_issuer(&[ISSUER, LEGACY_ISSUER]);
     jsonwebtoken::decode::<PageClaims>(
         token,
         &jsonwebtoken::DecodingKey::from_secret(signing_key.as_bytes()),

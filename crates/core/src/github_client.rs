@@ -35,7 +35,7 @@ pub async fn validate_github_token(
     let resp = client
         .get(format!("{api_base}/user"))
         .header("Authorization", format!("Bearer {token}"))
-        .header("User-Agent", "moatless-vibe")
+        .header("User-Agent", crate::USER_AGENT)
         .header("Accept", "application/vnd.github+json")
         .send()
         .await
@@ -83,7 +83,7 @@ pub async fn check_github_repo_access(
     let resp = client
         .get(format!("{api_base}/repos/{owner}/{repo}"))
         .header("Authorization", format!("Bearer {token}"))
-        .header("User-Agent", "moatless-vibe")
+        .header("User-Agent", crate::USER_AGENT)
         .header("Accept", "application/vnd.github+json")
         .send()
         .await

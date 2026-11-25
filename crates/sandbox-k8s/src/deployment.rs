@@ -177,7 +177,7 @@ pub async fn scale_deployment(
     deployments
         .patch(
             &deployment_name,
-            &PatchParams::apply("moatless-vibe-backend"),
+            &PatchParams::apply("moatless-backend"),
             &Patch::Merge(&patch),
         )
         .await?;
@@ -213,7 +213,7 @@ pub async fn stamp_operation_generation(
     deployments
         .patch(
             &deployment_name,
-            &PatchParams::apply("moatless-vibe-backend"),
+            &PatchParams::apply("moatless-backend"),
             &Patch::Merge(&operation_generation_patch(ctx)),
         )
         .await?;
@@ -258,7 +258,7 @@ pub async fn set_node_placement(
     deployments
         .patch(
             &deployment_name,
-            &PatchParams::apply("moatless-vibe-backend"),
+            &PatchParams::apply("moatless-backend"),
             &Patch::Merge(&patch),
         )
         .await?;

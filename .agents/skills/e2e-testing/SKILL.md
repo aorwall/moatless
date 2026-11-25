@@ -1,6 +1,6 @@
 ---
 name: e2e-testing
-description: Run and write the Moatless Vibe E2E suite (tests/api chains) through scripts/local-e2e/run.sh — a backend built from the checkout, its own Postgres schema, and every task's sandbox a local process. Use when running tests, writing new chains, running the CI E2E job, sweeping leftovers, or debugging failures.
+description: Run and write the Moatless E2E suite (tests/api chains) through scripts/local-e2e/run.sh — a backend built from the checkout, its own Postgres schema, and every task's sandbox a local process. Use when running tests, writing new chains, running the CI E2E job, sweeping leftovers, or debugging failures.
 ---
 
 # E2E Testing

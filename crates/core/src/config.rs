@@ -1,4 +1,4 @@
-//! Configuration module for the Moatless Vibe backend service.
+//! Configuration module for the Moatless backend service.
 //!
 //! Loads configuration from environment variables with sensible defaults.
 //! Config is grouped into logical sub-structs for readability and to enable
@@ -462,12 +462,13 @@ pub struct SandboxConfig {
     /// The node archive manager and the node-storage janitor both prune under
     /// it. Env `K8S_SANDBOX_CACHE_HOST_ROOT` (default `/mnt/cache`).
     pub cache_host_root: String,
+    /// Backend Service host for sandboxes. Env `K8S_BACKEND_SERVICE_HOST`.
+    pub backend_service_host: String,
     /// Image for the privileged `dind` sidecar attached when a repo sets
-    /// `dockerAccess: true`. Env `K8S_SANDBOX_DOCKER_DIND_IMAGE`.
-    ///
-    /// Must be allowlisted by the `restrict-image-registries` Kyverno
-    /// policy, and Docker 25 or newer: the sidecar passes `--feature=` to
-    /// `dockerd`, which an older one rejects at startup rather than ignoring.
+    /// `dockerAccess: true`. Env `K8S_SANDBOX_DOCKER_DIND_IMAGE`. Must be
+    /// allowlisted by any registry-restricting admission policy, and Docker
+    /// 25 or newer: the sidecar passes `--feature=` to `dockerd`, which an
+    /// older one rejects at startup rather than ignoring.
     pub docker_dind_image: String,
     /// Size cap for the `dind` sidecar's `/var/lib/docker` emptyDir when
     /// `resources.dockerStorageMode` is `emptyDir`.
@@ -704,7 +705,7 @@ pub struct OtelConfig {
 
 impl OtelConfig {
     const DEFAULT_SAMPLING_RATIO: f64 = 0.1;
-    const DEFAULT_SERVICE_NAME: &'static str = "moatless-vibe-backend";
+    const DEFAULT_SERVICE_NAME: &'static str = "moatless-backend";
 
     /// Reads directly from the environment without a `tracing::warn!` on bad
     /// values — this runs before `startup::init_tracing` installs a subscriber,
@@ -940,6 +941,7 @@ impl Config {
                 extra_env: parse_extra_env("K8S_SANDBOX_EXTRA_ENV"),
                 claude_disallowed_tools: env_opt("K8S_SANDBOX_CLAUDE_DISALLOWED_TOOLS"),
                 cache_host_root: env_str("K8S_SANDBOX_CACHE_HOST_ROOT", "/mnt/cache"),
+                backend_service_host: env_str("K8S_BACKEND_SERVICE_HOST", "moatless-backend"),
                 docker_dind_image: env_str(
                     "K8S_SANDBOX_DOCKER_DIND_IMAGE",
                     "docker.io/library/docker:29.8.2-dind",
@@ -1456,6 +1458,7 @@ impl Config {
                 extra_env: vec![],
                 claude_disallowed_tools: None,
                 cache_host_root: "/mnt/cache".into(),
+                backend_service_host: "moatless-backend".into(),
                 docker_dind_image: "docker:dind".into(),
                 docker_dind_storage_size: "10Gi".into(),
                 docker_dind_cpu_request: "500m".into(),

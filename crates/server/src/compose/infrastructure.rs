@@ -226,10 +226,10 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     merged.merge(WorkspaceApiDoc::openapi());
 
     merged.info = utoipa::openapi::InfoBuilder::new()
-        .title("Moatless Vibe Backend API")
+        .title("Moatless Backend API")
         .version(env!("CARGO_PKG_VERSION"))
         .description(Some(
-            "Sandbox orchestration and authentication for Moatless Vibe",
+            "Sandbox orchestration and authentication for Moatless",
         ))
         .build();
 

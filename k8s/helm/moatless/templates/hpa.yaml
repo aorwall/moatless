@@ -1,0 +1,74 @@
+{{- /*
+HorizontalPodAutoscalers for backend and frontend. Disabled by default.
+When an HPA is enabled, replicas in the Deployment act as the initial value only
+(HPA takes over). Requires metrics-server in the cluster.
+*/ -}}
+{{- if and .Values.backend.autoscaling .Values.backend.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "moatless.fullname" . }}-backend
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "moatless.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "moatless.fullname" . }}-backend
+  minReplicas: {{ .Values.backend.autoscaling.minReplicas | default 2 }}
+  maxReplicas: {{ .Values.backend.autoscaling.maxReplicas | default 6 }}
+  metrics:
+    {{- with .Values.backend.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ . }}
+    {{- end }}
+    {{- with .Values.backend.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ . }}
+    {{- end }}
+---
+{{- end }}
+{{- if and .Values.autoscaling .Values.autoscaling.enabled (not (and .Values.t3.enabled (not .Values.t3.host))) }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "moatless.fullname" . }}-frontend
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "moatless.labels" . | nindent 4 }}
+    app.kubernetes.io/component: app
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "moatless.fullname" . }}
+  minReplicas: {{ .Values.autoscaling.minReplicas | default 2 }}
+  maxReplicas: {{ .Values.autoscaling.maxReplicas | default 6 }}
+  metrics:
+    {{- with .Values.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ . }}
+    {{- end }}
+    {{- with .Values.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ . }}
+    {{- end }}
+{{- end }}

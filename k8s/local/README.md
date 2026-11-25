@@ -1,6 +1,6 @@
-# Moatless Vibe on a local Kubernetes cluster
+# Moatless on a local Kubernetes cluster
 
-Run Moatless Vibe on a single-node Kubernetes cluster on your machine, using
+Run Moatless on a single-node Kubernetes cluster on your machine, using
 locally built images and the chart's first-party Postgres. This is the
 supported local path — no Docker Hub pull, no private registry mirror, no cloud.
 
@@ -62,7 +62,7 @@ helm install traefik traefik/traefik -n moatless \
 ## 3. Secrets (never in a committed values file)
 
 ```bash
-kubectl -n moatless create secret generic moatless-vibe-secrets \
+kubectl -n moatless create secret generic moatless-secrets \
   --from-literal=DATABASE_URL='postgres://moatless:moatless@postgres:5432/moatless' \
   --from-literal=SECRETS_ENCRYPTION_KEY="$(openssl rand -base64 32)" \
   --from-literal=TASK_TOKEN_SECRET="$(openssl rand -hex 32)" \
@@ -70,8 +70,8 @@ kubectl -n moatless create secret generic moatless-vibe-secrets \
   --from-literal=ADMIN_PASSWORD='choose-a-strong-password'
 ```
 
-The deployment expects the Secret to be named exactly `moatless-vibe-secrets`
-(`{release}-secrets`, and the release must be `moatless-vibe` — see step 4).
+The deployment expects the Secret to be named exactly `moatless-secrets`
+(`{release}-secrets` for the release `moatless` installed in step 4).
 `values-local.yaml` keeps `secrets.create: false` so Helm does not fight this
 hand-made Secret.
 
@@ -89,14 +89,8 @@ WARN on first boot.
 
 ## 4. Install
 
-**The release name must be `moatless-vibe`.** The backend hardcodes the sandbox's
-callback host as `moatless-vibe-backend`
-(`backend/src/sandbox/k8s/pod_builder.rs`), which is `{release}-backend` only for
-this release name. Install it under any other name and every sandbox fails to
-reach the backend with a gRPC `dns error`.
-
 ```bash
-helm install moatless-vibe ./k8s/helm/moatless-vibe -n moatless -f k8s/local/values-local.yaml
+helm install moatless ./k8s/helm/moatless -n moatless -f k8s/local/values-local.yaml
 ```
 
 ## 5. Verify boot
@@ -106,7 +100,7 @@ helm install moatless-vibe ./k8s/helm/moatless-vibe -n moatless -f k8s/local/val
 # logs and continues, /health still returns 200), so a green pod is not proof.
 # On a cold start the backend retries the DB connection for ~30s to ride out a
 # Postgres that is still initializing.
-kubectl -n moatless logs deploy/moatless-vibe-backend | grep "Database migrations complete"
+kubectl -n moatless logs deploy/moatless-backend | grep "Database migrations complete"
 
 # App reachable through Traefik. Anonymous /auth/me is 401 — that is correct.
 curl -H 'Host: moatless.localhost' localhost/api/v1/auth/me      # 401
@@ -118,11 +112,11 @@ Open `http://moatless.localhost`, sign in at `/login`, and you are in.
 
 - **Login needs no OAuth.** `auth.provider` is empty (the default), so the
   backend runs local username/password auth. An `admin` account is seeded at
-  boot from `ADMIN_PASSWORD` in the `moatless-vibe-secrets` Secret; when that key is
+  boot from `ADMIN_PASSWORD` in the `moatless-secrets` Secret; when that key is
   absent a random password is generated and logged **once** at WARN:
 
   ```bash
-  kubectl -n moatless logs deploy/moatless-vibe-backend | grep "generated a bootstrap admin password"
+  kubectl -n moatless logs deploy/moatless-backend | grep "generated a bootstrap admin password"
   ```
 
   Sign in at `http://moatless.localhost/login`, then change the password under

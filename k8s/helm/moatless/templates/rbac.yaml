@@ -1,0 +1,152 @@
+{{- if .Values.rbac.create -}}
+{{- $sandboxNamespace := include "moatless.sandboxNamespace" . -}}
+# Pod / PVC / secret / service / deployment management.
+# Role lives in the sandbox namespace; subject is the backend ServiceAccount in the release namespace.
+# When sandbox namespace == release namespace, this collapses to the original single-namespace setup.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "moatless.fullname" . }}-pod-manager
+  namespace: {{ $sandboxNamespace }}
+  labels:
+    {{- include "moatless.labels" . | nindent 4 }}
+rules:
+  {{- toYaml .Values.rbac.rules | nindent 2 }}
+  # Per-sandbox preview NetworkPolicies admit Traefik to a workspace's declared
+  # preview ports; created and torn down with the workspace (k8s/networkpolicy.rs).
+  # `update` widens a policy that already exists, which is how a script's port is
+  # admitted after the sandbox started (admit_preview_port's guarded replace).
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "list", "create", "update", "delete"]
+  {{- if .Values.kubernetes.nodeArchive.enabled }}
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create", "delete", "get", "list", "update"]
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "moatless.fullname" . }}-pod-manager
+  namespace: {{ $sandboxNamespace }}
+  labels:
+    {{- include "moatless.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "moatless.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ include "moatless.fullname" . }}-pod-manager
+  apiGroup: rbac.authorization.k8s.io
+---
+# Traefik IngressRoute management permissions
+# IngressRoutes are CRDs created alongside sandbox workspaces — live in sandbox namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "moatless.fullname" . }}-ingressroute-manager
+  namespace: {{ $sandboxNamespace }}
+  labels:
+    {{- include "moatless.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["traefik.io"]
+    resources: ["ingressroutes"]
+    verbs: ["get", "list", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "moatless.fullname" . }}-ingressroute-manager
+  namespace: {{ $sandboxNamespace }}
+  labels:
+    {{- include "moatless.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "moatless.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ include "moatless.fullname" . }}-ingressroute-manager
+  apiGroup: rbac.authorization.k8s.io
+---
+# Observability permissions: K8s events + metrics-server pod metrics — read from sandbox namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "moatless.fullname" . }}-observability
+  namespace: {{ $sandboxNamespace }}
+  labels:
+    {{- include "moatless.labels" . | nindent 4 }}
+rules:
+  # K8s Events — used by sandbox diagnostics (pod_reader::fetch_pod_runtime_events)
+  # and the pod watcher (pod_watcher::fetch_pod_event_cause) to name the cause of
+  # scheduling_blocked / startup_slow windows.
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list"]
+  # Metrics API — used by sandbox diagnostics (pod_reader::fetch_container_resource_usage)
+  # Requires metrics-server to be installed in the cluster
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "moatless.fullname" . }}-observability
+  namespace: {{ $sandboxNamespace }}
+  labels:
+    {{- include "moatless.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "moatless.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+  {{- /*
+    When sandbox pods run under a dedicated ServiceAccount (kubernetes.sandboxServiceAccount),
+    bind it here too so in-sandbox troubleshooting (`kubectl get events`, `kubectl top pods`)
+    works. Read-only get/list on events + metrics.k8s.io/pods — no escalation. When the value
+    is empty, sandboxes fall back to the backend SA (already a subject above), so this is a no-op.
+  */ -}}
+  {{- if .Values.kubernetes.sandboxServiceAccount }}
+  - kind: ServiceAccount
+    name: {{ .Values.kubernetes.sandboxServiceAccount }}
+    namespace: {{ $sandboxNamespace }}
+  {{- end }}
+roleRef:
+  kind: Role
+  name: {{ include "moatless.fullname" . }}-observability
+  apiGroup: rbac.authorization.k8s.io
+{{- if .Values.kubernetes.nodeArchive.enabled }}
+---
+# Node-local archive placement needs only node discovery: retained starts
+# select the newest recorded node that still exists, and legacy hard deletion
+# fans out to nodes matching the sandbox selector.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "moatless.fullname" . }}-node-reader
+  labels:
+    {{- include "moatless.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "moatless.fullname" . }}-node-reader
+  labels:
+    {{- include "moatless.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "moatless.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: {{ include "moatless.fullname" . }}-node-reader
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}
+{{- end }}

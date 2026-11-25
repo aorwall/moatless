@@ -1,0 +1,14 @@
+apiVersion: v2
+name: moatless
+description: A Helm chart for Moatless - AI-powered development platform
+type: application
+version: 0.1.29
+appVersion: "1.0.0"
+keywords:
+  - moatless
+  - ai
+  - development
+  - claude
+maintainers:
+  - name: Moatless Team
+    url: https://github.com/aorwall

@@ -5,11 +5,11 @@ dotenv:
   - .env
 
 vars:
-  NAMESPACE: '{{.NAMESPACE | default "vibe"}}'
-  RELEASE_NAME: '{{.RELEASE_NAME | default "moatless-vibe"}}'
+  NAMESPACE: '{{.NAMESPACE | default "moatless"}}'
+  RELEASE_NAME: '{{.RELEASE_NAME | default "moatless"}}'
   TAG: '{{.TAG | default "latest"}}'
   PLATFORM: '{{.PLATFORM | default "linux/amd64"}}'
-  HELM_CHART: k8s/helm/moatless-vibe
+  HELM_CHART: k8s/helm/moatless
   # Registry org segment for image tags. Override via REGISTRY_ORG env or
   # `task ... REGISTRY_ORG=<your-org>`. Defaults to `aorwall` for upstream.
   REGISTRY_ORG: '{{.REGISTRY_ORG | default "aorwall"}}'
@@ -233,10 +233,10 @@ tasks:
     desc: Show deployment status
     cmds:
       - echo "==> Pods:"
-      - kubectl get pods -n {{.NAMESPACE}} -l app.kubernetes.io/name=moatless-vibe
+      - kubectl get pods -n {{.NAMESPACE}} -l app.kubernetes.io/name=moatless
       - echo ""
       - echo "==> Deployment:"
-      - kubectl get deployment -n {{.NAMESPACE}} -l app.kubernetes.io/name=moatless-vibe
+      - kubectl get deployment -n {{.NAMESPACE}} -l app.kubernetes.io/name=moatless
       - echo ""
       - echo "==> Sandbox pods:"
       - kubectl get pods -n {{.NAMESPACE}} -l app.kubernetes.io/component=sandbox 2>/dev/null || echo "No sandbox pods running"

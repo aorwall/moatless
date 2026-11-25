@@ -1,0 +1,22 @@
+{{- /*
+Create the sandbox namespace when:
+  - kubernetes.createNamespace is true, and
+  - kubernetes.namespace is set to something other than the release namespace.
+Otherwise this template renders nothing (the sandbox namespace is assumed to pre-exist
+or to equal the release namespace).
+*/ -}}
+{{- if .Values.kubernetes.createNamespace -}}
+{{- $sandboxNamespace := include "moatless.sandboxNamespace" . -}}
+{{- if ne $sandboxNamespace .Release.Namespace -}}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $sandboxNamespace }}
+  labels:
+    {{- include "moatless.labels" . | nindent 4 }}
+    moatless.io/sandbox-namespace: "true"
+    kubernetes.io/metadata.name: {{ $sandboxNamespace }}
+  annotations:
+    moatless.io/managed-by-release: {{ .Release.Name | quote }}
+{{- end }}
+{{- end }}

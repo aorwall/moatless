@@ -1,6 +1,6 @@
 # moatless-sandbox
 
-Rust sandbox runtime for Moatless Vibe sandbox pods.
+Rust sandbox runtime for Moatless sandbox pods.
 
 Each module's `//!` doc states what it owns.
 

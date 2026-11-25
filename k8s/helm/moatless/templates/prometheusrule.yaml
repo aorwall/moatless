@@ -1,0 +1,26 @@
+{{- if and .Values.monitoring.prometheus.enabled .Values.monitoring.prometheus.alerting.enabled -}}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "moatless.fullname" . }}-alerts
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "moatless.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+spec:
+  groups:
+    - name: moatless.adapters
+      rules:
+        - alert: LinearAdapterAuthFailing
+          expr: sum(rate(moatless_adapter_api_total{outcome="auth_error"}[5m])) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Linear adapter is getting 401s from the Linear API"
+            description: >-
+              Outbound Linear API calls have been returning auth_error (401) for
+              5m. The workspace OAuth token was likely revoked or invalidated
+              server-side and the reactive refresh could not recover it.
+              Re-install the integration: `moat adapters install --adapter linear`.
+{{- end }}

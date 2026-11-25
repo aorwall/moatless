@@ -1,6 +1,6 @@
-# Moatless Vibe
+# Moatless
 
-The ubiquitous language for Moatless Vibe — a platform that runs coding agents
+The ubiquitous language for Moatless — a platform that runs coding agents
 (Claude Code, Codex, Pi, mini-swe-agent, and ACP agents such as Antigravity) inside on-demand sandboxes against git repositories, driven
 by people directly or by Loops (recurring agent work), scoped to users (or global).
 

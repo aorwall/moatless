@@ -67,7 +67,7 @@ pub(super) fn claims_for(user_id: &str) -> jwt::UserTokenClaims {
         sandbox_id: None,
         iat: 0,
         exp: u64::MAX,
-        iss: "moatless-vibe-backend".to_string(),
+        iss: jwt::ISSUER.to_string(),
         aud: None,
         generation: 0,
     }

@@ -108,7 +108,7 @@ impl GitHostSkillFetcher {
         let client = Client::builder()
             .connect_timeout(timeouts.connect)
             .timeout(timeouts.total)
-            .user_agent("moatless-vibe-backend")
+            .user_agent(moatless_core::USER_AGENT)
             .build()
             .expect("the TLS backend initialises");
         Self { client }

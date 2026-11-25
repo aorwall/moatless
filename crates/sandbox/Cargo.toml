@@ -3,7 +3,7 @@ name = "moatless-sandbox"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-description = "In-container sandbox process for Moatless Vibe"
+description = "In-container sandbox process for Moatless"
 
 [lib]
 name = "moatless_sandbox"

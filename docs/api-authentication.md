@@ -1,6 +1,6 @@
 # API Authentication Guide
 
-This guide explains how to authenticate with the Moatless Vibe API.
+This guide explains how to authenticate with the Moatless API.
 
 There are two credentials: a **session cookie** (browsers and the CLI login
 flow) and an **API key** (programmatic access). Every API route requires one or
@@ -32,7 +32,7 @@ redirects to the configured provider instead.
 
 ## Overview
 
-API keys provide programmatic access to the Moatless Vibe API. They can be used for:
+API keys provide programmatic access to the Moatless API. They can be used for:
 - CI/CD pipelines
 - Automated testing
 - Third-party integrations

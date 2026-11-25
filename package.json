@@ -1,16 +1,16 @@
 {
-  "name": "moatless-vibe",
+  "name": "moatless",
   "version": "0.1.0",
-  "description": "Web UI for Vibe coding with Claude Code",
+  "description": "Run coding agents in on-demand sandboxes against git repositories",
   "author": "Albert Örwall",
   "repository": {
     "type": "git",
-    "url": "https://github.com/aorwall/moatless-vibe"
+    "url": "https://github.com/aorwall/moatless"
   },
   "bugs": {
-    "url": "https://github.com/aorwall/moatless-vibe/issues"
+    "url": "https://github.com/aorwall/moatless/issues"
   },
-  "homepage": "https://github.com/aorwall/moatless-vibe#readme",
+  "homepage": "https://github.com/aorwall/moatless#readme",
   "engines": {
     "node": ">=22.16.x"
   },

@@ -1,0 +1,70 @@
+{{- /*
+Sandbox-access egress: one NetworkPolicy per enabled profile, so an opted-in
+sandbox can reach the kube-apiserver (and anything else that profile needs,
+e.g. a database).
+
+The base sandbox NetworkPolicy allows external egress as `0.0.0.0/0` minus the
+RFC1918 ranges, and its in-cluster rules cover only kube-dns and the backend.
+The kube-apiserver ClusterIP (`172.20.0.1` on a default-service-CIDR EKS
+cluster) falls inside `172.16.0.0/12`, so it is excluded and `kubectl` hangs on
+connect until this policy adds it back. The same goes for an in-VPC database.
+
+The map key is the pod label value, which is also what a workspace puts in its
+`networkProfile` field — so the selector and the profile name cannot drift apart.
+
+NetworkPolicy allows are additive and these are Egress-only, so they widen the
+base policy for the labelled pods and leave ingress (backend gRPC, Traefik
+preview) alone.
+
+Keep these keys OUT of `egressProxy.profiles`: a sealed profile is excluded from
+the base sandbox policy, which would leave those pods with API-server access and
+no general internet.
+
+Rendered only when kubernetes.enabled and the sandbox NetworkPolicy is in use —
+with no base policy to widen there is nothing to do.
+*/ -}}
+{{- if and .Values.kubernetes.enabled .Values.networkPolicy.sandbox.enabled -}}
+{{- $root := . -}}
+{{- $apiServerCidrs := .Values.sandboxAccess.apiServerCidrs -}}
+{{- range $name, $profile := .Values.sandboxAccess.profiles }}
+{{- if $profile.enabled }}
+{{- if and $root.Values.egressProxy.enabled $root.Values.egressProxy.sealEgress (has $name $root.Values.egressProxy.profiles) }}
+{{- fail (printf "sandboxAccess.profiles.%s is also listed in egressProxy.profiles — a sealed profile is excluded from the base sandbox NetworkPolicy, so those pods would keep only this policy's egress plus the proxy path and silently lose general internet. Use a distinct profile name for one of the two." $name) }}
+{{- end }}
+{{- if not $apiServerCidrs }}
+{{- fail (printf "sandboxAccess.profiles.%s is enabled but sandboxAccess.apiServerCidrs is empty — the ServiceAccount would carry RBAC with no route to the API server, so kubectl would still time out. Set it to the kube-apiserver ClusterIP: kubectl -n default get svc kubernetes -o jsonpath='{.spec.clusterIP}'. (A profile's extraEgress does not substitute: it opens databases and other in-VPC destinations, not the API server.)" $name) }}
+{{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ printf "%s-%s" (include "moatless.fullname" $root) $name | trunc 63 | trimSuffix "-" }}
+  namespace: {{ include "moatless.sandboxNamespace" $root }}
+  labels:
+    {{- include "moatless.labels" $root | nindent 4 }}
+    moatless.io/access-profile: {{ $name }}
+    moatless.io/network-profile: {{ $name }}
+spec:
+  podSelector:
+    matchLabels:
+      moatless.io/network-profile: {{ $name }}
+  policyTypes:
+    - Egress
+  egress:
+    # kube-apiserver — what `kubectl` actually dials. Always present: the guard
+    # above fails the render when apiServerCidrs is empty.
+    - to:
+        {{- range $apiServerCidrs }}
+        - ipBlock:
+            cidr: {{ . }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ $root.Values.sandboxAccess.apiServerPort }}
+    {{- with $profile.extraEgress }}
+    # Databases and other in-VPC destinations the base policy excludes.
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

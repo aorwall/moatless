@@ -11,7 +11,7 @@ resources. An `alb` or Azure ingress class does not replace that Traefik hop.
 Install/configure Traefik and its CRDs, service, namespace watching, and preview
 auth middleware to match the chart and sandbox namespace.
 
-Read [proxy-ingress.yaml](../../../../k8s/helm/moatless-vibe/templates/proxy-ingress.yaml)
+Read [proxy-ingress.yaml](../../../../k8s/helm/moatless/templates/proxy-ingress.yaml)
 and [sandbox ingress](../../../../crates/sandbox-k8s/src/ingress.rs) before changing
 routing. A Gateway API controller alone does not consume the chart's Ingress
 resources; this chart does not generate a Gateway/HTTPRoute migration.

@@ -1,0 +1,19 @@
+{{- if not (and .Values.t3.enabled (not .Values.t3.host)) }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "moatless.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "moatless.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "moatless.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: app
+{{- end }}

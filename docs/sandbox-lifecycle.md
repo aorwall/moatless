@@ -97,7 +97,7 @@ Notable behaviors:
 - **Per-repo resource overrides**: the repository config's `resources` field
   overrides the global CPU/memory requests/limits. Defaults are deliberately
   Burstable: requests 1 CPU / 2Gi, limits 4 CPU / **16Gi** (raised from 8Gi
-  after parallel-subagent OOMs, PR #306). Heavy repos (e.g. moatless-vibe
+  after parallel-subagent OOMs, PR #306). Heavy repos (e.g. moatless
   itself) set their own.
 - **Sandbox tokens**: pods authenticate back to the backend with an HS256
   JWT (user token 7d TTL, bootstrap token 30min).

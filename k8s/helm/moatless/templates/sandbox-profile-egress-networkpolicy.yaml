@@ -1,0 +1,35 @@
+{{- /*
+Per-profile extra egress. For each entry in networkPolicy.sandbox.profileEgress,
+emit a NetworkPolicy carrying that profile's rules verbatim. NetworkPolicy
+allows are additive, so these widen the base sandbox policy for the labelled
+pods only.
+
+Egress-only: ingress is left to the base sandbox policy so backend gRPC +
+Traefik preview still reach the pod. A profile listed here and in
+egressProxy.profiles is not sealed — these rules still apply.
+*/}}
+{{- if and .Values.kubernetes.enabled .Values.networkPolicy.sandbox.enabled }}
+{{- $ns := include "moatless.sandboxNamespace" . }}
+{{- $fullname := include "moatless.fullname" . }}
+{{- range $profile, $rules := .Values.networkPolicy.sandbox.profileEgress }}
+{{- if $rules }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ printf "%s-profile-egress-%s" $fullname $profile | trunc 63 | trimSuffix "-" }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "moatless.labels" $ | nindent 4 }}
+    moatless.io/network-profile: {{ $profile }}
+spec:
+  podSelector:
+    matchLabels:
+      moatless.io/network-profile: {{ $profile }}
+  policyTypes:
+    - Egress
+  egress:
+    {{- toYaml $rules | nindent 4 }}
+{{- end }}
+{{- end }}
+{{- end }}

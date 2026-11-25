@@ -3,11 +3,11 @@
 use crate::client::ClientError;
 use crate::commands::subprocess::{CmdOutput, run, run_streaming};
 
-pub(super) const DEFAULT_RELEASE: &str = "moatless-vibe";
-pub(super) const DEFAULT_NAMESPACE: &str = "vibe";
-pub(super) const SECRET_NAME: &str = "vibe-secrets";
+pub(super) const DEFAULT_RELEASE: &str = "moatless";
+pub(super) const DEFAULT_NAMESPACE: &str = "moatless";
+pub(super) const SECRET_NAME: &str = "moatless-secrets";
 pub(super) const PULL_SECRET_NAME: &str = "ghcr-secret";
-pub(super) const DEFAULT_CHART_PATH: &str = "k8s/helm/moatless-vibe";
+pub(super) const DEFAULT_CHART_PATH: &str = "k8s/helm/moatless";
 pub(super) const DEFAULT_VALUES_FILE: &str = "values.local.yaml";
 
 /// Explicit Kubernetes target for kubectl and Helm subprocesses.
@@ -181,12 +181,12 @@ mod tests {
             ]
         );
         assert_eq!(
-            target.helm_args(&["status", "moatless-vibe", "-n", "moatless"]),
+            target.helm_args(&["status", "moatless", "-n", "moatless"]),
             [
                 "--kube-context",
                 "moatless-dev-eu-north-1",
                 "status",
-                "moatless-vibe",
+                "moatless",
                 "-n",
                 "moatless",
             ]

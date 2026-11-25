@@ -56,7 +56,7 @@ fn parse_github_remote_forms() {
 fn a_proxied_origin_is_recognized_whichever_url_names_the_backend() {
     assert_eq!(
         any_host_proxy_repository_id(
-            "http://moatless-vibe-backend.moatless.svc.cluster.local:8080/git/repo_1"
+            "http://moatless-backend.moatless.svc.cluster.local:8080/git/repo_1"
         ),
         Some("repo_1")
     );

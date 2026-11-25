@@ -64,7 +64,7 @@ impl GitHubLoopFetcher {
         let client = Client::builder()
             .connect_timeout(timeouts.connect)
             .timeout(timeouts.total)
-            .user_agent("moatless-vibe-backend")
+            .user_agent(moatless_core::USER_AGENT)
             .build()
             .expect("the TLS backend initialises");
         Self { client, api_base }
@@ -178,7 +178,7 @@ async fn send_github_json<T: for<'de> Deserialize<'de>>(
 ) -> Result<Option<T>, LoopError> {
     let mut req = client
         .get(url)
-        .header("User-Agent", "moatless-vibe-backend")
+        .header("User-Agent", moatless_core::USER_AGENT)
         .header("Accept", accept);
     if let Some(tok) = token {
         req = req.header("Authorization", format!("Bearer {tok}"));
@@ -223,7 +223,7 @@ async fn fetch_github_raw(
 ) -> Result<Option<String>, LoopError> {
     let mut req = client
         .get(url)
-        .header("User-Agent", "moatless-vibe-backend")
+        .header("User-Agent", moatless_core::USER_AGENT)
         .header("Accept", "application/vnd.github.raw+json");
     if let Some(tok) = token {
         req = req.header("Authorization", format!("Bearer {tok}"));

@@ -392,7 +392,7 @@ impl LinearAgentApi {
             .post(&self.graphql_url)
             .header("Authorization", format!("Bearer {access_token}"))
             .header("Content-Type", "application/json")
-            .header("User-Agent", "moatless-vibe")
+            .header("User-Agent", moatless_core::USER_AGENT)
             .json(&body)
             .send()
             .await
@@ -1348,7 +1348,7 @@ pub fn http_client(timeouts: HttpTimeouts) -> Client {
     Client::builder()
         .connect_timeout(timeouts.connect)
         .timeout(timeouts.total)
-        .user_agent("moatless-vibe")
+        .user_agent(moatless_core::USER_AGENT)
         .build()
         .expect("the TLS backend initialises")
 }

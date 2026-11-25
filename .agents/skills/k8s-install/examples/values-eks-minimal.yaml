@@ -1,6 +1,6 @@
 # Set all three image tags to the same release before deployment.
 # Requires an external Postgres and the Traefik preview service/CRDs.
-# Minimal EKS values for moatless-vibe.
+# Minimal EKS values for moatless.
 # Replace placeholders (domains, ACM cert ARN), then `moat k8s install`.
 sandboxImage:
   tag: latest
@@ -15,7 +15,7 @@ ingress:
     alb.ingress.kubernetes.io/ssl-redirect: "443"
     alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:123456789012:certificate/REPLACE
     alb.ingress.kubernetes.io/healthcheck-path: /health
-    alb.ingress.kubernetes.io/group.name: moatless-vibe
+    alb.ingress.kubernetes.io/group.name: moatless
   hosts:
     - host: moatless.example.com
       paths:
@@ -32,7 +32,7 @@ proxyIngress:
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
     alb.ingress.kubernetes.io/ssl-redirect: "443"
     alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:123456789012:certificate/REPLACE
-    alb.ingress.kubernetes.io/group.name: moatless-vibe
+    alb.ingress.kubernetes.io/group.name: moatless
   host: "*.preview.example.com"
   tls:
     secretName: proxy-wildcard-tls

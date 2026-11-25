@@ -1,7 +1,7 @@
 {
   "//": "Shadow-dev variant of .moatless/workspaces.json. Runs a shadow backend as a",
   "//1": "Script in the sandbox. Point a",
-  "//2": "dedicated 'moatless-vibe (shadow)' repo/branch at this, or copy it over",
+  "//2": "dedicated 'moatless (shadow)' repo/branch at this, or copy it over",
   "//3": "workspaces.json for a dev task. Do NOT make this the default for agent tasks —",
   "//4": "the backend Script compiles Rust on start, which is heavy.",
   "//5": "The sandbox image must include the Rust toolchain + bun (full sandbox image).",
@@ -18,7 +18,7 @@
   "workspaces": [
     {
       "key": "shadow",
-      "name": "moatless-vibe (shadow)",
+      "name": "moatless (shadow)",
       "description": "A shadow backend in one sandbox",
       "repos": [{ "url": "https://github.com/soaplabs/moatless", "primary": true }],
       "codeExecution": {

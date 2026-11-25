@@ -1,15 +1,10 @@
-# Moatless Vibe — local single-node Kubernetes (Docker Desktop, kubeadm mode).
+# Moatless — local single-node Kubernetes (Docker Desktop, kubeadm mode).
 #
 # Bring-up runbook and gotchas: k8s/local/README.md
-# Contains NO secrets — create Secret/moatless-vibe-secrets by hand (see README).
-#
-# The release name MUST be `moatless-vibe`: the backend hardcodes the sandbox
-# callback host as `moatless-vibe-backend` (crates/sandbox-k8s/src/pod_builder.rs),
-# which is `{release}-backend` only when the release is `moatless-vibe`. Any other
-# release name leaves every sandbox unable to reach the backend (gRPC dns error).
+# Contains NO secrets — create Secret/moatless-secrets by hand (see README).
 #
 # Install:
-#   helm install moatless-vibe ./k8s/helm/moatless-vibe -n moatless -f k8s/local/values-local.yaml
+#   helm install moatless ./k8s/helm/moatless -n moatless -f k8s/local/values-local.yaml
 
 # --- Images: use locally built :dev images, never pull from Docker Hub ---------
 # Chart defaults are pullPolicy: Always + tag: latest, which forces a registry

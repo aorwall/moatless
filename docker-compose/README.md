@@ -1,6 +1,6 @@
 # Docker Compose Deployment Guide
 
-This guide covers deploying Moatless Vibe using Docker Compose with PostgreSQL and Docker-based sandbox provisioning.
+This guide covers deploying Moatless using Docker Compose with PostgreSQL and Docker-based sandbox provisioning.
 
 ## Table of Contents
 
@@ -28,8 +28,8 @@ unchanged.
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/aorwall/moatless-vibe.git
-   cd moatless-vibe
+   git clone https://github.com/aorwall/moatless.git
+   cd moatless
    ```
 
 2. **Run setup script**

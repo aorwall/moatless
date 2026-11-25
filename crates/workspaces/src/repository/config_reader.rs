@@ -109,7 +109,7 @@ async fn github_moatless_dir_exists(
     let client = http;
     let mut req = client
         .get(&url)
-        .header("User-Agent", "moatless-vibe-backend")
+        .header("User-Agent", moatless_core::USER_AGENT)
         .header("Accept", "application/vnd.github+json");
     if let Some(token) = token {
         req = req.header("Authorization", format!("Bearer {token}"));
@@ -231,7 +231,7 @@ pub(crate) async fn github_branch_head(
 
     let mut req = http
         .get(&url)
-        .header("User-Agent", "moatless-vibe-backend")
+        .header("User-Agent", moatless_core::USER_AGENT)
         .header("Accept", "application/vnd.github.sha");
     if let Some(token) = token {
         req = req.header("Authorization", format!("Bearer {token}"));
@@ -276,7 +276,7 @@ async fn fetch_github_file(
     let client = http;
     let mut req = client
         .get(&url)
-        .header("User-Agent", "moatless-vibe-backend")
+        .header("User-Agent", moatless_core::USER_AGENT)
         .header("Accept", "application/vnd.github.raw+json");
     if let Some(token) = token {
         req = req.header("Authorization", format!("Bearer {token}"));

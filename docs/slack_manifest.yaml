@@ -17,7 +17,7 @@
 
 display_information:
   name: Moatless
-  description: Run tasks in Moatless Vibe
+  description: Run tasks in Moatless
   background_color: "#b216d9"
 
 features:

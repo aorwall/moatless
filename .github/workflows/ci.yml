@@ -1534,15 +1534,15 @@ jobs:
       - name: Update chart version
         run: |
           SHA_TAG="sha-${GITHUB_SHA::7}"
-          sed -i "s/^version:.*/version: 0.0.0-${SHA_TAG}/" k8s/helm/moatless-vibe/Chart.yaml
-          sed -i "s/^appVersion:.*/appVersion: \"latest\"/" k8s/helm/moatless-vibe/Chart.yaml
+          sed -i "s/^version:.*/version: 0.0.0-${SHA_TAG}/" k8s/helm/moatless/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"latest\"/" k8s/helm/moatless/Chart.yaml
 
       - name: Update chart dependencies
-        run: helm dependency update k8s/helm/moatless-vibe
+        run: helm dependency update k8s/helm/moatless
 
       - name: Package and push chart
         run: |
-          helm package k8s/helm/moatless-vibe -d ./dist
+          helm package k8s/helm/moatless -d ./dist
           helm push ./dist/moatless-*.tgz "oci://registry-1.docker.io/${{ env.REGISTRY_ORG }}"
 
   # ── Drop this run's binary-handoff cache entries ──

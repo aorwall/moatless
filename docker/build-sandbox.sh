@@ -106,7 +106,7 @@ while [[ $# -gt 0 ]]; do
     --help)
       echo "Usage: $0 [OPTIONS]"
       echo ""
-      echo "Build moatless-vibe sandbox Docker images."
+      echo "Build moatless sandbox Docker images."
       echo ""
       echo "Images built (in order):"
       echo "  1. sandbox-base - Stable base (Ubuntu, Node, Bun, pnpm, Playwright, CLIs)"

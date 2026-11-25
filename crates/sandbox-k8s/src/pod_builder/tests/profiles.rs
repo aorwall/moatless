@@ -103,7 +103,7 @@ fn per_repo_network_profile_sets_pod_label() {
 /// network profile is in the opt-in list.
 #[test]
 fn egress_proxy_env_injected_only_for_opted_in_profile() {
-    const URL: &str = "http://moatless-vibe-egress-proxy.moatless.svc.cluster.local:3128";
+    const URL: &str = "http://moatless-egress-proxy.moatless.svc.cluster.local:3128";
 
     let sandbox_proxy = |pod: &Pod, key: &str| -> Option<String> {
         pod.spec

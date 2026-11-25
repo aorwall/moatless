@@ -4,7 +4,7 @@
 # yarn, TypeScript/tsx, Vite+ (`vp`), Playwright + Chromium, @moatless/inspector
 # in /opt/node_modules, the Rust toolchain (rustup/cargo/clippy/rustfmt) plus
 # protoc/pkg-config/mold/sccache so agents can build Rust projects — including
-# moatless-vibe itself — inside the sandbox, git, system tools, moatless user.
+# moatless itself — inside the sandbox, git, system tools, moatless user.
 # Does NOT contain: the compiled sandbox/moat binaries or entrypoint scripts —
 # those are added by leaf images (Dockerfile.sandbox and the recipe images)
 # so the expensive layers here cache across normal code changes.
@@ -277,7 +277,7 @@ RUN mkdir -p /home/$USERNAME/.cache \
 COPY --chown=$USER_UID:$USER_GID --chmod=600 docker/sandbox-kubeconfig /home/$USERNAME/.kube/config
 
 # Install the Rust toolchain (rustup default profile: rustc, cargo, clippy,
-# rustfmt) so agents can build/test Rust projects — including moatless-vibe —
+# rustfmt) so agents can build/test Rust projects — including moatless —
 # inside the sandbox. RUSTUP_HOME/CARGO_HOME live under /opt and are owned by the
 # moatless user so `cargo build`/`cargo install` can write the registry cache and
 # any downloaded toolchains at runtime.

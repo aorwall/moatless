@@ -1,7 +1,7 @@
 //! Kubernetes installation commands (`moat k8s ...`).
 //!
 //! Guides users through preflight → init → secrets → install → verify for
-//! deploying Moatless Vibe into a Kubernetes cluster. Shells out to the
+//! deploying Moatless into a Kubernetes cluster. Shells out to the
 //! locally-installed `kubectl` and `helm` binaries.
 
 mod args;

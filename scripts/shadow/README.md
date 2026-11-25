@@ -1,6 +1,6 @@
 # Shadow backend — mirrord-style dev, without mirrord
 
-Run the moatless-vibe **backend inside a moatless sandbox** and use it
+Run the moatless **backend inside a moatless sandbox** and use it
 like the real backend. mirrord exists to bridge a laptop *into* a cluster; a
 sandbox is **already a pod in the dev cluster**, so the hard parts (outgoing
 traffic, DNS, cluster identity) are free or native. This harness reproduces the
@@ -11,7 +11,7 @@ rest.
 | mirrord capability | Native equivalent here |
 | --- | --- |
 | Outgoing traffic + DNS (reach Postgres, K8s API, sandbox ClusterIPs) | **Free** — the sandbox is on the pod network already |
-| Env / secret sync from the target | `sync-env.sh` reads the live `moatless-vibe-backend` Deployment env + resolves `moatless-secrets` |
+| Env / secret sync from the target | `sync-env.sh` reads the live backend Deployment env + resolves `moatless-secrets` |
 | Copy the target's ServiceAccount token (RBAC to create pods) | Helm `shadowDev` toggle (`templates/shadow-dev-rbac.yaml`) binds a `moatless-dev` SA to the backend's existing Roles |
 | Steal incoming traffic | Not needed for HTTP: the backend has its own `--8080` preview URL, and sibling containers reach `localhost:8080`; for sandbox gRPC callbacks the backend self-advertises its address (Phase 3) |
 
@@ -38,8 +38,8 @@ separate container:
 
 So the shadow backend should be declared as a **Script** with
 `command: "bash scripts/shadow/up.sh"`. Put it on a **dedicated Workspace** —
-**not** whatever workspace the shared/global `moatless-vibe` repo already uses.
-Declaring the `backend` Script there would make **every** moatless-vibe task
+**not** whatever workspace the shared/global `moatless` repo already uses.
+Declaring the `backend` Script there would make **every** moatless task
 (agents included) compile Rust on start. Keep it isolated: create a dedicated
 repository record for the git connection, then a dedicated workspace carrying
 the Script:
@@ -48,11 +48,11 @@ the Script:
 # User-scoped dev repo pointing at the same GitHub repo (only you use it) —
 # a repository record is only a git connection; run-configuration lives on
 # the workspace, set separately below:
-REPO_ID=$(moat repos create --name "moatless-vibe (shadow)" \
-  --git-url https://github.com/soaplabs/moatless-vibe --branch main \
+REPO_ID=$(moat repos create --name "moatless (shadow)" \
+  --git-url https://github.com/soaplabs/moatless --branch main \
   --json | jq -r '.id')
 
-moat workspaces create --name "moatless-vibe (shadow)" \
+moat workspaces create --name "moatless (shadow)" \
   --docker-access true \
   --docker-image <ecr-registry>/moatless-dev:latest \
   --setup-commands-json '[
@@ -264,7 +264,7 @@ shadowDev:
 ```
 
 ```bash
-helm upgrade moatless-vibe k8s/helm/moatless-vibe -n moatless --set shadowDev.enabled=true
+helm upgrade moatless k8s/helm/moatless -n moatless --set shadowDev.enabled=true
 # or: task deploy   (uses the chart)
 ```
 
@@ -303,23 +303,17 @@ the cluster.)
 
 ## Phase 3 — own the control loop (small Rust change)
 
-`backend/src/sandbox/k8s/pod_builder.rs` currently **hardcodes** the callback URL
-it stamps into every sandbox it spawns:
-
-```rust
-env_var("BACKEND_GRPC_URL",
-    &format!("http://moatless-vibe-backend.{}.svc.cluster.local:{}", ns, grpc_port))
-```
-
-So a shadow backend's child sandboxes would call the *real* backend, not the
+`crates/sandbox-k8s/src/pod_builder/containers.rs` stamps the callback URL into
+every sandbox it spawns as `http://<K8S_BACKEND_SERVICE_HOST>.<namespace>.svc…`,
+and `sync-env.sh` copies the real backend's `K8S_BACKEND_SERVICE_HOST`. So a
+shadow backend's child sandboxes would call the *real* backend, not the
 shadow. To fully act like the backend:
 
-1. Make the advertised URL configurable (e.g. env `BACKEND_ADVERTISE_GRPC_URL` /
-   `BACKEND_ADVERTISE_API_URL`), defaulting to today's value. The shadow sets it
-   to its own pod/Service address.
+1. Override `K8S_BACKEND_SERVICE_HOST` in the shadow's env with a Service that
+   routes to the shadow pod.
 2. Expose port `50051` on the shadow sandbox's Service so children can reach it.
 3. Allow child → shadow on `50051` in the sandbox `NetworkPolicy`
-   (`k8s/helm/moatless-vibe/templates/sandbox-networkpolicy.yaml`).
+   (`k8s/helm/moatless/templates/sandbox-networkpolicy.yaml`).
 
 ## Files
 
@@ -336,5 +330,5 @@ shadow. To fully act like the backend:
   caches so `up.sh` rebuilds fast (point the shadow repo's `dockerImage` at it)
 - `../../.github/workflows/build-dev-image.yml` — on-demand (workflow_dispatch)
   job that builds + pushes `moatless-dev:latest`
-- `../../k8s/helm/moatless-vibe/templates/shadow-dev-rbac.yaml` — Phase 2 dev SA +
+- `../../k8s/helm/moatless/templates/shadow-dev-rbac.yaml` — Phase 2 dev SA +
   RoleBindings, gated on `shadowDev.enabled` in `values.yaml`

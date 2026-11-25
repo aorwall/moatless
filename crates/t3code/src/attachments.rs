@@ -57,7 +57,7 @@ const MIME_MAX_CHARS: usize = 100;
 /// token's `exp`, so the URL really does stop working.
 const UPLOAD_TTL_SECS: i64 = 10 * 60;
 
-const UPLOAD_TOKEN_ISSUER: &str = "moatless-vibe-backend/attachment-upload";
+const UPLOAD_TOKEN_ISSUER: &str = "moatless-backend/attachment-upload";
 
 /// How much of a declared size is allocated before any of it arrives.
 ///

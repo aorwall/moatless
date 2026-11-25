@@ -1,6 +1,6 @@
 # Kubernetes Deployment with Helm
 
-This directory contains the Helm chart for deploying Moatless Vibe to Kubernetes.
+This directory contains the Helm chart for deploying Moatless to Kubernetes.
 
 ## Prerequisites
 
@@ -15,11 +15,11 @@ This directory contains the Helm chart for deploying Moatless Vibe to Kubernetes
 
 ```bash
 # Create namespace
-kubectl create namespace vibe
+kubectl create namespace moatless
 
 # Create secrets with your API keys
-kubectl create secret generic vibe-secrets \
-  --namespace vibe \
+kubectl create secret generic moatless-secrets \
+  --namespace moatless \
   --from-literal=CLAUDE_CODE_OAUTH_TOKEN=<your-token> \
   --from-literal=ANTHROPIC_API_KEY=<your-key> \
   --from-literal=GITHUB_TOKEN=<your-token> \
@@ -30,20 +30,20 @@ kubectl create secret generic vibe-secrets \
 
 ```bash
 # From the repository root
-helm install vibe ./k8s/helm/moatless-vibe \
-  --namespace vibe \
+helm install moatless ./k8s/helm/moatless \
+  --namespace moatless \
   --set externalSecrets.enabled=true
 ```
 
 ### 3. Upgrade the Chart
 
 ```bash
-helm upgrade vibe ./k8s/helm/moatless-vibe --namespace vibe
+helm upgrade moatless ./k8s/helm/moatless --namespace moatless
 ```
 
 ## Configuration
 
-See `helm/moatless-vibe/values.yaml` for all available configuration options.
+See `helm/moatless/values.yaml` for all available configuration options.
 
 ### Key Configuration Options
 
@@ -66,7 +66,7 @@ ingress:
         - path: /
           pathType: Prefix
   tls:
-    - secretName: my-vibe-tls
+    - secretName: my-moatless-tls
       hosts:
         - moatless.example.com
 
@@ -82,8 +82,8 @@ proxy:
 ```
 
 ```bash
-helm install vibe ./k8s/helm/moatless-vibe \
-  --namespace vibe \
+helm install moatless ./k8s/helm/moatless \
+  --namespace moatless \
   -f custom-values.yaml
 ```
 
@@ -99,7 +99,7 @@ helm install vibe ./k8s/helm/moatless-vibe \
                │                              │
                ▼                              ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│                     vibe-moatless-vibe Service                    │
+│                     moatless Service                             │
 │              Port 8000 (api)  │  Port 8080 (proxy)               │
 └──────────────────────────────────────────────────────────────────┘
                │                              │
@@ -133,16 +133,16 @@ helm install vibe ./k8s/helm/moatless-vibe \
 
 ```bash
 # Watch pods
-kubectl get pods -n vibe -w
+kubectl get pods -n moatless -w
 
 # Check pod logs
-kubectl logs -n vibe -l app.kubernetes.io/name=moatless-vibe
+kubectl logs -n moatless -l app.kubernetes.io/name=moatless
 
 # Check ingress status
-kubectl get ingress -n vibe
+kubectl get ingress -n moatless
 
 # Check certificates
-kubectl get certificates -n vibe
+kubectl get certificates -n moatless
 ```
 
 ## Troubleshooting
@@ -151,7 +151,7 @@ kubectl get certificates -n vibe
 
 ```bash
 # Check pod events
-kubectl describe pod -n vibe <pod-name>
+kubectl describe pod -n moatless <pod-name>
 
 # Check for resource constraints
 kubectl top nodes
@@ -161,7 +161,7 @@ kubectl top nodes
 
 ```bash
 # Check certificate status
-kubectl describe certificate -n vibe vibe-tls
+kubectl describe certificate -n moatless moatless-tls
 
 # Check cert-manager logs
 kubectl logs -n cert-manager -l app=cert-manager

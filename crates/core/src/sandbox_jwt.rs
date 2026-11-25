@@ -20,6 +20,13 @@ use tracing::debug;
 
 /// Audience marker for bootstrap tokens. A token carrying this `aud` may only
 /// authenticate the initial `GetCredentials` call — never the long-lived RPCs.
+/// Issuer stamped on sandbox tokens.
+pub const ISSUER: &str = "moatless-backend";
+
+/// Issuer of tokens minted before the rename to [`ISSUER`]. Still accepted:
+/// a running sandbox holds its long-lived token for days.
+const LEGACY_ISSUER: &str = "moatless-vibe-backend";
+
 pub const AUDIENCE_BOOTSTRAP: &str = "sandbox-bootstrap";
 
 /// JWT claims for a sandbox auth token (long-lived user token or bootstrap).
@@ -97,7 +104,7 @@ pub fn generate_user_auth_token(
         sandbox_id: Some(task_id.to_string()),
         iat: now,
         exp: now + ttl_secs,
-        iss: "moatless-vibe-backend".to_string(),
+        iss: ISSUER.to_string(),
         aud: None,
         generation,
     };
@@ -128,7 +135,7 @@ pub fn generate_bootstrap_token(
         sandbox_id: Some(task_id.to_string()),
         iat: now,
         exp: now + ttl_secs,
-        iss: "moatless-vibe-backend".to_string(),
+        iss: ISSUER.to_string(),
         aud: Some(AUDIENCE_BOOTSTRAP.to_string()),
         generation,
     };
@@ -205,7 +212,7 @@ fn decode_claims(
     secret: &str,
 ) -> Result<UserTokenClaims, jsonwebtoken::errors::Error> {
     let mut validation = Validation::default();
-    validation.set_issuer(&["moatless-vibe-backend"]);
+    validation.set_issuer(&[ISSUER, LEGACY_ISSUER]);
     // Audience is checked manually by the callers; disable library-side aud
     // validation so tokens without an `aud` claim (the long-lived token) don't
     // trip the default `validate_aud = true` behaviour.
@@ -425,7 +432,7 @@ mod tests {
         assert_eq!(claims.login, "john");
         assert_eq!(claims.task_id, None);
         assert_eq!(claims.sandbox_id.as_deref(), Some("task-1"));
-        assert_eq!(claims.iss, "moatless-vibe-backend");
+        assert_eq!(claims.iss, ISSUER);
         assert_eq!(claims.aud, None);
     }
 
@@ -541,7 +548,7 @@ mod tests {
             sandbox_id: Some("task-1".to_string()),
             iat: now_secs(),
             exp: now_secs() + TTL,
-            iss: "moatless-vibe-backend".to_string(),
+            iss: ISSUER.to_string(),
             aud: None,
             generation: 7,
         };

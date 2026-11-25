@@ -146,7 +146,7 @@ function k8sProfile(): Profile {
     baseUrl:
       process.env.MOATLESS_API_URL ||
       process.env.BACKEND_API_URL ||
-      'http://moatless-vibe-backend.moatless.svc.cluster.local:8080',
+      'http://moatless-backend.moatless.svc.cluster.local:8080',
     auth: 'ambient',
     fixture: {
       repositoryId: process.env.E2E_REPOSITORY_ID || MOATABLE_REPOSITORY_ID,

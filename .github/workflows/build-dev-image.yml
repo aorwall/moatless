@@ -2,7 +2,7 @@
 #
 # docker/Dockerfile.sandbox-dev FROMs the runtime moatless-sandbox image and
 # bakes warm dependency caches (cargo target + registry, bun install cache) so a
-# fresh provision of the "moatless-vibe (shadow)" dev repo recompiles only the
+# fresh provision of the "moatless (shadow)" dev repo recompiles only the
 # changed workspace crates instead of building the whole world (~6-10 min cold).
 # See scripts/shadow/README.md.
 #

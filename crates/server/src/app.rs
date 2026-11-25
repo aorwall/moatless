@@ -38,7 +38,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let config = Config::from_env()?;
     moatless_sandbox_control::secrets::check_service_proxy_keys(&config.service_proxies.services)?;
-    info!(sandbox_namespace = %config.sandbox.namespace, "Starting Moatless Vibe Backend");
+    info!(sandbox_namespace = %config.sandbox.namespace, "Starting Moatless Backend");
 
     // Root cancellation + the one supervisor that owns every long-lived task's
     // join handle. Each `supervise` call declares what this process does when

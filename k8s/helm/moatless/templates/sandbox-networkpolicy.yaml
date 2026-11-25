@@ -1,0 +1,130 @@
+{{- if and .Values.kubernetes.enabled .Values.networkPolicy.sandbox.enabled -}}
+{{- $sandboxNamespace := include "moatless.sandboxNamespace" . -}}
+{{- $releaseNamespace := .Release.Namespace -}}
+{{- $sandboxCats := .Values.networkPolicy.sandbox.categories -}}
+{{- $egressCidrs := index (fromYaml (include "moatless.sandboxEgressCidrs" .)) "cidrs" -}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "moatless.fullname" . }}-sandbox
+  namespace: {{ $sandboxNamespace }}
+  labels:
+    {{- include "moatless.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: moatless-sandbox
+      app.kubernetes.io/component: sandbox
+    {{- if and .Values.egressProxy.enabled .Values.egressProxy.sealEgress .Values.egressProxy.profiles }}
+    # Pods in an egress-proxy profile are governed solely by their own
+    # sealed-egress NetworkPolicy (sandbox-egress-profile-networkpolicy.yaml).
+    # Exclude them here so this broad policy's additive allow rules don't leak
+    # internet back to them.
+    matchExpressions:
+      - key: moatless.io/network-profile
+        operator: NotIn
+        values:
+          {{- range .Values.egressProxy.profiles }}
+          - {{ . | quote }}
+          {{- end }}
+    {{- end }}
+  policyTypes:
+    - Egress
+    {{- if .Values.networkPolicy.sandbox.restrictIngress }}
+    - Ingress
+    {{- end }}
+  {{- if .Values.networkPolicy.sandbox.restrictIngress }}
+  # ---------------- INGRESS: only backend + Traefik may dial sandboxes ----------------
+  ingress:
+    {{- include "moatless.sandboxIngressRules" . | nindent 4 }}
+  {{- end }}
+  egress:
+    # ---------------- In-cluster: DNS ----------------
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # ---------------- In-cluster: backend (gRPC + HTTP) ----------------
+    # Sandboxes call backend on gRPC for events/credentials/message polling (primary)
+    # and on HTTP 8080 as a fallback for a few legacy endpoints.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $releaseNamespace }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ include "moatless.name" . }}
+              app.kubernetes.io/component: backend
+      ports:
+        - protocol: TCP
+          port: {{ .Values.backend.grpcPort }}
+        - protocol: TCP
+          port: 8080
+    {{- with .Values.networkPolicy.sandbox.extraInClusterEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    # ---------------- External egress ----------------
+    {{- if .Values.networkPolicy.sandbox.broadEgress }}
+    # broadEgress=true: preserve prior behavior — any external :443 / :80 reachable.
+    # Private ranges excluded to prevent lateral movement into internal services.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+              - 100.64.0.0/10
+      ports:
+        - protocol: TCP
+          port: 443
+        {{- if $sandboxCats.ubuntuApt }}
+        - protocol: TCP
+          port: 80
+        {{- end }}
+    {{- else }}
+    # broadEgress=false: explicit allowlist per category. CIDRs are best-known
+    # ranges per registry; operators running Cilium/Calico should prefer the
+    # CiliumNetworkPolicy sibling (networkPolicy.sandbox.cilium.enabled=true)
+    # which supports FQDN matching instead of brittle CIDR lists.
+    {{- range $category, $enabled := $sandboxCats }}
+    {{- if $enabled }}
+    {{- $cats := index $egressCidrs $category }}
+    {{- if $cats }}
+    # category: {{ $category }}
+    - to:
+        {{- range $cats }}
+        - ipBlock:
+            cidr: {{ . }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: 443
+        {{- if eq $category "ubuntuApt" }}
+        - protocol: TCP
+          port: 80
+        {{- end }}
+    {{- end }}
+    {{- end }}
+    {{- end }}
+    {{- with .Values.networkPolicy.sandbox.extraAllowedCidrs }}
+    - to:
+        {{- range . }}
+        - ipBlock:
+            cidr: {{ . }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: 443
+    {{- end }}
+    {{- end }}
+{{- end }}

@@ -34,7 +34,7 @@ BIN="${TARGET_DIR}/${PROFILE_DIR}/moatless-backend"
 # root. On any other profile there is no baked binary, so the check below must
 # never match — an empty stamp path makes it fail fast.
 if [ "$PROFILE" = "release" ]; then
-  SOURCE_STAMP="${TARGET_DIR}/.moatless-vibe-source-commit"
+  SOURCE_STAMP="${TARGET_DIR}/.moatless-source-commit"
 else
   SOURCE_STAMP=""
 fi

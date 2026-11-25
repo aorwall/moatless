@@ -393,7 +393,7 @@ impl GitHubAppService {
             ))
             .header("Authorization", format!("Bearer {app_jwt}"))
             .header("Accept", "application/vnd.github+json")
-            .header("User-Agent", "moatless-vibe-backend")
+            .header("User-Agent", moatless_core::USER_AGENT)
             .send()
             .await
             .map_err(|e| {
@@ -481,7 +481,7 @@ impl GitHubAppService {
             ))
             .header("Authorization", format!("Bearer {app_jwt}"))
             .header("Accept", "application/vnd.github+json")
-            .header("User-Agent", "moatless-vibe-backend")
+            .header("User-Agent", moatless_core::USER_AGENT)
             .json(&serde_json::json!({
                 "repositories": [repository],
                 "permissions": permissions,
@@ -562,7 +562,7 @@ impl GitHubAppService {
             ))
             .header("Authorization", format!("Bearer {app_jwt}"))
             .header("Accept", "application/vnd.github+json")
-            .header("User-Agent", "moatless-vibe-backend")
+            .header("User-Agent", moatless_core::USER_AGENT)
             .json(&serde_json::json!({
                 "repository_ids": [repository_id],
                 "permissions": permissions,
@@ -607,7 +607,7 @@ impl GitHubAppService {
                 ))
                 .header("Authorization", format!("Bearer {token}"))
                 .header("Accept", "application/vnd.github+json")
-                .header("User-Agent", "moatless-vibe-backend")
+                .header("User-Agent", moatless_core::USER_AGENT)
                 .send()
                 .await
                 .map_err(|e| {
@@ -679,7 +679,7 @@ impl GitHubAppService {
             ))
             .header("Authorization", format!("Bearer {token}"))
             .header("Accept", "application/vnd.github+json")
-            .header("User-Agent", "moatless-vibe-backend")
+            .header("User-Agent", moatless_core::USER_AGENT)
             .send()
             .await
             .map_err(|e| {
@@ -728,7 +728,7 @@ impl GitHubAppService {
             .get(format!("{}/app/installations", self.api_base))
             .header("Authorization", format!("Bearer {app_jwt}"))
             .header("Accept", "application/vnd.github+json")
-            .header("User-Agent", "moatless-vibe-backend")
+            .header("User-Agent", moatless_core::USER_AGENT)
             .send()
             .await
             .map_err(|e| {
@@ -762,7 +762,7 @@ impl GitHubAppService {
             .get(format!("{}/app", self.api_base))
             .header("Authorization", format!("Bearer {app_jwt}"))
             .header("Accept", "application/vnd.github+json")
-            .header("User-Agent", "moatless-vibe-backend")
+            .header("User-Agent", moatless_core::USER_AGENT)
             .send()
             .await
             .map_err(|e| {
@@ -814,7 +814,7 @@ impl GitHubAppService {
             .get(format!("{}/app", self.api_base))
             .header("Authorization", format!("Bearer {app_jwt}"))
             .header("Accept", "application/vnd.github+json")
-            .header("User-Agent", "moatless-vibe-backend")
+            .header("User-Agent", moatless_core::USER_AGENT)
             .send()
             .await
             .map_err(|e| AuthError::OAuth(format!("GitHub /app lookup failed: {e}")))?;
@@ -913,7 +913,7 @@ impl GitHubAppService {
                 .get(&endpoint)
                 .header("Authorization", format!("Bearer {app_jwt}"))
                 .header("Accept", "application/vnd.github+json")
-                .header("User-Agent", "moatless-vibe-backend")
+                .header("User-Agent", moatless_core::USER_AGENT)
                 .send()
                 .await
                 .map_err(|e| AuthError::OAuth(format!("GitHub installation lookup failed: {e}")))?;
@@ -962,7 +962,7 @@ impl GitHubAppService {
             .get(format!("{}/app", self.api_base))
             .header("Authorization", format!("Bearer {app_jwt}"))
             .header("Accept", "application/vnd.github+json")
-            .header("User-Agent", "moatless-vibe-backend")
+            .header("User-Agent", moatless_core::USER_AGENT)
             .send()
             .await
             .map_err(|e| AuthError::OAuth(format!("GitHub /app lookup failed: {e}")))?;
@@ -983,7 +983,7 @@ impl GitHubAppService {
             .http
             .get(format!("{}/users/{bot_login}", self.api_base))
             .header("Accept", "application/vnd.github+json")
-            .header("User-Agent", "moatless-vibe-backend")
+            .header("User-Agent", moatless_core::USER_AGENT)
             .send()
             .await
             .map_err(|e| AuthError::OAuth(format!("GitHub /users/{bot_login} failed: {e}")))?;

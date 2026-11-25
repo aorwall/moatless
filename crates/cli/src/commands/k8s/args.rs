@@ -65,7 +65,7 @@ pub enum K8sAction {
         action: secrets::SecretsAction,
     },
 
-    /// Install or upgrade the Moatless Vibe Helm release
+    /// Install or upgrade the Moatless Helm release
     Install(InstallArgs),
 
     /// Upgrade an existing release to a new image tag
@@ -80,7 +80,7 @@ pub enum K8sAction {
 
 #[derive(clap::Args)]
 pub struct PreflightArgs {
-    /// Namespace to inspect (defaults to `vibe`)
+    /// Namespace to inspect (defaults to `moatless`)
     #[arg(long, short = 'n')]
     pub namespace: Option<String>,
 
@@ -227,7 +227,7 @@ pub struct UninstallArgs {
     #[arg(long, short = 'n', default_value = cluster::DEFAULT_NAMESPACE)]
     pub namespace: String,
 
-    /// Also delete the `vibe-secrets` Secret and orphaned PVCs
+    /// Also delete the `moatless-secrets` Secret and orphaned PVCs
     #[arg(long)]
     pub purge: bool,
 }

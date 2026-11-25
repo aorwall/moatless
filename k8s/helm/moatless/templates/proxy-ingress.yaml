@@ -1,0 +1,38 @@
+{{- if .Values.proxyIngress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "moatless.fullname" . }}-proxy
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "moatless.labels" . | nindent 4 }}
+  {{- with .Values.proxyIngress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.proxyIngress.className }}
+  ingressClassName: {{ .Values.proxyIngress.className }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.proxyIngress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Values.proxyIngress.targetServiceName | default "traefik" }}
+                port:
+                  number: {{ .Values.proxyIngress.targetServicePort | default 80 }}
+  {{- if .Values.proxyIngress.tls }}
+  {{- with .Values.proxyIngress.tls }}
+  tls:
+    - secretName: {{ .secretName }}
+      {{- with .hosts }}
+      hosts:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- end }}
+  {{- end }}
+{{- end }}

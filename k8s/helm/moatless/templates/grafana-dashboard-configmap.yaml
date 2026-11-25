@@ -1,0 +1,17 @@
+{{- if .Values.monitoring.grafana.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "moatless.fullname" . }}-grafana-dashboard
+  labels:
+    {{- include "moatless.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+  {{- with .Values.monitoring.grafana.dashboardLabels }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+data:
+  moatless-overview.json: |-
+{{ .Files.Get "dashboards/moatless-overview.json" | indent 4 }}
+  moatless-live.json: |-
+{{ .Files.Get "dashboards/moatless-live.json" | indent 4 }}
+{{- end }}

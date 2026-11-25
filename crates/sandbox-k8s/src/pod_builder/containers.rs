@@ -231,15 +231,17 @@ pub(super) fn build_sandbox_container(
         env_var(
             "BACKEND_GRPC_URL",
             &format!(
-                "http://moatless-vibe-backend.{}.svc.cluster.local:{}",
-                config.sandbox.namespace, config.server.grpc_port
+                "http://{}.{}.svc.cluster.local:{}",
+                config.sandbox.backend_service_host,
+                config.sandbox.namespace,
+                config.server.grpc_port
             ),
         ),
         env_var(
             "BACKEND_API_URL",
             &format!(
-                "http://moatless-vibe-backend.{}.svc.cluster.local:{}",
-                config.sandbox.namespace, config.server.port
+                "http://{}.{}.svc.cluster.local:{}",
+                config.sandbox.backend_service_host, config.sandbox.namespace, config.server.port
             ),
         ),
     ];

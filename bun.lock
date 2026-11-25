@@ -3,7 +3,7 @@
   "configVersion": 0,
   "workspaces": {
     "": {
-      "name": "moatless-vibe",
+      "name": "moatless",
       "dependencies": {
         "@anthropic-ai/claude-agent-sdk": "0.3.325",
       },

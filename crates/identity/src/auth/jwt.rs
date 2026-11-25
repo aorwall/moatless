@@ -14,14 +14,18 @@ use moatless_types::user::UserRole;
 
 /// Issuer stamped on session JWTs. Bumped at the internal-uuid cutover so
 /// cookies minted before it (provider-id `sub`) fail verification and force a fresh login.
-const SESSION_JWT_ISSUER: &str = "moatless-vibe-backend/v2";
+const SESSION_JWT_ISSUER: &str = "moatless-backend/v2";
+
+/// Session issuer before the rename to [`SESSION_JWT_ISSUER`]. Still accepted,
+/// so the rename signs nobody out.
+const LEGACY_SESSION_JWT_ISSUER: &str = "moatless-vibe-backend/v2";
 
 /// Issuer stamped on WebSocket tickets.
 ///
 /// Different from [`SESSION_JWT_ISSUER`] and checked on both sides, so a ticket
 /// can't stand in for a session cookie, or vice versa, even if one lands in the
 /// other's slot.
-const WS_TICKET_JWT_ISSUER: &str = "moatless-vibe-backend/ws-ticket";
+const WS_TICKET_JWT_ISSUER: &str = "moatless-backend/ws-ticket";
 
 /// How long a WebSocket ticket can be presented for.
 ///
@@ -103,7 +107,7 @@ pub fn verify_session_jwt(
     secret: &str,
 ) -> Result<SessionClaims, jsonwebtoken::errors::Error> {
     let mut validation = Validation::default();
-    validation.set_issuer(&[SESSION_JWT_ISSUER]);
+    validation.set_issuer(&[SESSION_JWT_ISSUER, LEGACY_SESSION_JWT_ISSUER]);
 
     let data = decode::<SessionClaims>(
         token,

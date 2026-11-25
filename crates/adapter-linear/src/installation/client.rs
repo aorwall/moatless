@@ -123,7 +123,7 @@ impl LinearOAuthProvider {
             .post(LINEAR_GRAPHQL_URL)
             .header("Authorization", format!("Bearer {access_token}"))
             .header("Content-Type", "application/json")
-            .header("User-Agent", "moatless-vibe-backend")
+            .header("User-Agent", moatless_core::USER_AGENT)
             .json(&serde_json::json!({
                 "query": "query { viewer { id name email } organization { id name } }"
             }))
