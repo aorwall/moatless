@@ -13,6 +13,7 @@ use super::gateway::GatewayProxy;
 use super::journal::{AcpSessionFormat, Journal, bound_session, seed};
 use super::rpc::{Incoming, Rpc};
 use crate::agent::harness::content::CanonicalContentBlock as Block;
+use crate::agent::harness::error::names_status;
 use crate::agent::harness::process::{AgentProcess, ProcessEvent, ProcessTermination};
 use crate::agent::harness::signal::{Activity, ContextWindow, Input, RunTotals, SessionId};
 use crate::agent::harness::{ErrorClass, FailureStage, HarnessError, SessionImpact};
@@ -759,9 +760,9 @@ fn answer_request(rpc: &Rpc, id: Value, method: &str, params: &Value) {
 
 fn classify(message: &str) -> ErrorClass {
     let lower = message.to_ascii_lowercase();
-    if lower.contains("401") || lower.contains("403") || lower.contains("unauthorized") {
+    if names_status(&lower, &["401", "403"]) || lower.contains("unauthorized") {
         ErrorClass::Authentication
-    } else if lower.contains("429") || lower.contains("rate limit") {
+    } else if names_status(&lower, &["429"]) || lower.contains("rate limit") {
         ErrorClass::RateLimit
     } else {
         ErrorClass::NativeProtocol

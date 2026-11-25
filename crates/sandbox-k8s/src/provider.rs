@@ -865,11 +865,11 @@ pub enum StorageFallbackOutcome {
     Failed,
 }
 
-/// The Kubernetes runtime's attach-failure remediation, behind a trait so the
-/// pod watcher can drive it without naming the concrete adapter.
+/// The attach-failure remediation the pod watcher drives.
 ///
-/// A pvc+s3 task whose PVC won't attach would otherwise sit Pending forever;
-/// since its workspace is snapshotted to S3, it can rebuild on an emptyDir.
+/// An EBS `ReadWriteOnce` volume still held by the old pod's node, or in
+/// another zone, leaves a pvc+s3 pod Pending on `Multi-Attach` forever; its
+/// workspace is in S3, so it rebuilds on an emptyDir.
 #[async_trait]
 pub trait StorageFallback: Send + Sync {
     /// Rebuild the task's Deployment on ephemeral storage, keeping the
@@ -1206,6 +1206,9 @@ impl K8sSandboxAdapter {
             warn!(task_id = %task_id, error = %e, "Failed to recreate sandbox Service");
             return;
         }
+        moatless_sandbox_runtime::metrics::record_repair(
+            moatless_sandbox_runtime::metrics::Repair::NetworkHeal,
+        );
 
         // A `NetworkPolicy` admits *pod* ports, and a script port's pod port is
         // the proxy's. Admitting the script ports themselves would leave every

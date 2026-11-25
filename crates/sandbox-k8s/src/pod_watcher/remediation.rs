@@ -1,6 +1,8 @@
 //! What the watcher does about a crash loop, and what a clean exit means for
 //! the Deployment behind it.
 
+use moatless_sandbox_runtime::metrics::{Repair, record_repair};
+
 use super::watch::WatcherDeps;
 use super::*;
 
@@ -130,6 +132,7 @@ pub(super) async fn maybe_run_storage_fallback(
     state.storage_fallback_requested = true;
 
     if outcome == StorageFallbackOutcome::Rebuilt {
+        record_repair(Repair::StorageFallback);
         event_publisher
             .publish_sandbox_event_with_payload(
                 &state.task_id,

@@ -5,6 +5,7 @@ use super::diagnostics::fetch_pod_event_cause;
 use super::remediation::{crash_autostop, maybe_run_storage_fallback};
 use super::watch::WatcherDeps;
 use super::*;
+use moatless_sandbox_runtime::metrics::{Repair, record_repair};
 
 /// Pod-Pending duration after which the watcher emits `scheduling_blocked`,
 /// surfacing an otherwise-silent unschedulable window (no node, quota, etc.).
@@ -151,6 +152,7 @@ pub(super) async fn gc_failed_pods(
                     pod_name = %state.pod_name,
                     "Garbage-collected Failed pod past grace period"
                 );
+                record_repair(Repair::FailedPodGc);
                 state.gc_requested = true;
             }
             Err(kube::Error::Api(ae)) if ae.code == 404 => {
@@ -189,6 +191,7 @@ pub(super) async fn retry_pending_auto_stops(
                 pod_name = %state.pod_name,
                 "Crash auto-stop succeeded on periodic retry"
             );
+            record_repair(Repair::CrashAutoStopRetry);
             state.auto_stop_pending = false;
         } else {
             warn!(

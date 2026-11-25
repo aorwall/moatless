@@ -144,6 +144,30 @@ pub(crate) fn is_provider_unavailable(lower: &str) -> bool {
     lower.contains("auth_unavailable") || lower.contains("no auth available")
 }
 
+/// Whether failure text names one of `codes` as a standalone number.
+///
+/// A bare `contains("500")` also matches "took 1500ms", "port 5000" or a
+/// request id, and would misclassify an unrelated failure; deliberately, a
+/// code counts only when no letter, digit, `_` or decimal point touches it.
+pub(crate) fn names_status(text: &str, codes: &[&str]) -> bool {
+    let bytes = text.as_bytes();
+    // A neighbour joins the code when it is a letter, digit or `_`, or a `.`
+    // with a digit on its far side.
+    let joins = |next: Option<&u8>, far: Option<&u8>| match next {
+        Some(b) if b.is_ascii_alphanumeric() || *b == b'_' => true,
+        Some(b'.') => far.is_some_and(u8::is_ascii_digit),
+        _ => false,
+    };
+    codes.iter().any(|code| {
+        text.match_indices(code).any(|(start, _)| {
+            let end = start + code.len();
+            let before = start.checked_sub(1).and_then(|i| bytes.get(i));
+            let before_far = start.checked_sub(2).and_then(|i| bytes.get(i));
+            !(joins(before, before_far) || joins(bytes.get(end), bytes.get(end + 1)))
+        })
+    })
+}
+
 impl fmt::Display for HarnessError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
@@ -155,3 +179,37 @@ impl fmt::Display for HarnessError {
 }
 
 impl std::error::Error for HarnessError {}
+
+#[cfg(test)]
+mod tests {
+    use super::names_status;
+
+    #[test]
+    fn a_status_code_matches_only_as_a_standalone_number() {
+        for text in [
+            "401 invalid api key",
+            "api error: 503 {\"type\":\"error\"}",
+            "http status 500.",
+            "request failed (status=502)",
+            "error: 401",
+        ] {
+            assert!(
+                names_status(text, &["401", "500", "502", "503"]),
+                "{text:?}"
+            );
+        }
+        for text in [
+            "took 1500ms",
+            "listening on port 5000",
+            "request id req_401abc",
+            "version 1.500.2",
+            "model claude-3-5-sonnet-20240401",
+            "line 4015 of output",
+        ] {
+            assert!(
+                !names_status(text, &["401", "500", "502", "503"]),
+                "{text:?}"
+            );
+        }
+    }
+}

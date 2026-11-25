@@ -11,13 +11,14 @@
  * Needs an environment with agent credentials — skipped where there are none.
  *
  * Chain:
- *   TASK-01 → SANDBOX-01 → MSG-01 (session_init) →
- *   MSG-02 (send 2nd) → MSG-03 (send 3rd) →
+ *   TASK-01 → SANDBOX-01 → MSG-01 (session_init) → MSG-01.1 (turn held) →
+ *   MSG-02 (send 2nd) → MSG-03 (send 3rd) → MSG-03.1 (release) →
  *   MSG-04 (wait idle) → MSG-05 (single session) →
  *   MSG-06 (verify files) → MSG-07 (all acknowledged) →
  *   MSG-08 (one turn) → MSG-09 (no errors)
  */
 
+import { posix } from 'node:path'
 import { findNamedFileWithContent } from '../../shared/content-helpers'
 import type { MoatApi } from '../../shared/moat-api'
 import { budget, missingCapability, profile } from '../../shared/profile'
@@ -30,6 +31,9 @@ import { discardTask } from '../helpers/teardown'
 import { createTaskWithMessage, waitForSandboxReady } from '../steps'
 
 const agentReason = missingCapability('claudeCredentials')
+
+/** The file the first turn waits for, beside `first.txt`; MSG-03.1 writes it. */
+const GATE_FILE = 'first.release'
 
 /** Whether there is a turn in flight right now for the follow-up to join. */
 async function agentIsRunning(api: MoatApi, taskId: string): Promise<boolean> {
@@ -59,13 +63,14 @@ test.describe('Chain: Message Acknowledgment — Same-Session Multi-Message', ()
 
   test('TASK-01: Create task with first message', async ({ api }) => {
     // The point of the chain is what happens to a message that arrives while
-    // the agent is working, so the first message has to keep it working long
-    // enough for the next two to land.
+    // the agent is working, so the first turn waits on a gate only MSG-03.1
+    // opens. A fixed `sleep` raced a slow follow-up and skipped the claims.
     const { taskId, task } = await createTaskWithMessage(
       api,
       ctx.repositoryId!,
-      "Create a file called first.txt with the content 'First Message Created', " +
-        'then run `sleep 45` and finish.',
+      "Create a file called first.txt with the content 'First Message Created'. " +
+        `Then, in the directory holding first.txt, run \`until [ -f ${GATE_FILE} ]; do sleep 1; done\` ` +
+        'in the foreground and wait for it to return, and finish.',
     )
 
     expect(task.status).toBe('open')
@@ -112,11 +117,37 @@ test.describe('Chain: Message Acknowledgment — Same-Session Multi-Message', ()
     progress(`session_init received, session_id=${payload.session_id}`)
   })
 
+  // ─── MSG-01.1: The first turn is held on its gate ───────────────────
+
+  test('MSG-01.1: First turn waits on its gate', async ({ api }, testInfo) => {
+    testInfo.setTimeout(budget('agentIdle'))
+
+    const first: { path?: string } = {}
+    const written = await waitForCondition(
+      async () => {
+        const match = await findNamedFileWithContent(
+          api,
+          ctx.taskId!,
+          'first.txt',
+          'First Message Created',
+        )
+        first.path = match?.path
+        return first.path !== undefined
+      },
+      { timeout: profile().timeouts.agentIdle, interval: 2000 },
+    )
+    expect(written, 'first.txt never appeared').toBe(true)
+
+    ctx.set('gatePath', posix.join(posix.dirname(first.path!), GATE_FILE))
+    expect(await agentIsRunning(api, ctx.taskId!), 'the gate did not hold the turn open').toBe(true)
+    progress(`First turn waiting on ${ctx.get<string>('gatePath')}`)
+  })
+
   // ─── MSG-02: Send second message while agent is running ─────────────
 
   test('MSG-02: Send second message during active session', async ({ api }) => {
     const running = await agentIsRunning(api, ctx.taskId!)
-    ctx.set('secondArrivedMidRun', running)
+    expect(running, 'the first turn ended before its gate opened').toBe(true)
 
     await api.sendMessage(
       ctx.taskId!,
@@ -133,7 +164,7 @@ test.describe('Chain: Message Acknowledgment — Same-Session Multi-Message', ()
     await new Promise((r) => setTimeout(r, 2000))
 
     const running = await agentIsRunning(api, ctx.taskId!)
-    ctx.set('thirdArrivedMidRun', running)
+    expect(running, 'the first turn ended before its gate opened').toBe(true)
 
     await api.sendMessage(
       ctx.taskId!,
@@ -141,6 +172,13 @@ test.describe('Chain: Message Acknowledgment — Same-Session Multi-Message', ()
     )
 
     progress(`Third message sent, agent running: ${running}`)
+  })
+
+  // ─── MSG-03.1: Release the first turn ───────────────────────────────
+
+  test('MSG-03.1: Open the gate', async ({ api }) => {
+    await api.writeFile(ctx.taskId!, ctx.get<string>('gatePath')!, 'go\n')
+    progress('Gate opened')
   })
 
   // ─── MSG-04: Wait for agent to become idle ──────────────────────────
@@ -165,15 +203,6 @@ test.describe('Chain: Message Acknowledgment — Same-Session Multi-Message', ()
   // ─── MSG-05: Assert single session (1 session_init) ─────────────────
 
   test('MSG-05: All messages handled in single session', async () => {
-    // The claim is about messages that arrive *while the agent is running*. A
-    // first turn short enough to finish before the follow-up lands is not a
-    // failure of coalescing — there was nothing running to coalesce into — so
-    // the run proves nothing rather than failing on a race.
-    const midRun =
-      ctx.get<boolean>('secondArrivedMidRun') === true &&
-      ctx.get<boolean>('thirdArrivedMidRun') === true
-    test.skip(!midRun, 'the first turn finished before the follow-ups were sent')
-
     const sessionInitCount = events().countEvents('agent', 'session_init', ctx.taskId!)
 
     expect(sessionInitCount).toBe(1)
@@ -211,11 +240,6 @@ test.describe('Chain: Message Acknowledgment — Same-Session Multi-Message', ()
   // ─── MSG-08: The three messages belong to one turn ──────────────────
 
   test('MSG-08: All three messages belong to one turn', async ({ api }) => {
-    const midRun =
-      ctx.get<boolean>('secondArrivedMidRun') === true &&
-      ctx.get<boolean>('thirdArrivedMidRun') === true
-    test.skip(!midRun, 'the first turn finished before the follow-ups were sent')
-
     const { messages } = await api.getTaskMessages(ctx.taskId!)
 
     // A turn is one agent run. The sandbox coalesced all three messages into a

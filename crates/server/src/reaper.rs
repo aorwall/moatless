@@ -199,7 +199,7 @@ impl TaskReaper {
     pub fn spawn(self, cancel: CancellationToken) -> JoinHandle<()> {
         metrics::describe_counter!(
             "task_turns_reconciled_total",
-            "Active task turns force-closed by the reaper after a lost terminal event"
+            "Open task turns the reaper closed after a lost terminal event, by pass (orphaned | superseded)"
         );
         metrics::describe_counter!(
             "task_turns_interrupted_total",
@@ -941,12 +941,12 @@ fn log_reaper_stats(stats: ReaperStats) {
     }
 }
 
-/// Reconcile turns stuck open because their terminal event was lost.
+/// Reconcile turns whose terminal event was lost: a pod killed before its
+/// agent emitted it, or a publish dropped in a database outage.
 ///
-/// A pure backstop: reads `task_turns` directly rather than the event log, and
-/// acts on a turn only when confirmed orphaned (task in no pod, or agent
-/// `idle`/`stopped`) — a still-`running` or undetermined agent is left alone.
-/// An unanswered orphan is interrupted first; see [`orphaned_turn_action`].
+/// Acts only on a confirmed orphan (task in no pod, or agent `idle`/`stopped`);
+/// a `running` or undetermined agent is left alone. An unanswered orphan is
+/// interrupted first; see [`orphaned_turn_action`].
 impl TaskReaper {
     async fn reconcile_orphaned_turns(&self, live_task_ids: &[String], stuck: &[UnclosedTurn]) {
         if stuck.is_empty() {
@@ -984,9 +984,9 @@ impl TaskReaper {
         }
     }
 
-    /// Reconcile turns closed while their run kept going.
+    /// Reconcile turns closed while a new run, whose ack and `taskTurn.active`
+    /// were both lost, keeps working: the task would read idle.
     ///
-    /// The converse of [`Self::reconcile_orphaned_turns`]:
     /// [`classify_live_run`] decides what the heartbeat means; a
     /// [`LiveRunVerdict::Contradiction`] is counted but never written.
     async fn reconcile_live_runs(&self, live_task_ids: &[String], settled: &[SettledTurn]) {
@@ -1077,10 +1077,9 @@ impl TaskReaper {
 
     /// Settle turns a later turn already superseded.
     ///
-    /// Unlike [`Self::reconcile_orphaned_turns`], no sandbox is consulted: a
-    /// higher-numbered turn means the agent moved on, so the row settles to
-    /// `completed` (final reply on record) or `stopped`, skipping the task
-    /// and `taskTurn` event.
+    /// A turn whose terminal event was lost before the next run began is left
+    /// `interrupted` by [`TaskTurns::resolve_turn_for_run`], and nothing else
+    /// closes it. It settles `completed` or `stopped`, with no `taskTurn` event.
     async fn reconcile_superseded_turns(&self, superseded: &[UnclosedTurn]) {
         for turn in superseded {
             let Some(turn_number) = turn.turn_number else {
@@ -1123,7 +1122,7 @@ impl TaskReaper {
                 continue;
             }
 
-            metrics::counter!("task_turns_reconciled_total").increment(1);
+            metrics::counter!("task_turns_reconciled_total", "pass" => "superseded").increment(1);
             info!(
                 task_id = %turn.task_id,
                 turn_number,
@@ -1417,7 +1416,7 @@ impl TaskReaper {
                 .await;
         }
 
-        metrics::counter!("task_turns_reconciled_total").increment(1);
+        metrics::counter!("task_turns_reconciled_total", "pass" => "orphaned").increment(1);
         info!(
             task_id = %turn.task_id,
             turn_number = ?turn.turn_number,
@@ -1435,7 +1434,7 @@ impl TaskReaper {
 async fn close_orphaned_turn_as_error(ports: &AgentErrorPorts, turn: &UnclosedTurn) {
     let event = reconcile_error_event(turn);
     crate::event_handler::agent_handlers::handle_agent_error(ports, &event).await;
-    metrics::counter!("task_turns_reconciled_total").increment(1);
+    metrics::counter!("task_turns_reconciled_total", "pass" => "orphaned").increment(1);
     info!(
         task_id = %turn.task_id,
         turn_number = ?turn.turn_number,

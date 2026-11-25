@@ -10,7 +10,7 @@ use claude_agent_sdk::api::messages::ResultMessage;
 
 use super::super::error::{
     ErrorClass, FailureStage, HarnessError, SessionImpact, is_provider_unavailable,
-    is_safety_refusal,
+    is_safety_refusal, names_status,
 };
 use super::super::process::ProcessTermination;
 
@@ -170,24 +170,18 @@ fn result_failure(subtype: &str, text: &str) -> HarnessError {
             usage_limit_reset(text),
         );
     }
-    let class = if matches_any(&[
-        "overloaded",
-        "rate_limit",
-        "capacity",
-        "server_error",
-        "529",
-        "503",
-        "502",
-    ]) {
+    let class = if matches_any(&["overloaded", "rate_limit", "capacity", "server_error"])
+        || names_status(&haystack, &["529", "503", "502"])
+    {
         ErrorClass::RateLimit
     } else if matches_any(&[
         "authenticat",
         "unauthorized",
-        "401",
         "invalid api key",
         "invalid_api_key",
         "credit balance",
-    ]) {
+    ]) || names_status(&haystack, &["401"])
+    {
         ErrorClass::Authentication
     } else if matches_any(&[
         "unable to connect",

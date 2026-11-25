@@ -796,3 +796,28 @@ fn a_safety_refusal_is_invalid_input_whatever_else_it_names() {
         assert!(!crate::agent::retry::is_retryable_harness_error(&error));
     }
 }
+
+/// A status code counts only as a standalone number (see
+/// [`names_status`](crate::agent::harness::error::names_status)).
+#[test]
+fn a_status_code_inside_another_number_is_not_a_provider_failure() {
+    assert_eq!(
+        failed_result("API Error: 401 Invalid bearer token").class,
+        ErrorClass::Authentication
+    );
+    assert_eq!(
+        failed_result("API Error: 529 Overloaded").class,
+        ErrorClass::RateLimit
+    );
+    for text in [
+        "Unknown command: wait 1503ms",
+        "Unknown skill: build-4015",
+        "Unknown command: /deploy port 25290",
+    ] {
+        assert_eq!(
+            failed_result(text).class,
+            ErrorClass::InvalidInput,
+            "{text:?}"
+        );
+    }
+}

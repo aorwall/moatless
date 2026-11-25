@@ -645,6 +645,9 @@ impl Reconciler {
                 target, "reconciler: re-notifying Ready sandbox of pending wake"
             );
             self.notify.notify(target).await;
+            moatless_sandbox_runtime::metrics::record_repair(
+                moatless_sandbox_runtime::metrics::Repair::Renotify,
+            );
         }
     }
 

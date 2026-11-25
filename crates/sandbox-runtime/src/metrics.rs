@@ -46,6 +46,38 @@ pub(crate) const WORKSPACE_SYNC_TOTAL: &str = "moatless_workspace_sync_total";
 /// unproven or rescue failed), `skipped` (nothing to do).
 pub(crate) const STORAGE_RECLAIM_TOTAL: &str = "moatless_sandbox_storage_reclaim_total";
 
+/// Repairs a sandbox sweep or reconciler performed, by `repair` (counter).
+/// A label that stays at zero names a sweep whose race no longer happens.
+pub(crate) const SANDBOX_REPAIRS_TOTAL: &str = "moatless_sandbox_repairs_total";
+
+/// An at-least-once repair: a sweep redoing what a primary path lost.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Repair {
+    /// The reconciler re-sent a pending-message wake to a Ready sandbox.
+    Renotify,
+    /// An evicted pod left in `Failed` was deleted.
+    FailedPodGc,
+    /// A crash auto-stop the watch path failed to issue succeeded on a sweep.
+    CrashAutoStopRetry,
+    /// A pod wedged on a volume attach was rebuilt on `emptyDir` from S3.
+    StorageFallback,
+    /// A missing Service was recreated for a living Deployment.
+    NetworkHeal,
+}
+
+impl Repair {
+    /// The `repair` label value.
+    pub fn as_label(self) -> &'static str {
+        match self {
+            Self::Renotify => "renotify",
+            Self::FailedPodGc => "failed_pod_gc",
+            Self::CrashAutoStopRetry => "crash_auto_stop_retry",
+            Self::StorageFallback => "storage_fallback",
+            Self::NetworkHeal => "network_heal",
+        }
+    }
+}
+
 /// Register sandbox storage metric descriptions with the Prometheus recorder.
 /// Call once at startup after the recorder is installed.
 pub fn describe_sandbox_metrics() {
@@ -73,6 +105,15 @@ pub fn describe_sandbox_metrics() {
         STORAGE_RECLAIM_TOTAL,
         "Cold-transition outcomes (reclaimed | rescued | blocked | skipped)"
     );
+    metrics::describe_counter!(
+        SANDBOX_REPAIRS_TOTAL,
+        "Repairs performed by sandbox sweeps and the reconciler, by repair"
+    );
+}
+
+/// Record one repair a sweep or the reconciler performed.
+pub fn record_repair(repair: Repair) {
+    metrics::counter!(SANDBOX_REPAIRS_TOTAL, "repair" => repair.as_label()).increment(1);
 }
 
 /// Record one cold-transition attempt.
