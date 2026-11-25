@@ -1,6 +1,5 @@
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
     use std::sync::Arc;
     use tokio::sync::{Mutex, mpsc};
     use tokio_util::sync::CancellationToken;
@@ -8,13 +7,11 @@ mod tests {
     use crate::api::control::{
         ControlResponseInner, IncomingControlRequestInner, RawStdoutMessage,
     };
-    use crate::api::hooks::{HookHandler, HookOutput, SyncHookOutput};
     use crate::api::messages::SdkMessage;
     use crate::api::permissions::{
         PermissionContext, PermissionHandler, PermissionResult, PermissionUpdate,
     };
     use crate::error::Result;
-    use crate::mcp::SdkMcpServer;
     use crate::protocol::orchestrator::Orchestrator;
     use crate::protocol::request_tracker::RequestTracker;
     use crate::session_cost::SessionCost;
@@ -37,18 +34,7 @@ mod tests {
     }
 
     impl TestHarness {
-        fn new(
-            permission_handler: Option<Arc<dyn PermissionHandler>>,
-            hook_handler: Option<Arc<dyn HookHandler>>,
-        ) -> Self {
-            Self::with_mcp_servers(permission_handler, hook_handler, None)
-        }
-
-        fn with_mcp_servers(
-            permission_handler: Option<Arc<dyn PermissionHandler>>,
-            hook_handler: Option<Arc<dyn HookHandler>>,
-            sdk_mcp_servers: Option<HashMap<String, SdkMcpServer>>,
-        ) -> Self {
+        fn new(permission_handler: Option<Arc<dyn PermissionHandler>>) -> Self {
             let (msg_tx, msg_rx) = mpsc::channel(64);
             let (sdk_tx, sdk_rx) = mpsc::channel(64);
             let (stdin_writer, stdin_rx) = MockStdinWriter::new();
@@ -62,8 +48,6 @@ mod tests {
                 sdk_tx,
                 request_tracker.clone(),
                 permission_handler,
-                hook_handler,
-                sdk_mcp_servers,
                 Arc::new(stdin_writer),
                 cancel.clone(),
                 SessionCost::default(),
@@ -118,7 +102,7 @@ mod tests {
 
     #[tokio::test]
     async fn forwards_assistant_message_to_consumer() {
-        let mut h = TestHarness::new(None, None);
+        let mut h = TestHarness::new(None);
 
         let assistant_json = serde_json::json!({
             "type": "assistant",
@@ -139,7 +123,7 @@ mod tests {
 
     #[tokio::test]
     async fn result_message_ends_stream() {
-        let mut h = TestHarness::new(None, None);
+        let mut h = TestHarness::new(None);
 
         let result_json = serde_json::json!({
             "type": "result",
@@ -170,7 +154,7 @@ mod tests {
 
     #[tokio::test]
     async fn keepalive_does_not_forward() {
-        let mut h = TestHarness::new(None, None);
+        let mut h = TestHarness::new(None);
 
         h.feed(RawStdoutMessage::KeepAlive).await;
 
@@ -181,7 +165,7 @@ mod tests {
 
     #[tokio::test]
     async fn unknown_message_does_not_forward() {
-        let mut h = TestHarness::new(None, None);
+        let mut h = TestHarness::new(None);
 
         h.feed(RawStdoutMessage::Unknown(
             serde_json::json!({"type": "future_type"}),
@@ -276,7 +260,7 @@ mod tests {
 
     #[tokio::test]
     async fn permission_handler_allow_sends_allow_response() {
-        let mut h = TestHarness::new(Some(Arc::new(AllowAllHandler)), None);
+        let mut h = TestHarness::new(Some(Arc::new(AllowAllHandler)));
 
         h.feed(make_can_use_tool_request("req-1", "Bash", "tu-1"))
             .await;
@@ -296,7 +280,7 @@ mod tests {
         let handler = DenyAllHandler {
             message: "Not allowed".to_string(),
         };
-        let mut h = TestHarness::new(Some(Arc::new(handler)), None);
+        let mut h = TestHarness::new(Some(Arc::new(handler)));
 
         h.feed(make_can_use_tool_request("req-2", "Write", "tu-2"))
             .await;
@@ -311,7 +295,7 @@ mod tests {
 
     #[tokio::test]
     async fn no_permission_handler_auto_allows() {
-        let mut h = TestHarness::new(None, None);
+        let mut h = TestHarness::new(None);
 
         h.feed(make_can_use_tool_request("req-3", "Read", "tu-3"))
             .await;
@@ -330,7 +314,7 @@ mod tests {
         let handler = CapturingHandler {
             captured: captured.clone(),
         };
-        let mut h = TestHarness::new(Some(Arc::new(handler)), None);
+        let mut h = TestHarness::new(Some(Arc::new(handler)));
 
         let mut input = serde_json::Map::new();
         input.insert("command".to_string(), serde_json::json!("ls -la"));
@@ -359,7 +343,7 @@ mod tests {
 
     #[tokio::test]
     async fn every_permission_request_is_answered() {
-        let mut h = TestHarness::new(Some(Arc::new(AllowAllHandler)), None);
+        let mut h = TestHarness::new(Some(Arc::new(AllowAllHandler)));
 
         h.feed(make_can_use_tool_request("req-a", "Read", "tu-a"))
             .await;
@@ -416,7 +400,7 @@ mod tests {
             entered: entered.clone(),
             release: release.clone(),
         };
-        let mut h = TestHarness::new(Some(Arc::new(handler)), None);
+        let mut h = TestHarness::new(Some(Arc::new(handler)));
 
         h.feed(make_can_use_tool_request(
             "req-park",
@@ -454,82 +438,8 @@ mod tests {
     }
 
     // ============================================================
-    // Hook Handler Tests
+    // Hook Callback Tests
     // ============================================================
-
-    struct ApprovingHookHandler;
-
-    #[async_trait::async_trait]
-    impl HookHandler for ApprovingHookHandler {
-        async fn on_hook(
-            &self,
-            _input: &serde_json::Value,
-            _tool_use_id: Option<&str>,
-        ) -> HookOutput {
-            HookOutput::Sync(SyncHookOutput {
-                should_continue: Some(true),
-                decision: Some("approve".to_string()),
-                ..Default::default()
-            })
-        }
-    }
-
-    struct DenyingHookHandler {
-        reason: String,
-    }
-
-    #[async_trait::async_trait]
-    impl HookHandler for DenyingHookHandler {
-        async fn on_hook(
-            &self,
-            _input: &serde_json::Value,
-            _tool_use_id: Option<&str>,
-        ) -> HookOutput {
-            HookOutput::Sync(SyncHookOutput {
-                should_continue: Some(false),
-                stop_reason: Some(self.reason.clone()),
-                decision: Some("deny".to_string()),
-                ..Default::default()
-            })
-        }
-    }
-
-    struct SystemMessageHookHandler {
-        message: String,
-    }
-
-    #[async_trait::async_trait]
-    impl HookHandler for SystemMessageHookHandler {
-        async fn on_hook(
-            &self,
-            _input: &serde_json::Value,
-            _tool_use_id: Option<&str>,
-        ) -> HookOutput {
-            HookOutput::Sync(SyncHookOutput {
-                should_continue: Some(true),
-                system_message: Some(self.message.clone()),
-                ..Default::default()
-            })
-        }
-    }
-
-    /// A hook handler that captures the input for inspection.
-    struct CapturingHookHandler {
-        captured: Arc<Mutex<Vec<(serde_json::Value, Option<String>)>>>,
-    }
-
-    #[async_trait::async_trait]
-    impl HookHandler for CapturingHookHandler {
-        async fn on_hook(
-            &self,
-            input: &serde_json::Value,
-            tool_use_id: Option<&str>,
-        ) -> HookOutput {
-            let mut guard = self.captured.lock().await;
-            guard.push((input.clone(), tool_use_id.map(String::from)));
-            HookOutput::Sync(SyncHookOutput::default())
-        }
-    }
 
     fn make_hook_callback_request(
         request_id: &str,
@@ -552,73 +462,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn hook_handler_approve_sends_continue_response() {
-        let mut h = TestHarness::new(None, Some(Arc::new(ApprovingHookHandler)));
-
-        h.feed(make_hook_callback_request(
-            "req-h1",
-            "cb-1",
-            "PreToolUse",
-            Some("tu-1"),
-        ))
-        .await;
-
-        let response = h.read_stdin_line().await;
-        let resp = &response["response"];
-        assert_eq!(resp["subtype"], "success");
-        assert_eq!(resp["request_id"], "req-h1");
-        assert_eq!(resp["response"]["continue"], true);
-        assert_eq!(resp["response"]["decision"], "approve");
-    }
-
-    #[tokio::test]
-    async fn hook_handler_deny_sends_stop_response() {
-        let handler = DenyingHookHandler {
-            reason: "Dangerous command".to_string(),
-        };
-        let mut h = TestHarness::new(None, Some(Arc::new(handler)));
-
-        h.feed(make_hook_callback_request(
-            "req-h2",
-            "cb-2",
-            "PreToolUse",
-            Some("tu-2"),
-        ))
-        .await;
-
-        let response = h.read_stdin_line().await;
-        let resp = &response["response"];
-        assert_eq!(resp["response"]["continue"], false);
-        assert_eq!(resp["response"]["stopReason"], "Dangerous command");
-        assert_eq!(resp["response"]["decision"], "deny");
-    }
-
-    #[tokio::test]
-    async fn hook_handler_system_message_included() {
-        let handler = SystemMessageHookHandler {
-            message: "Remember to check permissions".to_string(),
-        };
-        let mut h = TestHarness::new(None, Some(Arc::new(handler)));
-
-        h.feed(make_hook_callback_request(
-            "req-h3",
-            "cb-3",
-            "PostToolUse",
-            None,
-        ))
-        .await;
-
-        let response = h.read_stdin_line().await;
-        let resp = &response["response"];
-        assert_eq!(
-            resp["response"]["systemMessage"],
-            "Remember to check permissions"
-        );
-    }
-
-    #[tokio::test]
-    async fn no_hook_handler_auto_responds_empty() {
-        let mut h = TestHarness::new(None, None);
+    async fn hook_callback_auto_responds_empty() {
+        let mut h = TestHarness::new(None);
 
         h.feed(make_hook_callback_request(
             "req-h4",
@@ -635,61 +480,13 @@ mod tests {
         assert!(resp_value.is_empty());
     }
 
-    #[tokio::test]
-    async fn hook_handler_receives_correct_input() {
-        let captured = Arc::new(Mutex::new(Vec::new()));
-        let handler = CapturingHookHandler {
-            captured: captured.clone(),
-        };
-        let mut h = TestHarness::new(None, Some(Arc::new(handler)));
-
-        h.feed(make_hook_callback_request(
-            "req-h5",
-            "cb-5",
-            "PreToolUse",
-            Some("tu-5"),
-        ))
-        .await;
-
-        let _ = h.read_stdin_line().await;
-
-        let guard = captured.lock().await;
-        assert_eq!(guard.len(), 1);
-        assert_eq!(guard[0].0["hookEventName"], "PreToolUse");
-        assert_eq!(guard[0].0["toolName"], "Bash");
-        assert_eq!(guard[0].1, Some("tu-5".to_string()));
-    }
-
-    #[tokio::test]
-    async fn hook_and_permission_handlers_coexist() {
-        let mut h = TestHarness::new(
-            Some(Arc::new(AllowAllHandler)),
-            Some(Arc::new(ApprovingHookHandler)),
-        );
-
-        h.feed(make_can_use_tool_request("req-p1", "Bash", "tu-p1"))
-            .await;
-        let perm_resp = h.read_stdin_line().await;
-        assert_eq!(perm_resp["response"]["response"]["behavior"], "allow");
-
-        h.feed(make_hook_callback_request(
-            "req-hh1",
-            "cb-hh1",
-            "PreToolUse",
-            Some("tu-hh1"),
-        ))
-        .await;
-        let hook_resp = h.read_stdin_line().await;
-        assert_eq!(hook_resp["response"]["response"]["continue"], true);
-    }
-
     // ============================================================
     // Control Response Routing Tests
     // ============================================================
 
     #[tokio::test]
     async fn control_response_resolves_pending_request() {
-        let h = TestHarness::new(None, None);
+        let h = TestHarness::new(None);
 
         let (req_id, rx) = {
             let mut tracker = h.request_tracker.lock().await;
@@ -713,7 +510,7 @@ mod tests {
 
     #[tokio::test]
     async fn control_error_response_resolves_as_error() {
-        let h = TestHarness::new(None, None);
+        let h = TestHarness::new(None);
 
         let (req_id, rx) = {
             let mut tracker = h.request_tracker.lock().await;
@@ -740,7 +537,7 @@ mod tests {
 
     #[tokio::test]
     async fn control_cancel_request_resolves_as_error() {
-        let h = TestHarness::new(None, None);
+        let h = TestHarness::new(None);
 
         let (req_id, rx) = {
             let mut tracker = h.request_tracker.lock().await;
@@ -767,7 +564,7 @@ mod tests {
 
     #[tokio::test]
     async fn cancellation_stops_orchestrator() {
-        let mut h = TestHarness::new(None, None);
+        let mut h = TestHarness::new(None);
 
         // Feed a message first to prove it's working
         let json = serde_json::json!({
@@ -816,8 +613,6 @@ mod tests {
             sdk_tx,
             request_tracker,
             None,
-            None,
-            None,
             Arc::new(stdin_writer),
             cancel.clone(),
             SessionCost::default(),
@@ -861,7 +656,7 @@ mod tests {
 
     #[tokio::test]
     async fn permission_handler_allow_with_updated_input() {
-        let mut h = TestHarness::new(Some(Arc::new(InputModifyingHandler)), None);
+        let mut h = TestHarness::new(Some(Arc::new(InputModifyingHandler)));
 
         h.feed(make_can_use_tool_request("req-mod", "Bash", "tu-mod"))
             .await;
@@ -874,33 +669,8 @@ mod tests {
     }
 
     // ============================================================
-    // SDK MCP Server Routing Tests
+    // MCP Message Tests
     // ============================================================
-
-    use crate::mcp::{SdkMcpTool, ToolResult};
-
-    fn build_test_mcp_server() -> SdkMcpServer {
-        SdkMcpServer::builder("test-server")
-            .tool(
-                SdkMcpTool::new("add", "Add two numbers")
-                    .input_schema(serde_json::json!({
-                        "type": "object",
-                        "properties": {
-                            "a": {"type": "number"},
-                            "b": {"type": "number"}
-                        },
-                        "required": ["a", "b"]
-                    }))
-                    .handler(|args| {
-                        Box::pin(async move {
-                            let a = args["a"].as_f64().unwrap_or(0.0);
-                            let b = args["b"].as_f64().unwrap_or(0.0);
-                            ToolResult::text(format!("{}", a + b))
-                        })
-                    }),
-            )
-            .build()
-    }
 
     fn make_mcp_message_request(
         request_id: &str,
@@ -917,153 +687,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn mcp_tools_call_routes_to_server() {
-        let mut servers = HashMap::new();
-        servers.insert("test-server".to_string(), build_test_mcp_server());
-
-        let mut h = TestHarness::with_mcp_servers(None, None, Some(servers));
-
-        h.feed(make_mcp_message_request(
-            "req-mcp-1",
-            "test-server",
-            serde_json::json!({
-                "jsonrpc": "2.0",
-                "method": "tools/call",
-                "params": {
-                    "name": "add",
-                    "arguments": {"a": 3, "b": 4}
-                },
-                "id": 1
-            }),
-        ))
-        .await;
-
-        let response = h.read_stdin_line().await;
-        let resp = &response["response"];
-        assert_eq!(resp["subtype"], "success");
-        assert_eq!(resp["request_id"], "req-mcp-1");
-
-        // Response is wrapped as { mcp_response: <jsonrpc_response> }
-        let mcp_response = &resp["response"]["mcp_response"];
-        let tool_result = &mcp_response["result"]["content"][0];
-        assert_eq!(tool_result["type"], "text");
-        assert_eq!(tool_result["text"], "7");
-    }
-
-    #[tokio::test]
-    async fn mcp_tools_list_routes_to_server() {
-        let mut servers = HashMap::new();
-        servers.insert("test-server".to_string(), build_test_mcp_server());
-
-        let mut h = TestHarness::with_mcp_servers(None, None, Some(servers));
-
-        h.feed(make_mcp_message_request(
-            "req-mcp-2",
-            "test-server",
-            serde_json::json!({
-                "jsonrpc": "2.0",
-                "method": "tools/list",
-                "id": 2
-            }),
-        ))
-        .await;
-
-        let response = h.read_stdin_line().await;
-        let resp = &response["response"];
-        assert_eq!(resp["subtype"], "success");
-
-        let mcp_response = &resp["response"]["mcp_response"];
-        let tools = mcp_response["result"]["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 1);
-        assert_eq!(tools[0]["name"], "add");
-    }
-
-    #[tokio::test]
-    async fn mcp_initialize_routes_to_server() {
-        let mut servers = HashMap::new();
-        servers.insert("test-server".to_string(), build_test_mcp_server());
-
-        let mut h = TestHarness::with_mcp_servers(None, None, Some(servers));
-
-        h.feed(make_mcp_message_request(
-            "req-mcp-3",
-            "test-server",
-            serde_json::json!({
-                "jsonrpc": "2.0",
-                "method": "initialize",
-                "params": {},
-                "id": 3
-            }),
-        ))
-        .await;
-
-        let response = h.read_stdin_line().await;
-        let resp = &response["response"];
-        assert_eq!(resp["subtype"], "success");
-
-        let mcp_response = &resp["response"]["mcp_response"];
-        assert_eq!(mcp_response["result"]["serverInfo"]["name"], "test-server");
-    }
-
-    #[tokio::test]
-    async fn mcp_notification_returns_dummy_response() {
-        let mut servers = HashMap::new();
-        servers.insert("test-server".to_string(), build_test_mcp_server());
-
-        let mut h = TestHarness::with_mcp_servers(None, None, Some(servers));
-
-        h.feed(make_mcp_message_request(
-            "req-mcp-4",
-            "test-server",
-            serde_json::json!({
-                "jsonrpc": "2.0",
-                "method": "notifications/initialized"
-            }),
-        ))
-        .await;
-
-        let response = h.read_stdin_line().await;
-        let resp = &response["response"];
-        assert_eq!(resp["subtype"], "success");
-
-        // Notifications return a dummy mcp_response since null is not valid
-        let mcp_response = &resp["response"]["mcp_response"];
-        assert!(mcp_response.is_object());
-    }
-
-    #[tokio::test]
-    async fn mcp_unknown_server_returns_error() {
-        let mut servers = HashMap::new();
-        servers.insert("test-server".to_string(), build_test_mcp_server());
-
-        let mut h = TestHarness::with_mcp_servers(None, None, Some(servers));
-
-        h.feed(make_mcp_message_request(
-            "req-mcp-5",
-            "nonexistent-server",
-            serde_json::json!({
-                "jsonrpc": "2.0",
-                "method": "ping",
-                "id": 5
-            }),
-        ))
-        .await;
-
-        let response = h.read_stdin_line().await;
-        let resp = &response["response"];
-        assert_eq!(resp["subtype"], "error");
-        assert_eq!(resp["request_id"], "req-mcp-5");
-        assert!(
-            resp["error"]
-                .as_str()
-                .unwrap()
-                .contains("nonexistent-server")
-        );
-    }
-
-    #[tokio::test]
-    async fn mcp_no_servers_registered_ignores_message() {
-        let mut h = TestHarness::new(None, None);
+    async fn mcp_message_is_ignored() {
+        let mut h = TestHarness::new(None);
 
         h.feed(make_mcp_message_request(
             "req-mcp-6",
@@ -1080,34 +705,5 @@ mod tests {
         let result =
             tokio::time::timeout(std::time::Duration::from_millis(100), h.stdin_rx.recv()).await;
         assert!(result.is_err()); // Timeout — no response written
-    }
-
-    #[tokio::test]
-    async fn mcp_and_permissions_coexist() {
-        let mut servers = HashMap::new();
-        servers.insert("calc".to_string(), build_test_mcp_server());
-
-        let mut h =
-            TestHarness::with_mcp_servers(Some(Arc::new(AllowAllHandler)), None, Some(servers));
-
-        h.feed(make_can_use_tool_request("req-p1", "Bash", "tu-p1"))
-            .await;
-        let perm_resp = h.read_stdin_line().await;
-        assert_eq!(perm_resp["response"]["response"]["behavior"], "allow");
-
-        h.feed(make_mcp_message_request(
-            "req-mcp-7",
-            "calc",
-            serde_json::json!({
-                "jsonrpc": "2.0",
-                "method": "ping",
-                "id": 7
-            }),
-        ))
-        .await;
-        let mcp_resp = h.read_stdin_line().await;
-        assert_eq!(mcp_resp["response"]["subtype"], "success");
-        let mcp_response = &mcp_resp["response"]["response"]["mcp_response"];
-        assert!(mcp_response.is_object());
     }
 }

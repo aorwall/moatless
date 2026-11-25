@@ -4,9 +4,7 @@
 //! A block costs what its text takes wrapped at [`WRAP_WIDTH`], and a blank
 //! line costs nothing, so neither joining lines nor merging paragraphs buys
 //! anything. A bare `//` block has no declared item to key on, so only `///`
-//! and `//!` are scoped. Reads `Workspace::source_members`, which folds in
-//! `crates/codex-sdk` — its own workspace — the same corpus
-//! `duplicate-comment-prose` walks.
+//! and `//!` are scoped.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -72,7 +70,7 @@ pub struct Block {
 /// Every oversize block in the workspace, with the span each one occupies.
 pub fn blocks(ws: &Workspace) -> Result<Vec<Block>> {
     let mut out = Vec::new();
-    for member in ws.source_members() {
+    for member in ws.members() {
         for (path, text) in ws.sources(member)? {
             out.extend(blocks_in_file(&path, &text));
         }

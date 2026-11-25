@@ -371,7 +371,7 @@ tasks:
     cmds:
       - ./crates/claude-agent-sdk/scripts/test-docker.sh {{.CLI_ARGS}}
 
-  test:sdk:codex:docker:
+  test:codex:docker:
     desc: Run the Codex CLI E2E in Docker (codex exec, in the sandbox base image; needs OPENAI_API_KEY)
     cmds:
       - ./crates/claude-agent-sdk/scripts/test-docker.sh codex-transport {{.CLI_ARGS}}

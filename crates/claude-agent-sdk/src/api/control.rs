@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 
-use super::agents::AgentDefinition;
 use super::mcp::McpServerConfig;
 use super::messages::SdkMessage;
 use super::permissions::{PermissionMode, PermissionUpdate};
@@ -64,14 +63,9 @@ pub enum IncomingControlRequestInner {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "subtype")]
 pub enum OutgoingControlRequest {
-    /// Initialize the SDK session with hooks, agents, etc.
+    /// Initialize the SDK session.
     #[serde(rename = "initialize")]
     Initialize {
-        #[serde(skip_serializing_if = "Option::is_none")]
-        hooks: Option<Value>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        #[serde(rename = "sdkMcpServers")]
-        sdk_mcp_servers: Option<Vec<String>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         #[serde(rename = "jsonSchema")]
         json_schema: Option<Value>,
@@ -81,8 +75,6 @@ pub enum OutgoingControlRequest {
         #[serde(skip_serializing_if = "Option::is_none")]
         #[serde(rename = "appendSystemPrompt")]
         append_system_prompt: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        agents: Option<HashMap<String, AgentDefinition>>,
     },
     /// Interrupt the current turn.
     #[serde(rename = "interrupt")]
@@ -440,12 +432,9 @@ mod tests {
     #[test]
     fn serialize_initialize_request() {
         let req = OutgoingControlRequest::Initialize {
-            hooks: Some(serde_json::json!([{"type": "PreToolUse"}])),
-            sdk_mcp_servers: None,
             json_schema: None,
             system_prompt: Some("You are helpful.".to_string()),
             append_system_prompt: None,
-            agents: None,
         };
 
         let envelope = ControlRequestEnvelope {
@@ -459,7 +448,6 @@ mod tests {
         assert_eq!(json["request_id"], "sdk-1");
         assert_eq!(json["request"]["subtype"], "initialize");
         assert_eq!(json["request"]["systemPrompt"], "You are helpful.");
-        assert!(json["request"]["hooks"].is_array());
     }
 
     #[test]

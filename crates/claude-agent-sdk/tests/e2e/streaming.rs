@@ -1,8 +1,8 @@
-//! `ClaudeClient`: several user turns over one live process.
+//! Streaming handles: several user turns over one live process.
 
 use crate::harness::{
     Backend, LONG_TEST_TIMEOUT, TEST_MODEL, auth_env, extract_assistant_text, extract_result_text,
-    fresh_test_cwd, init_tracing,
+    fresh_test_cwd, init_tracing, send_text,
 };
 use claude_agent_sdk::ClaudeOptions;
 use claude_agent_sdk::SdkMessage;
@@ -20,22 +20,22 @@ async fn run_streaming_client_multi_turn(backend: Backend) {
     };
 
     let mut client = backend
-        .create_client(options)
+        .start_streaming(options)
         .await
-        .expect("Failed to create ClaudeClient");
+        .expect("Failed to start streaming query");
 
     // Turn 1: Ask to remember a number
-    client
-        .send(
-            "Remember the number 42. Just confirm you've noted it. Be very brief.",
-            "",
-        )
-        .await
-        .expect("Failed to send first message");
+    send_text(
+        &client,
+        "Remember the number 42. Just confirm you've noted it. Be very brief.",
+        "",
+    )
+    .await
+    .expect("Failed to send first message");
 
     let mut session_id = String::new();
     let mut turn1_messages = Vec::new();
-    while let Some(msg) = client.recv().await {
+    while let Some(msg) = client.messages.recv().await {
         match msg {
             Ok(msg) => {
                 if let SdkMessage::System(ref init) = msg {
@@ -74,12 +74,12 @@ async fn run_streaming_client_multi_turn(backend: Backend) {
     // send may fail or yield no messages — log and return without panicking.
     // For tmux: the TUI keeps the channel open across turns; turn 2 is
     // expected to succeed.
-    let send_result = client
-        .send(
-            "What number did I ask you to remember? Reply with just the number.",
-            &session_id,
-        )
-        .await;
+    let send_result = send_text(
+        &client,
+        "What number did I ask you to remember? Reply with just the number.",
+        &session_id,
+    )
+    .await;
 
     match send_result {
         Ok(()) => {}
@@ -98,7 +98,7 @@ async fn run_streaming_client_multi_turn(backend: Backend) {
     }
 
     let mut turn2_messages = Vec::new();
-    while let Some(msg) = client.recv().await {
+    while let Some(msg) = client.messages.recv().await {
         match msg {
             Ok(msg) => {
                 let is_result = matches!(&msg, SdkMessage::Result(_));

@@ -64,7 +64,6 @@ pub struct Workspace {
     pub root: PathBuf,
     members: BTreeMap<String, Member>,
     index: OnceCell<Result<crate::source_index::Index, String>>,
-    source_only: Vec<Member>,
     role_index: OnceCell<Result<crate::source_index::Index, String>>,
 }
 
@@ -177,12 +176,10 @@ impl Workspace {
             );
         }
 
-        let source_only = source_only_members(&root)?;
         Ok(Self {
             root,
             members,
             index: OnceCell::new(),
-            source_only,
             role_index: OnceCell::new(),
         })
     }
@@ -198,15 +195,11 @@ impl Workspace {
     pub(crate) fn role_index(&self) -> Result<&crate::source_index::Index> {
         self.role_index
             .get_or_init(|| {
-                crate::source_index::Index::read_members(self, self.source_members(), false)
+                crate::source_index::Index::read_members(self, self.members(), false)
                     .map_err(|e| format!("{e:#}"))
             })
             .as_ref()
             .map_err(|e| anyhow!("{e}"))
-    }
-
-    pub(crate) fn source_members(&self) -> impl Iterator<Item = &Member> {
-        self.members().chain(self.source_only.iter())
     }
 
     pub fn member(&self, name: &str) -> Option<&Member> {
@@ -330,61 +323,4 @@ pub fn agents_md_files(root: &Path) -> Result<Vec<(String, String)>> {
         out.push((relative, text));
     }
     Ok(out)
-}
-
-fn source_only_members(root: &Path) -> Result<Vec<Member>> {
-    // The excluded SDK depends on an external Codex checkout. Read its source
-    // without resolving that checkout so CI still enforces file responsibilities.
-    let dir = root.join("crates/codex-sdk");
-    let path = dir.join("Cargo.toml");
-    if !path.exists() {
-        return Ok(Vec::new());
-    }
-    let manifest: toml::Table = std::fs::read_to_string(path)?.parse()?;
-    let name = manifest
-        .get("package")
-        .and_then(|p| p.get("name"))
-        .and_then(toml::Value::as_str)
-        .context("source-only SDK package name")?
-        .to_owned();
-    let mut targets = Vec::new();
-    let library = manifest
-        .get("lib")
-        .and_then(|v| v.get("path"))
-        .and_then(toml::Value::as_str)
-        .unwrap_or("src/lib.rs");
-    if dir.join(library).exists() {
-        targets.push(Target {
-            path: dir.join(library),
-            kinds: vec!["lib".into()],
-        });
-    }
-    if dir.join("src/main.rs").exists() {
-        targets.push(Target {
-            path: dir.join("src/main.rs"),
-            kinds: vec!["bin".into()],
-        });
-    }
-    for bin in manifest
-        .get("bin")
-        .and_then(toml::Value::as_array)
-        .into_iter()
-        .flatten()
-    {
-        if let Some(path) = bin.get("path").and_then(toml::Value::as_str) {
-            targets.push(Target {
-                path: dir.join(path),
-                kinds: vec!["bin".into()],
-            });
-        }
-    }
-    Ok(vec![Member {
-        name,
-        dir,
-        normal_deps: BTreeSet::new(),
-        dependencies: Vec::new(),
-        metadata: serde_json::Value::Null,
-        manifest,
-        targets,
-    }])
 }

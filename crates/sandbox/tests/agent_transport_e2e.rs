@@ -417,7 +417,7 @@ async fn run_agent_roundtrip(use_tmux: bool) {
 }
 
 /// Drives `spawn_agent` with `agent_profile = "codex"`, routing through the real
-/// `codex app-server --stdio` subprocess, not the standalone `codex-sdk` crate.
+/// `codex app-server --stdio` subprocess.
 ///
 /// Codex ignores `use_tmux`; mirrors `run_agent_roundtrip` minus the
 /// Claude-specific tmux/`session_context_lost` assertions.

@@ -30,7 +30,6 @@ members = [
     "crates/t3code",
     "crates/types",
     "tooling/arch-rules",
-    # "crates/codex-sdk",  # Excluded: built separately via its own workspace (codex dep graph)
 ]
 resolver = "2"
 

@@ -37,12 +37,6 @@ fn warn_ignored_options(options: &ClaudeOptions) {
              permission interception is not supported in TUI mode"
         );
     }
-    if options.sdk_mcp_servers.is_some() {
-        warn!(
-            "tmux mode ignores ClaudeOptions.sdk_mcp_servers — \
-             in-process MCP servers are not supported in TUI mode"
-        );
-    }
     if options.permission_prompt_tool_name.is_some() {
         warn!(
             "tmux mode ignores ClaudeOptions.permission_prompt_tool_name \
@@ -200,10 +194,6 @@ impl TmuxArgs {
     fn push_agents(&mut self, options: &ClaudeOptions) {
         self.push_joined("--betas", options.betas.as_deref());
         self.push_optional_pair("--agent", &options.agent);
-
-        if let Some(agents) = options.agents.as_ref().filter(|agents| !agents.is_empty()) {
-            self.push_json("--agents", agents);
-        }
     }
 
     fn push_extra(&mut self, options: &ClaudeOptions) {

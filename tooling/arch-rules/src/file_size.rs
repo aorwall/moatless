@@ -15,7 +15,7 @@ const LIMIT: usize = 1600;
 
 pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
     let mut sizes = Vec::new();
-    for member in ws.source_members() {
+    for member in ws.members() {
         sizes.extend(
             ws.sources(member)?
                 .into_iter()

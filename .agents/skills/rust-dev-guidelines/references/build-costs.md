@@ -20,8 +20,7 @@ combines packages and qualified feature names; other runs check packages separat
 The ports no-default pass is conditional on manifest changes in CI. The required
 local list is intentionally explicit and is not identical to that dynamic matrix.
 
-`crates/codex-sdk` is excluded from the workspace and must be checked from its own
-directory. A scoped plain `cargo test -p <crate>` does not cover its gated database
+A scoped plain `cargo test -p <crate>` does not cover its gated database
 tier; select the owning crate's feature when testing database behavior.
 
 ## Keep build artifacts bounded

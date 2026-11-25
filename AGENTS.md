@@ -35,8 +35,7 @@ task deploy [TAG=v2.0.0]                    # also deploy:backend, status, logs
 ```
 
 - Run the clippy lines verbatim. Add no `-p` line of your own, and never run
-  `cargo check`. `crates/codex-sdk` is outside the workspace; its `Cargo.toml`
-  carries its own lines.
+  `cargo check`.
 - Read `rust-dev-guidelines` before you change a cargo invocation, and its
   `build-costs.md` before a full build: a build is bounded by memory and disk.
 

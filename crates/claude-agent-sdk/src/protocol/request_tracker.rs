@@ -6,8 +6,6 @@ use tokio::sync::oneshot;
 #[derive(Debug, Clone)]
 pub(crate) struct ControlErrorInfo {
     pub error: String,
-    #[allow(dead_code)]
-    pub pending_permission_requests: Option<Vec<Value>>,
 }
 
 /// Tracks pending outgoing control requests by ID, providing oneshot channels
@@ -65,7 +63,6 @@ impl RequestTracker {
         for (_, tx) in self.pending.drain() {
             let _ = tx.send(Err(ControlErrorInfo {
                 error: "Transport closed".to_string(),
-                pending_permission_requests: None,
             }));
         }
     }
@@ -102,7 +99,6 @@ mod tests {
             &id,
             ControlErrorInfo {
                 error: "test error".to_string(),
-                pending_permission_requests: None,
             }
         ));
 

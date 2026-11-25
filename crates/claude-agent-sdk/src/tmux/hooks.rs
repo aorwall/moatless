@@ -7,13 +7,8 @@
 //! Caller owns the [`HookHarness`]; `Drop` removes the per-run temp dir, FIFO,
 //! and script.
 
-// reason: items are introduced module-by-module across the rollout (see
-// "Implementation order" in the plan). Each step wires another helper in.
-#![allow(dead_code)]
-
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::sync::mpsc;
@@ -260,18 +255,6 @@ pub(crate) fn spawn_reader(
     Ok(handle)
 }
 
-/// Convenience: drains a [`HookLine`] receiver and applies a callback to each
-/// recognized event. Used by tests.
-#[cfg(test)]
-pub(crate) async fn for_each_line(
-    rx: &mut mpsc::Receiver<HookLine>,
-    mut on_line: impl FnMut(HookLine),
-) {
-    while let Some(line) = rx.recv().await {
-        on_line(line);
-    }
-}
-
 /// Create a FIFO at `path` with the given mode (octal).
 ///
 /// Shells out to the POSIX `mkfifo` binary to avoid an `unsafe` libc call;
@@ -292,11 +275,6 @@ fn mkfifo(path: &Path, mode: u32) -> Result<()> {
     }
     Ok(())
 }
-
-// reason: Arc is used by callers wanting cheap cloning of the harness across
-// the supervisor + writer tasks.
-#[allow(dead_code)]
-pub(crate) type SharedHookHarness = Arc<HookHarness>;
 
 #[cfg(test)]
 mod tests {

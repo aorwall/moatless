@@ -52,7 +52,7 @@ on:
         description: 'Run moatless-sandbox Claude transport E2E in Docker (subprocess + tmux)'
         type: boolean
         default: false
-      run_codex_sdk:
+      run_codex_transport:
         description: 'Run the Codex CLI E2E in Docker (codex exec, sandbox base image)'
         type: boolean
         default: false
@@ -347,10 +347,10 @@ jobs:
   # Runs the production `codex exec` path (crates/sandbox/tests/agent_transport_e2e.rs::
   # test_spawn_agent_codex) inside the sandbox base image, which already ships the
   # pinned `codex` CLI — no external Codex source checkout needed. This matches how
-  # the sandbox actually runs Codex at runtime (NOT the in-process codex-sdk crate).
-  codex-sdk:
+  # the sandbox actually runs Codex at runtime.
+  codex-transport:
     name: Codex CLI (Docker E2E)
-    if: inputs.run_codex_sdk
+    if: inputs.run_codex_transport
     runs-on: ${{ vars.E2E_RUST_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6

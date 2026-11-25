@@ -64,7 +64,6 @@
   "port-admission::moatless_ports::task::pending_work::PendingWorkReader read by moatless-sandbox-control",
   "port-admission::moatless_ports::task::tags::TagResolver read by moatless-loops",
   "port-admission::moatless_ports::task::turn::TurnCounter read by moatless-loops",
-  "single-implementation-trait::claude_agent_sdk::api::hooks::HookHandler implemented by ",
   "single-implementation-trait::moatless_adapter_model::apps::AdapterAppReader implemented by moatless_identity::ports::AdapterApps",
   "single-implementation-trait::moatless_adapter_model::capabilities::AdapterDirectMessage implemented by moatless_adapter_slack::adapter::SlackAdapter",
   "single-implementation-trait::moatless_adapter_model::capabilities::AdapterPostBindingFollowup implemented by moatless_adapter_linear::adapter::LinearAdapter",

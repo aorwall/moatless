@@ -22,7 +22,7 @@ fn exits(path: &str) -> bool {
 pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
     let index = ws.role_index()?;
     let roots: std::collections::BTreeSet<_> = ws
-        .source_members()
+        .members()
         .flat_map(|m| &m.targets)
         .filter(|t| t.executable())
         .map(|t| ws.relative(&t.path))

@@ -13,13 +13,13 @@ pub const RULE: &str = "declaration-only-roots";
 pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
     let index = ws.role_index()?;
     let executables: BTreeSet<_> = ws
-        .source_members()
+        .members()
         .flat_map(|m| &m.targets)
         .filter(|t| t.executable())
         .map(|t| ws.relative(&t.path))
         .collect();
     let libraries: BTreeSet<_> = ws
-        .source_members()
+        .members()
         .flat_map(|m| &m.targets)
         .filter(|t| t.library())
         .map(|t| ws.relative(&t.path))

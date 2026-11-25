@@ -1,12 +1,12 @@
 //! What every E2E test shares: the `Backend` capability matrix, the two
 //! environment gates, and the option builders and message collectors.
 
-use claude_agent_sdk::ClaudeClient;
 use claude_agent_sdk::ClaudeOptions;
 use claude_agent_sdk::ContentBlock;
 use claude_agent_sdk::QueryHandle;
 use claude_agent_sdk::SdkMessage;
-use claude_agent_sdk::api::messages::ResultMessage;
+use claude_agent_sdk::api::content::ApiMessage;
+use claude_agent_sdk::api::messages::{MessagePriority, ResultMessage, UserMessage};
 use claude_agent_sdk::query;
 use claude_agent_sdk::query_streaming;
 use claude_agent_sdk::query_tmux;
@@ -48,9 +48,6 @@ impl Backend {
         }
     }
 
-    // reason: documents the streaming entry point per capability matrix even
-    // though all current shareable tests drive streaming via `create_client`.
-    #[allow(dead_code)]
     pub(crate) async fn start_streaming(
         self,
         options: ClaudeOptions,
@@ -61,27 +58,9 @@ impl Backend {
         }
     }
 
-    pub(crate) async fn create_client(
-        self,
-        options: ClaudeOptions,
-    ) -> claude_agent_sdk::Result<ClaudeClient> {
-        match self {
-            Self::Subprocess => ClaudeClient::new(options).await,
-            Self::Tmux => ClaudeClient::new_tmux(options).await,
-        }
-    }
-
     /// `Result.total_cost_usd` is real for subprocess, synthesized 0.0 for
     /// tmux.
     pub(crate) fn has_cost_data(self) -> bool {
-        matches!(self, Self::Subprocess)
-    }
-
-    /// `SdkMessage::System` carries the actual model name + tools list
-    /// (subprocess) or a synthetic init with empty tools (tmux).
-    // reason: documents capability matrix; not all callers branch on this yet
-    #[allow(dead_code)]
-    pub(crate) fn has_real_system_init(self) -> bool {
         matches!(self, Self::Subprocess)
     }
 
@@ -202,4 +181,45 @@ pub(crate) fn extract_result_text(messages: &[SdkMessage]) -> Option<String> {
             None
         }
     })
+}
+
+/// Send `text` as a user turn on a streaming handle.
+///
+/// `session_id` comes from the first turn's `SdkMessage::System`; pass `""`
+/// before one has arrived.
+pub(crate) async fn send_text(
+    handle: &QueryHandle,
+    text: &str,
+    session_id: &str,
+) -> claude_agent_sdk::Result<()> {
+    let message = UserMessage {
+        uuid: None,
+        session_id: session_id.to_string(),
+        message: ApiMessage {
+            role: "user".to_string(),
+            content: vec![ContentBlock::Text {
+                text: text.to_string(),
+            }],
+            usage: None,
+            model: None,
+            id: None,
+            stop_reason: None,
+            stop_sequence: None,
+        },
+        parent_tool_use_id: None,
+        is_synthetic: None,
+        tool_use_result: None,
+        is_meta: None,
+        is_compact_summary: None,
+        is_visible_in_transcript_only: None,
+        plan_content: None,
+        thinking_metadata: None,
+        todos: None,
+        summarize_metadata: None,
+        source_tool_assistant_uuid: None,
+        source_tool_use_id: None,
+        permission_mode: None,
+        priority: MessagePriority::Next,
+    };
+    handle.send_user_message(&message).await
 }

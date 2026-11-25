@@ -7,11 +7,6 @@
 //! Detection: strip CSI/OSC/DCS escapes (cursor-move padding, not literal
 //! spaces) and check for "trust" and "folder". Mirrors `claude-p`'s 1:1.
 
-// reason: trust detection wires in at step 5, when the trust-dialog watcher
-// runs concurrently with the SessionStart wait. Until then the module is
-// staged with passing unit tests.
-#![allow(dead_code)]
-
 /// Strip CSI / OSC / DCS escape sequences from `bytes`, leaving just the
 /// literal payload for plain-text matching. Not a layout reconstruction — only
 /// removes bytes that would otherwise separate adjacent words.

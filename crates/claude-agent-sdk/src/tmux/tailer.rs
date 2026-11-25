@@ -42,18 +42,13 @@ const STOP_FALLBACK_POLL: Duration = Duration::from_millis(50);
 /// State the hook listener publishes via [`tokio::sync::watch`]. Consumers
 /// (mod.rs wait-for-SessionStart; transcript discovery race) clone the receiver
 /// and await updates.
-//
-// reason: the `session_id` payload on `SessionStarted` and the
-// `last_assistant_message` field on `TurnEnded` are consumed in step 7
-// (Result fallback). Until then they're staged.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Default)]
 pub(crate) enum HookState {
     /// No hooks fired yet.
     #[default]
     Pending,
     /// `SessionStart` hook fired — the TUI is up and accepting input.
-    SessionStarted { session_id: Option<String> },
+    SessionStarted,
     /// `Stop` hook fired — turn finished. May fire multiple times for a
     /// streaming session; each update overwrites the previous one.
     TurnEnded {
@@ -488,7 +483,7 @@ async fn hook_listener(
             HookEvent::SessionStart => {
                 let session_id = extract_session_id(&line.payload);
                 debug!(?session_id, "hook_listener: SessionStart");
-                let _ = state_tx.send(HookState::SessionStarted { session_id });
+                let _ = state_tx.send(HookState::SessionStarted);
             }
             HookEvent::Stop => {
                 let transcript_path = extract_transcript_path(&line.payload).map(PathBuf::from);
@@ -684,9 +679,6 @@ pub(crate) fn synth_system_init(session_id: &str, options: &ClaudeOptions) -> Sy
         claude_code_version: String::new(),
     }
 }
-
-#[allow(dead_code)]
-fn _path_unused(_p: &Path) {}
 
 #[cfg(test)]
 mod tests {

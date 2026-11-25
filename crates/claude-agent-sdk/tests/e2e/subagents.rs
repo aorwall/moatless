@@ -6,41 +6,22 @@ use crate::harness::{
 };
 use claude_agent_sdk::ClaudeOptions;
 use claude_agent_sdk::SdkMessage;
-use claude_agent_sdk::api::agents::AgentDefinition;
-use claude_agent_sdk::api::agents::AgentModel;
-use std::collections::HashMap;
 use tokio::time::timeout;
 
 async fn run_subagent_fields_captured(backend: Backend) {
     let cwd = fresh_test_cwd("subagent");
-    let mut agents = HashMap::new();
-    agents.insert(
-        "helper".to_string(),
-        AgentDefinition {
-            description: "A helper agent for simple tasks".to_string(),
-            prompt: "You are a helpful assistant. Answer concisely.".to_string(),
-            tools: None,
-            disallowed_tools: None,
-            model: Some(AgentModel::Haiku),
-            mcp_servers: None,
-            skills: None,
-            max_turns: Some(1),
-        },
-    );
-
     let opts = ClaudeOptions {
         model: Some(TEST_MODEL.to_string()),
         max_turns: Some(3),
         allow_dangerously_skip_permissions: Some(true),
         cwd: Some(cwd.to_string_lossy().into_owned()),
-        agents: Some(agents),
         env: auth_env(),
         ..Default::default()
     };
 
     let mut handle = backend
         .start_one_shot(
-            "Use the Agent tool to ask the 'helper' agent: What is 1+1? Reply with only the number. Then tell me what the agent said.",
+            "Use the Agent tool to ask the 'general-purpose' agent: What is 1+1? Reply with only the number. Then tell me what the agent said.",
             opts,
         )
         .await

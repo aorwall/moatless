@@ -118,7 +118,7 @@ async fn wait_for_session_start(
     };
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
-        if matches!(*state_rx.borrow(), HookState::SessionStarted { .. }) {
+        if matches!(*state_rx.borrow(), HookState::SessionStarted) {
             return Ok(());
         }
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());

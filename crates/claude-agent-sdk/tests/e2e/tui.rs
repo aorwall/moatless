@@ -3,17 +3,17 @@
 
 use crate::harness::{
     TEST_MODEL, TMUX_LONG_TEST_TIMEOUT, auth_env, extract_assistant_text, extract_result_text,
-    fresh_test_cwd, init_tracing,
+    fresh_test_cwd, init_tracing, send_text,
 };
-use claude_agent_sdk::ClaudeClient;
 use claude_agent_sdk::ClaudeOptions;
 use claude_agent_sdk::SdkMessage;
 use claude_agent_sdk::api::messages::ResultMessage;
+use claude_agent_sdk::query_tmux_streaming;
 use std::time::Duration;
 use tokio::time::timeout;
 
 /// Drives the tmux backend the way `moatless-sandbox` does: one
-/// `ClaudeClient::new_tmux` for the lifetime of the pod, then repeated `send`
+/// `query_tmux_streaming` for the lifetime of the pod, then repeated `send_text`
 /// turns into the same TUI.
 #[tokio::test]
 #[ignore = "tmux + claude CLI required; gated on CLAUDE_TMUX_E2E=1"]
@@ -32,22 +32,22 @@ async fn test_long_running_three_turns_tmux() {
     };
 
     let test_body = async {
-        let mut client = ClaudeClient::new_tmux(options)
+        let mut client = query_tmux_streaming(options)
             .await
-            .expect("Failed to create tmux ClaudeClient");
+            .expect("Failed to create tmux streaming query");
 
         let mut session_id = String::new();
 
-        client
-            .send(
-                "Remember: my favorite color is teal. Confirm in <=5 words.",
-                "",
-            )
-            .await
-            .expect("turn 1 send");
+        send_text(
+            &client,
+            "Remember: my favorite color is teal. Confirm in <=5 words.",
+            "",
+        )
+        .await
+        .expect("turn 1 send");
 
         let mut turn1 = Vec::new();
-        while let Some(msg) = client.recv().await {
+        while let Some(msg) = client.messages.recv().await {
             let msg = msg.expect("turn 1 recv");
             if let SdkMessage::System(ref init) = msg {
                 session_id = init.session_id.clone();
@@ -64,16 +64,16 @@ async fn test_long_running_three_turns_tmux() {
             extract_result_text(&turn1).unwrap_or_default()
         );
 
-        client
-            .send(
-                "Also remember: my favorite number is 17. What color did I tell you?",
-                &session_id,
-            )
-            .await
-            .expect("turn 2 send");
+        send_text(
+            &client,
+            "Also remember: my favorite number is 17. What color did I tell you?",
+            &session_id,
+        )
+        .await
+        .expect("turn 2 send");
 
         let mut turn2 = Vec::new();
-        while let Some(msg) = client.recv().await {
+        while let Some(msg) = client.messages.recv().await {
             let msg = msg.expect("turn 2 recv");
             let is_result = matches!(&msg, SdkMessage::Result(_));
             turn2.push(msg);
@@ -92,16 +92,16 @@ async fn test_long_running_three_turns_tmux() {
             "turn 2 should recall 'teal' from turn 1, got: {turn2_combined}"
         );
 
-        client
-            .send(
-                "Repeat both: my color and my number. Just the two values.",
-                &session_id,
-            )
-            .await
-            .expect("turn 3 send");
+        send_text(
+            &client,
+            "Repeat both: my color and my number. Just the two values.",
+            &session_id,
+        )
+        .await
+        .expect("turn 3 send");
 
         let mut turn3 = Vec::new();
-        while let Some(msg) = client.recv().await {
+        while let Some(msg) = client.messages.recv().await {
             let msg = msg.expect("turn 3 recv");
             let is_result = matches!(&msg, SdkMessage::Result(_));
             turn3.push(msg);
@@ -175,21 +175,21 @@ async fn test_sandbox_restart_resume_tmux() {
     };
 
     let test_body = async {
-        let mut client = ClaudeClient::new_tmux(base_options())
+        let mut client = query_tmux_streaming(base_options())
             .await
-            .expect("Failed to create initial tmux ClaudeClient");
+            .expect("Failed to create initial tmux streaming query");
 
         let mut session_id = String::new();
 
-        client
-            .send(
-                "Remember: my favorite color is teal. Confirm in <=5 words.",
-                "",
-            )
-            .await
-            .expect("turn 1 send");
+        send_text(
+            &client,
+            "Remember: my favorite color is teal. Confirm in <=5 words.",
+            "",
+        )
+        .await
+        .expect("turn 1 send");
         let mut turn1 = Vec::new();
-        while let Some(msg) = client.recv().await {
+        while let Some(msg) = client.messages.recv().await {
             let msg = msg.expect("turn 1 recv");
             if let SdkMessage::System(ref init) = msg {
                 session_id = init.session_id.clone();
@@ -203,15 +203,15 @@ async fn test_sandbox_restart_resume_tmux() {
         assert!(!session_id.is_empty(), "must have session_id after turn 1");
         eprintln!("[pre-restart turn 1] session_id={session_id}");
 
-        client
-            .send(
-                "Also remember: my favorite number is 17. Confirm in <=5 words.",
-                &session_id,
-            )
-            .await
-            .expect("turn 2 send");
+        send_text(
+            &client,
+            "Also remember: my favorite number is 17. Confirm in <=5 words.",
+            &session_id,
+        )
+        .await
+        .expect("turn 2 send");
         let mut turn2 = Vec::new();
-        while let Some(msg) = client.recv().await {
+        while let Some(msg) = client.messages.recv().await {
             let msg = msg.expect("turn 2 recv");
             let is_result = matches!(&msg, SdkMessage::Result(_));
             turn2.push(msg);
@@ -235,20 +235,20 @@ async fn test_sandbox_restart_resume_tmux() {
             resume: Some(session_id.clone()),
             ..base_options()
         };
-        let mut resumed = ClaudeClient::new_tmux(resume_options)
+        let mut resumed = query_tmux_streaming(resume_options)
             .await
-            .expect("Failed to create resumed tmux ClaudeClient");
+            .expect("Failed to create resumed tmux streaming query");
 
-        resumed
-            .send(
-                "Repeat my color and my number. Just those two values, comma-separated.",
-                &session_id,
-            )
-            .await
-            .expect("resumed send");
+        send_text(
+            &resumed,
+            "Repeat my color and my number. Just those two values, comma-separated.",
+            &session_id,
+        )
+        .await
+        .expect("resumed send");
 
         let mut turn3 = Vec::new();
-        while let Some(msg) = resumed.recv().await {
+        while let Some(msg) = resumed.messages.recv().await {
             let msg = msg.expect("resumed recv");
             let is_result = matches!(&msg, SdkMessage::Result(_));
             turn3.push(msg);

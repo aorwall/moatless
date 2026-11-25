@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{Mutex, mpsc};
 use tokio::task::JoinHandle;
@@ -11,7 +10,6 @@ use crate::api::messages::{SdkMessage, UserMessage};
 use crate::api::options::ClaudeOptions;
 use crate::api::permissions::PermissionMode;
 use crate::error::{Result, SdkError};
-use crate::mcp::SdkMcpServer;
 use crate::protocol::orchestrator::Orchestrator;
 use crate::protocol::request_tracker::RequestTracker;
 use crate::session_cost::SessionCost;
@@ -203,14 +201,9 @@ impl Drop for QueryHandle {
 
 /// Start a one-shot query. The prompt is sent as the initial user message, and
 /// the returned `QueryHandle` provides the message stream.
-pub async fn query(prompt: &str, mut options: ClaudeOptions) -> Result<QueryHandle> {
+pub async fn query(prompt: &str, options: ClaudeOptions) -> Result<QueryHandle> {
     let cancellation_token = options.cancellation_token.clone().unwrap_or_default();
     let permission_handler = options.can_use_tool.clone();
-    let hook_handler = options.hook_handler.clone();
-
-    // Extract SDK MCP servers (takes ownership since SdkMcpServer is not Clone)
-    let sdk_mcp_servers = options.sdk_mcp_servers.take();
-    let sdk_mcp_server_names = extract_server_names(&sdk_mcp_servers);
 
     let session_cost = SessionCost::restored(&options).await;
     let transport = SubprocessTransport::spawn(&options).await?;
@@ -228,14 +221,12 @@ pub async fn query(prompt: &str, mut options: ClaudeOptions) -> Result<QueryHand
         message_tx,
         request_tracker.clone(),
         permission_handler,
-        hook_handler,
-        sdk_mcp_servers,
         stdin_writer.clone(),
         cancellation_token.clone(),
         session_cost,
     );
 
-    let init_request = build_initialize_request(&options, sdk_mcp_server_names);
+    let init_request = build_initialize_request(&options);
     let (init_id, init_rx) = {
         let mut tracker = request_tracker.lock().await;
         tracker.register()
@@ -339,14 +330,9 @@ pub async fn query(prompt: &str, mut options: ClaudeOptions) -> Result<QueryHand
 /// Start a streaming multi-turn query. Unlike `query()`, stdin is NOT closed
 /// after the initial message — additional messages can be sent via
 /// `QueryHandle::send_user_message()`.
-pub async fn query_streaming(mut options: ClaudeOptions) -> Result<QueryHandle> {
+pub async fn query_streaming(options: ClaudeOptions) -> Result<QueryHandle> {
     let cancellation_token = options.cancellation_token.clone().unwrap_or_default();
     let permission_handler = options.can_use_tool.clone();
-    let hook_handler = options.hook_handler.clone();
-
-    // Extract SDK MCP servers (takes ownership since SdkMcpServer is not Clone)
-    let sdk_mcp_servers = options.sdk_mcp_servers.take();
-    let sdk_mcp_server_names = extract_server_names(&sdk_mcp_servers);
 
     let session_cost = SessionCost::restored(&options).await;
     let transport = SubprocessTransport::spawn(&options).await?;
@@ -364,14 +350,12 @@ pub async fn query_streaming(mut options: ClaudeOptions) -> Result<QueryHandle> 
         message_tx,
         request_tracker.clone(),
         permission_handler,
-        hook_handler,
-        sdk_mcp_servers,
         stdin_writer.clone(),
         cancellation_token.clone(),
         session_cost,
     );
 
-    let init_request = build_initialize_request(&options, sdk_mcp_server_names);
+    let init_request = build_initialize_request(&options);
     let (init_id, init_rx) = {
         let mut tracker = request_tracker.lock().await;
         tracker.register()
@@ -482,16 +466,8 @@ fn flatten_content_to_string(obj: &mut serde_json::Map<String, serde_json::Value
     }
 }
 
-/// Extract server names from the SDK MCP servers map.
-fn extract_server_names(servers: &Option<HashMap<String, SdkMcpServer>>) -> Option<Vec<String>> {
-    servers.as_ref().map(|s| s.keys().cloned().collect())
-}
-
 /// Build the initialize control request from options.
-fn build_initialize_request(
-    options: &ClaudeOptions,
-    sdk_mcp_server_names: Option<Vec<String>>,
-) -> OutgoingControlRequest {
+fn build_initialize_request(options: &ClaudeOptions) -> OutgoingControlRequest {
     let system_prompt = match &options.system_prompt {
         Some(crate::api::options::SystemPrompt::Replace(text)) => Some(text.clone()),
         _ => None,
@@ -508,38 +484,10 @@ fn build_initialize_request(
         .as_ref()
         .map(|crate::api::options::OutputFormat::JsonSchema { schema }| schema.clone());
 
-    // Serialize hook definitions in the CLI-expected format:
-    // Record<HookEvent, Array<{hookCallbackIds: string[], matcher?: string, timeout?: number}>>
-    let hooks = options.hooks.as_ref().map(|defs| {
-        let mut map: std::collections::HashMap<String, Vec<serde_json::Value>> =
-            std::collections::HashMap::new();
-        for (i, def) in defs.iter().enumerate() {
-            let event_name = serde_json::to_value(&def.event)
-                .ok()
-                .and_then(|v| v.as_str().map(std::string::ToString::to_string))
-                .unwrap_or_else(|| format!("{:?}", def.event));
-            let callback_id = format!("sdk-hook-{event_name}-{i}");
-            let mut entry = serde_json::json!({
-                "hookCallbackIds": [callback_id],
-            });
-            if let Some(ref matcher) = def.matcher {
-                entry["matcher"] = serde_json::Value::String(matcher.clone());
-            }
-            if let Some(timeout) = def.timeout {
-                entry["timeout"] = serde_json::json!(timeout);
-            }
-            map.entry(event_name).or_default().push(entry);
-        }
-        serde_json::to_value(map).unwrap_or(serde_json::Value::Null)
-    });
-
     OutgoingControlRequest::Initialize {
-        hooks,
-        sdk_mcp_servers: sdk_mcp_server_names,
         json_schema,
         system_prompt,
         append_system_prompt,
-        agents: options.agents.clone(),
     }
 }
 

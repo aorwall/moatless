@@ -11,46 +11,15 @@
     )
 )]
 
-//! # Claude Agent SDK
-//!
-//! A Rust SDK for spawning and communicating with the Claude Code CLI.
-//!
-//! This crate provides an async API for:
-//! - Spawning the `claude` CLI as a subprocess
-//! - Communicating over NDJSON stdin/stdout
-//! - Handling the bidirectional control protocol (permissions, hooks, MCP)
-//! - Streaming SDK messages as an async channel
-//!
-//! ## Quick Start
-//!
-//! ```no_run
-//! use claude_agent_sdk::{query, ClaudeOptions, SdkMessage};
-//!
-//! # async fn example() -> claude_agent_sdk::Result<()> {
-//! let mut handle = query("What is 2+2?", ClaudeOptions::default()).await?;
-//!
-//! while let Some(msg) = handle.messages.recv().await {
-//!     match msg? {
-//!         SdkMessage::Assistant(assistant) => {
-//!             println!("Assistant: {:?}", assistant.message.content);
-//!         }
-//!         SdkMessage::Result(result) => {
-//!             println!("Done: {result:?}");
-//!             break;
-//!         }
-//!         _ => {}
-//!     }
-//! }
-//! # Ok(())
-//! # }
-//! ```
+//! Drives the Claude Code CLI: spawns `claude` as a subprocess or a tmux TUI,
+//! streams its NDJSON messages over a channel, and answers its permission
+//! requests over the control protocol. `examples/simple_query.rs` shows a
+//! one-shot [`query`].
 
 pub mod api;
 mod arg_limits;
-pub mod client;
 mod config_dir;
 pub mod error;
-pub mod mcp;
 pub mod query;
 pub mod tmux;
 
@@ -59,14 +28,12 @@ mod session_cost;
 mod transcripts;
 mod transport;
 
-pub use api::agents::AgentDefinition;
 pub use api::content::{ApiMessage, ContentBlock};
-pub use api::hooks::{HookDefinition, HookEvent, HookHandler, HookOutput, SyncHookOutput};
+pub use api::hooks::HookEvent;
 pub use api::mcp::{McpConnectionStatus, McpServerConfig, McpServerStatus, McpSetServersResult};
 pub use api::messages::{MessagePriority, SdkMessage};
 pub use api::options::ClaudeOptions;
 pub use api::permissions::{PermissionHandler, PermissionMode, PermissionResult};
-pub use client::ClaudeClient;
 pub use error::{Result, SdkError};
 pub use query::{QueryHandle, query, query_streaming};
 pub use tmux::{has_resumable_transcript, query_tmux, query_tmux_streaming, transcript_dir};

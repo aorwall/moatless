@@ -158,19 +158,6 @@ impl SubprocessTransport {
         }
     }
 
-    /// Write a JSON line to stdin.
-    #[allow(dead_code)]
-    pub(crate) async fn write_line(&self, json: &str) -> Result<()> {
-        let mut stdin = self.stdin.lock().await;
-        stdin
-            .write_all(json.as_bytes())
-            .await
-            .map_err(SdkError::SpawnError)?;
-        stdin.write_all(b"\n").await.map_err(SdkError::SpawnError)?;
-        stdin.flush().await.map_err(SdkError::SpawnError)?;
-        Ok(())
-    }
-
     /// Close the subprocess gracefully: close stdin (EOF) to let the CLI finish
     /// naturally, then escalate — brief wait, SIGTERM, wait, SIGKILL as the
     /// last resort.
@@ -435,16 +422,6 @@ pub(crate) fn build_cli_args(options: &ClaudeOptions) -> Vec<String> {
     if let Some(agent) = &options.agent {
         args.push("--agent".to_string());
         args.push(agent.clone());
-    }
-
-    // Agents (multi-agent definitions)
-    if let Some(agents) = &options.agents {
-        if !agents.is_empty() {
-            if let Ok(json) = serde_json::to_string(agents) {
-                args.push("--agents".to_string());
-                args.push(json);
-            }
-        }
     }
 
     if let Some(extra) = &options.extra_args {
@@ -1279,33 +1256,5 @@ mod tests {
         };
         let args = build_cli_args(&options);
         assert!(args.contains(&"--allow-dangerously-skip-permissions".to_string()));
-    }
-
-    #[test]
-    fn build_args_with_agents() {
-        use crate::api::agents::AgentDefinition;
-
-        let mut agents = HashMap::new();
-        agents.insert(
-            "reviewer".to_string(),
-            AgentDefinition {
-                description: "Reviews code".to_string(),
-                prompt: "You are a code reviewer".to_string(),
-                tools: None,
-                disallowed_tools: None,
-                model: None,
-                mcp_servers: None,
-                skills: None,
-                max_turns: None,
-            },
-        );
-        let options = ClaudeOptions {
-            agents: Some(agents),
-            ..Default::default()
-        };
-        let args = build_cli_args(&options);
-        let idx = args.iter().position(|a| a == "--agents").unwrap();
-        let json: serde_json::Value = serde_json::from_str(&args[idx + 1]).unwrap();
-        assert!(json["reviewer"].is_object());
     }
 }

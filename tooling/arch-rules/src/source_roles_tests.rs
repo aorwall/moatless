@@ -38,30 +38,6 @@ fn test_cfg_semantics_match_both_walkers() {
 }
 
 #[test]
-fn excluded_sdk_is_source_only_even_with_unresolvable_dependencies() {
-    let mut f = Fixture::new();
-    f.member("sample", "", "");
-    f.write("crates/codex-sdk/Cargo.toml", "[package]\nname='codex-sdk'\nversion='0.1.0'\n[dependencies]\nmissing={path='/nonexistent/never-resolve-this'}\n[lib]\npath='custom/root.rs'\n");
-    f.write(
-        "crates/codex-sdk/custom/root.rs",
-        "pub mod leaf; pub struct Misplaced;",
-    );
-    f.write("crates/codex-sdk/custom/leaf.rs", "pub struct Value;");
-    let ws = f.load();
-    assert!(ws.member("codex-sdk").is_none());
-    assert!(
-        ws.index()
-            .expect("index")
-            .records
-            .iter()
-            .all(|r| r.package != "codex-sdk")
-    );
-    let violations = declaration_only_roots::check(&ws).expect("rule");
-    assert_eq!(violations.len(), 1, "{violations:?}");
-    assert!(violations[0].key.contains("codex_sdk::Misplaced"));
-}
-
-#[test]
 fn cargo_target_kinds_keep_custom_executable_and_test_roots_distinct() {
     let mut f = Fixture::new();
     f.member("sample", "", "");

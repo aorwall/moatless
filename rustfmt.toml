@@ -8,8 +8,5 @@
 # `style_edition`: the crates declare edition 2021 but the code is written in
 # the 2024 style, which disagrees with 2021 on import ordering. Letting the
 # style follow the edition would rewrite 980 files.
-#
-# `crates/codex-sdk` is edition 2024 and carries its own file; the pin here
-# would reject its let-chains.
 edition = "2021"
 style_edition = "2024"

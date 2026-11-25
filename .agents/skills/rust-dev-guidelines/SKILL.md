@@ -133,12 +133,6 @@ run this rather than picking files. `rustfmt.toml` pins `edition` and
 `style_edition`, so `cargo fmt`, a bare `rustfmt <file>` and an editor's
 format-on-save all produce the same bytes.
 
-`crates/codex-sdk` is its own workspace and `--all` does not reach it. Its path
-dependencies live outside the repository, so `cargo` cannot read its manifest in
-a sandbox and neither can CI; format it with
-`find crates/codex-sdk -name '*.rs' | xargs rustfmt`, which picks up that
-crate's own `rustfmt.toml`.
-
 Naming a `mod.rs` (or any file declaring `mod`) formats its whole subtree, not
 just that file, and `--skip-children` is nightly-only. So `rustfmt <file>` does
 not keep a diff narrow.

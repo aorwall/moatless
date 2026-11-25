@@ -161,7 +161,7 @@ impl Index {
         };
         // Integration target roots resolve sibling modules beside the target, not under its stem.
         let is_target = ws
-            .source_members()
+            .members()
             .flat_map(|m| &m.targets)
             .any(|t| t.path == path);
         let dir = if is_target {

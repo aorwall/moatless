@@ -22,8 +22,7 @@ later pass.
 
 `crates/sandbox/src/agent/codex_app_server/mod.rs` hardcodes
 `approval_policy: AskForApproval::Never` — every Task runs with no approval
-gate. `crates/codex-sdk/src/options.rs` already has `approval_policy` and
-`sandbox_mode` fields sitting unused for this. `dsh`'s permission-preset
+gate. `dsh`'s permission-preset
 pattern: named bundles combining sandbox mode + approval policy into one
 selector (`workspace-write`, `danger-full-access`, read-only), failing closed
 when an answerer is missing or errors.

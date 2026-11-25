@@ -26,11 +26,10 @@ child that owns its subject, and put anything two children need in `harness.rs`.
 
 - Name a paired test `test_<name>_subprocess` and `test_<name>_tmux`. Both share
   one `run_<name>(Backend)` body, and a capability difference gates on
-  `Backend::has_cost_data()`, `has_real_system_init()` or
-  `channel_stays_open_after_result()`.
+  `Backend::has_cost_data()` or `channel_stays_open_after_result()`.
 - Name a subprocess-only test `test_<name>`, with no suffix. Use that form when
   the test exercises a capability tmux lacks. Those are the permission handler,
-  the hook handler, SDK MCP servers, real System init, and real cost data.
+  real System init, and real cost data.
 - Name a tmux-only test `test_<name>_tmux`, the same suffix a paired test takes.
   Both of them live in `tui.rs`, which is where a test that drives the TUI
   across many turns belongs.

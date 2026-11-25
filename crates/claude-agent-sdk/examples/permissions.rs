@@ -1,21 +1,20 @@
 // reason: examples print results to stdout/stderr for the reader.
 #![allow(clippy::print_stdout, clippy::print_stderr)]
 
-//! Demonstrates custom permission handling and hooks.
+//! Demonstrates custom permission handling.
 //!
 //! ```bash
-//! cargo run -p claude-agent-sdk --example permissions_and_hooks
+//! cargo run -p claude-agent-sdk --example permissions
 //! ```
 
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use claude_agent_sdk::api::hooks::SyncHookOutput;
 use claude_agent_sdk::api::messages::ResultMessage;
 use claude_agent_sdk::api::permissions::PermissionContext;
 use claude_agent_sdk::{
-    ClaudeOptions, ContentBlock, HookHandler, HookOutput, PermissionHandler, PermissionMode,
-    PermissionResult, SdkMessage, query,
+    ClaudeOptions, ContentBlock, PermissionHandler, PermissionMode, PermissionResult, SdkMessage,
+    query,
 };
 
 /// A permission handler that only allows read-only tools.
@@ -48,40 +47,12 @@ impl PermissionHandler for ReadOnlyPermissions {
     }
 }
 
-/// A hook handler that logs tool execution.
-struct LoggingHookHandler;
-
-#[async_trait]
-impl HookHandler for LoggingHookHandler {
-    async fn on_hook(&self, input: &serde_json::Value, tool_use_id: Option<&str>) -> HookOutput {
-        let event = input
-            .get("hookEventName")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown");
-        let tool = input
-            .get("toolName")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown");
-
-        println!(
-            "[Hook] Event: {event}, Tool: {tool}, ID: {}",
-            tool_use_id.unwrap_or("none")
-        );
-
-        HookOutput::Sync(SyncHookOutput {
-            should_continue: Some(true),
-            ..Default::default()
-        })
-    }
-}
-
 #[tokio::main]
 async fn main() -> claude_agent_sdk::Result<()> {
     let options = ClaudeOptions {
         max_turns: Some(3),
         permission_mode: Some(PermissionMode::Default),
         can_use_tool: Some(Arc::new(ReadOnlyPermissions)),
-        hook_handler: Some(Arc::new(LoggingHookHandler)),
         ..Default::default()
     };
 

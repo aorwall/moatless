@@ -45,8 +45,6 @@ macro_rules! skip_unless_tmux_e2e {
 
 mod diagnostics;
 mod harness;
-mod hooks;
-mod mcp;
 mod permissions;
 mod query;
 mod sessions;

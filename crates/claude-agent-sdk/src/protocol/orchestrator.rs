@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{Mutex, mpsc};
 use tokio::task::JoinHandle;
@@ -9,11 +8,9 @@ use crate::api::control::{
     ControlResponseEnvelope, ControlResponseInner, ControlResponsePayload,
     IncomingControlRequestInner, RawStdoutMessage,
 };
-use crate::api::hooks::{HookHandler, HookOutput};
 use crate::api::messages::SdkMessage;
 use crate::api::permissions::{PermissionContext, PermissionHandler, PermissionResult};
 use crate::error::{Result, SdkError};
-use crate::mcp::SdkMcpServer;
 use crate::session_cost::SessionCost;
 use crate::transport::{StdinWriter, Transport};
 
@@ -25,14 +22,11 @@ pub(crate) struct Orchestrator;
 
 impl Orchestrator {
     /// Spawn the orchestrator background task.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn spawn(
         mut transport: Box<dyn Transport>,
         message_tx: mpsc::Sender<Result<SdkMessage>>,
         request_tracker: Arc<Mutex<RequestTracker>>,
         permission_handler: Option<Arc<dyn PermissionHandler>>,
-        hook_handler: Option<Arc<dyn HookHandler>>,
-        sdk_mcp_servers: Option<HashMap<String, SdkMcpServer>>,
         stdin_writer: Arc<dyn StdinWriter>,
         cancellation_token: CancellationToken,
         mut session_cost: SessionCost,
@@ -43,8 +37,6 @@ impl Orchestrator {
                 &message_tx,
                 &request_tracker,
                 permission_handler.as_ref(),
-                hook_handler.as_deref(),
-                sdk_mcp_servers.as_ref(),
                 &stdin_writer,
                 &cancellation_token,
                 &mut session_cost,
@@ -82,14 +74,11 @@ impl Orchestrator {
         })
     }
 
-    #[allow(clippy::too_many_arguments)]
     async fn run_loop(
         transport: &mut dyn Transport,
         message_tx: &mpsc::Sender<Result<SdkMessage>>,
         request_tracker: &Arc<Mutex<RequestTracker>>,
         permission_handler: Option<&Arc<dyn PermissionHandler>>,
-        hook_handler: Option<&dyn HookHandler>,
-        sdk_mcp_servers: Option<&HashMap<String, SdkMcpServer>>,
         stdin_writer: &Arc<dyn StdinWriter>,
         cancellation_token: &CancellationToken,
         session_cost: &mut SessionCost,
@@ -170,14 +159,8 @@ impl Orchestrator {
                         });
                     }
                     request => {
-                        Self::handle_incoming_control_request(
-                            request_id,
-                            request,
-                            hook_handler,
-                            sdk_mcp_servers,
-                            stdin_writer,
-                        )
-                        .await;
+                        Self::handle_incoming_control_request(request_id, request, stdin_writer)
+                            .await;
                     }
                 },
                 RawStdoutMessage::ControlResponse(response) => {
@@ -190,7 +173,6 @@ impl Orchestrator {
                             &request_id,
                             ControlErrorInfo {
                                 error: "Request cancelled by CLI".to_string(),
-                                pending_permission_requests: None,
                             },
                         );
                     }
@@ -287,81 +269,26 @@ impl Orchestrator {
     async fn handle_incoming_control_request(
         request_id: String,
         request: IncomingControlRequestInner,
-        hook_handler: Option<&dyn HookHandler>,
-        sdk_mcp_servers: Option<&HashMap<String, SdkMcpServer>>,
         stdin_writer: &Arc<dyn StdinWriter>,
     ) {
         match request {
             IncomingControlRequestInner::CanUseTool { .. } => {
                 warn!("can_use_tool reached the in-line control path — ignoring");
             }
-            IncomingControlRequestInner::HookCallback {
-                callback_id,
-                input,
-                tool_use_id,
-            } => {
-                let response_value = if let Some(handler) = hook_handler {
-                    debug!(callback_id = %callback_id, "Hook callback received — invoking handler");
-                    let output = handler.on_hook(&input, tool_use_id.as_deref()).await;
-                    match output {
-                        HookOutput::Async(async_output) => {
-                            serde_json::to_value(async_output).unwrap_or_default()
-                        }
-                        HookOutput::Sync(sync_output) => {
-                            serde_json::to_value(sync_output).unwrap_or_default()
-                        }
-                    }
-                } else {
-                    // No hook handler — auto-respond with empty success (continue)
-                    debug!(callback_id = %callback_id, "Hook callback received — auto-responding (no handler)");
-                    serde_json::json!({})
-                };
-
+            IncomingControlRequestInner::HookCallback { callback_id, .. } => {
+                // The SDK registers no hook callbacks; answer "continue" so a
+                // stray one cannot stall the CLI.
+                debug!(callback_id = %callback_id, "Hook callback received — auto-responding");
                 let response = ControlResponsePayload {
                     subtype: "success".to_string(),
-                    request_id: request_id.clone(),
-                    response: Some(response_value),
+                    request_id,
+                    response: Some(serde_json::json!({})),
                     error: None,
                 };
-
                 Self::write_control_response(response, stdin_writer).await;
             }
-            IncomingControlRequestInner::McpMessage {
-                server_name,
-                message,
-            } => {
-                if let Some(servers) = sdk_mcp_servers {
-                    if let Some(server) = servers.get(&server_name) {
-                        debug!(server_name = %server_name, "MCP message received — routing to SDK server");
-                        let mcp_response = server.handle_message(&message).await;
-
-                        // Wrap as { mcp_response: <jsonrpc_response> } per the protocol
-                        let response_payload = if mcp_response.is_null() {
-                            serde_json::json!({ "mcp_response": { "jsonrpc": "2.0", "result": {}, "id": 0 } })
-                        } else {
-                            serde_json::json!({ "mcp_response": mcp_response })
-                        };
-
-                        let response = ControlResponsePayload {
-                            subtype: "success".to_string(),
-                            request_id: request_id.clone(),
-                            response: Some(response_payload),
-                            error: None,
-                        };
-                        Self::write_control_response(response, stdin_writer).await;
-                    } else {
-                        warn!(server_name = %server_name, "SDK MCP server not found");
-                        let response = ControlResponsePayload {
-                            subtype: "error".to_string(),
-                            request_id: request_id.clone(),
-                            response: None,
-                            error: Some(format!("SDK MCP server '{server_name}' not found")),
-                        };
-                        Self::write_control_response(response, stdin_writer).await;
-                    }
-                } else {
-                    debug!(server_name = %server_name, "MCP message received — no SDK servers registered");
-                }
+            IncomingControlRequestInner::McpMessage { server_name, .. } => {
+                debug!(server_name = %server_name, "MCP message received — no SDK servers registered");
             }
         }
     }
@@ -397,17 +324,9 @@ impl Orchestrator {
                 }
             }
             ControlResponseInner::Error {
-                request_id,
-                error,
-                pending_permission_requests,
+                request_id, error, ..
             } => {
-                if !tracker.resolve_error(
-                    &request_id,
-                    ControlErrorInfo {
-                        error,
-                        pending_permission_requests,
-                    },
-                ) {
+                if !tracker.resolve_error(&request_id, ControlErrorInfo { error }) {
                     warn!(request_id = %request_id, "Received error response for unknown request");
                 }
             }
