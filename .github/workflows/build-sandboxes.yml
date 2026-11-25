@@ -66,6 +66,8 @@ jobs:
 
       - name: Discover
         id: discover
+        env:
+          BUILD_ALL: ${{ github.event_name == 'workflow_dispatch' && inputs.build_all }}
         run: |
           set -euo pipefail
           include="[]"
@@ -75,10 +77,16 @@ jobs:
             tag="$(docker/generate-recipe.sh tag "$recipe")"
 
             build_it=false
-            if [ "${{ github.event_name == 'workflow_dispatch' && inputs.build_all }}" = "true" ]; then
+            if [ "$BUILD_ALL" = "true" ]; then
               build_it=true
-            elif docker buildx imagetools inspect "${{ env.SANDBOX_RECIPE_IMAGE }}:${tag}" >/dev/null 2>&1; then
-              echo "skip ${recipe} (${{ env.SANDBOX_RECIPE_IMAGE }}:${tag} already exists)"
+            elif docker buildx imagetools inspect "${SANDBOX_RECIPE_IMAGE}:${tag}" >/dev/null 2>&1; then
+              echo "skip ${recipe} (${SANDBOX_RECIPE_IMAGE}:${tag} already exists)"
+              # A renamed or copied recipe hashes to an existing tag, so no
+              # build would ever push its alias: point the alias at that tag.
+              if ! docker buildx imagetools inspect "${SANDBOX_RECIPE_IMAGE}:${alias}" >/dev/null 2>&1; then
+                docker buildx imagetools create -t "${SANDBOX_RECIPE_IMAGE}:${alias}" \
+                  "${SANDBOX_RECIPE_IMAGE}:${tag}"
+              fi
             else
               build_it=true
             fi
