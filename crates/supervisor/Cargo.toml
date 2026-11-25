@@ -3,6 +3,7 @@ name = "moatless-supervisor"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+license.workspace = true
 description = "Generic root-supervision primitives for a process's long-lived tokio tasks"
 
 [dependencies]

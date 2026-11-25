@@ -3,6 +3,7 @@ name = "moatless-arch-rules"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+license.workspace = true
 description = "Architecture rules for the workspace, reported by a binary and enforced as tests against a shrinking baseline"
 
 [dependencies]

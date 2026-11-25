@@ -3,14 +3,16 @@
   "name": "moatless-skills",
   "description": "Moatless workflows for coding agents: Artifact pages, task handoff, feature orchestration, code review and installation.",
   "owner": {
-    "name": "Albert Örwall"
+    "name": "Albert Örwall",
+    "email": "albert@moatless.ai"
   },
   "plugins": [
     {
       "name": "moatless-skills",
       "description": "Moatless workflows for coding agents: Artifact pages, task handoff, feature orchestration, code review and installation.",
       "author": {
-        "name": "Albert Örwall"
+        "name": "Albert Örwall",
+        "email": "albert@moatless.ai"
       },
       "source": "./plugins/moatless-skills",
       "category": "development"
@@ -19,7 +21,8 @@
       "name": "moatless-admin",
       "description": "Operational skills for running the Moatless platform — administering its configuration, sandbox resource tuning, cluster right-sizing and daily health reporting.",
       "author": {
-        "name": "Albert Örwall"
+        "name": "Albert Örwall",
+        "email": "albert@moatless.ai"
       },
       "source": "./plugins/moatless-admin",
       "category": "development"

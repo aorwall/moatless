@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "description": "Operational skills for running the Moatless platform — sandbox resource tuning, cluster right-sizing and daily health reporting.",
   "author": {
-    "name": "Albert Örwall"
+    "name": "Albert Örwall",
+    "email": "albert@moatless.ai"
   },
   "skills": "./skills/",
   "interface": {

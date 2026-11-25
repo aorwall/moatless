@@ -5,6 +5,7 @@ edition.workspace = true
 description = "Linear Adapter: Linear Agents webhook handling, GraphQL API calls, and delivery for Moatless"
 
 authors.workspace = true
+license.workspace = true
 [dependencies]
 async-trait = { workspace = true }
 axum = { workspace = true, features = ["macros"] }

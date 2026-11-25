@@ -5,6 +5,7 @@ edition.workspace = true
 description = "Decision providers: backend-proxied multiple-choice decisions (TypeSafe Jev) for Moatless"
 
 authors.workspace = true
+license.workspace = true
 [dependencies]
 axum = { workspace = true, features = ["macros"] }
 metrics = { workspace = true }

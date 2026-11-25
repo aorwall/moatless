@@ -5,6 +5,7 @@ edition.workspace = true
 description = "Local-process sandbox runtime for isolated E2E runs, behind the moatless-sandbox-control ports"
 
 authors.workspace = true
+license.workspace = true
 [dependencies]
 moatless-workspace-types = { workspace = true, features = ["openapi"] }
 async-trait = { workspace = true }

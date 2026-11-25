@@ -5,6 +5,7 @@ edition.workspace = true
 description = "Shared type definitions for Moatless"
 
 authors.workspace = true
+license.workspace = true
 [dependencies]
 chrono = { workspace = true, features = ["serde"] }
 serde = { workspace = true, features = ["derive"] }

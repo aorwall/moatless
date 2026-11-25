@@ -5,6 +5,7 @@ edition.workspace = true
 description = "Sandbox-k8s band: the Kubernetes runtime provider behind the moatless-sandbox-control ports"
 
 authors.workspace = true
+license.workspace = true
 [dependencies]
 moatless-workspace-types = { workspace = true, features = ["openapi"] }
 async-stream = "0.3"

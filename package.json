@@ -1,8 +1,9 @@
 {
   "name": "moatless",
   "version": "0.1.0",
+  "license": "Apache-2.0",
   "description": "Run coding agents in on-demand sandboxes against git repositories",
-  "author": "Albert Örwall",
+  "author": "Albert Örwall <albert@moatless.ai>",
   "repository": {
     "type": "git",
     "url": "https://github.com/aorwall/moatless"

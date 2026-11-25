@@ -5,6 +5,7 @@ edition.workspace = true
 description = "Slack Adapter: Slack webhook handling, Web API, and outbound delivery for Moatless"
 
 authors.workspace = true
+license.workspace = true
 [dependencies]
 async-trait = { workspace = true }
 axum = { workspace = true, features = ["macros"] }

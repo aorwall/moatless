@@ -5,6 +5,7 @@ edition.workspace = true
 description = "The Adapter kernel: capability contracts, the Adapter error space, domain types (contexts, DB rows, inbound/outbound messages) and adapter_connections persistence for Moatless"
 
 authors.workspace = true
+license.workspace = true
 [dependencies]
 async-trait = { workspace = true }
 axum = { workspace = true, optional = true }

@@ -3,6 +3,7 @@ name = "moatless-workspace-types"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+license.workspace = true
 description = "Workspace domain values and optional wire contracts"
 
 [dependencies]

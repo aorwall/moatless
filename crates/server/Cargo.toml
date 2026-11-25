@@ -3,6 +3,7 @@ name = "moatless-backend"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+license.workspace = true
 description = "Backend service for Moatless (sandbox orchestration, auth, tasks, agent)"
 
 [dependencies]

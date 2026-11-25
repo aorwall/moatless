@@ -3,6 +3,7 @@ name = "moatless-s3"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+license.workspace = true
 description = "S3 object operations and presigning — a leaf over aws-sdk-s3, named from band 8 upward"
 
 [features]

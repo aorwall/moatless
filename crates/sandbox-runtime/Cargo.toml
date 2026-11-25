@@ -5,6 +5,7 @@ edition.workspace = true
 description = "What a Moatless sandbox runtime implements and the machinery every runtime reuses: the mutation and observation contract, the gRPC client, status reads, storage plans, and the resource parsers"
 
 authors.workspace = true
+license.workspace = true
 [dependencies]
 moatless-workspace-types = { workspace = true, features = ["schemas", "openapi"] }
 async-trait = { workspace = true }

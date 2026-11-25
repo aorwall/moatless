@@ -3,6 +3,7 @@ name = "moatless-workspace-ports"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+license.workspace = true
 description = "Workspace capabilities and their supporting contract values"
 
 [dependencies]

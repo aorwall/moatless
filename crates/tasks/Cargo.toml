@@ -5,6 +5,7 @@ edition.workspace = true
 description = "Tasks band: task lifecycle, messages, tags, listing feed, activities, and ingress for Moatless"
 
 authors.workspace = true
+license.workspace = true
 [dependencies]
 moatless-workspace-types = { workspace = true, features = ["openapi"] }
 moatless-workspace-ports = { workspace = true }

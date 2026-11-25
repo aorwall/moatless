@@ -7,6 +7,7 @@ keywords = ["claude", "agent", "sdk", "anthropic", "ai"]
 categories = ["api-bindings", "asynchronous"]
 
 authors.workspace = true
+license.workspace = true
 [dependencies]
 tokio = { workspace = true, features = ["process", "io-util", "sync", "time", "macros", "rt", "fs"] }
 tokio-util = { workspace = true, features = ["rt"] }

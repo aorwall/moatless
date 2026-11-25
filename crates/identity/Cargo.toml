@@ -5,6 +5,7 @@ edition.workspace = true
 description = "Identity band: auth, extractors, adapter apps, secrets, and setup for Moatless"
 
 authors.workspace = true
+license.workspace = true
 [dependencies]
 async-trait = { workspace = true }
 axum = { workspace = true, features = ["macros", "ws"] }

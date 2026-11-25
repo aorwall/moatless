@@ -5,6 +5,7 @@ edition.workspace = true
 description = "GitHub PR Adapter: GitHub webhook handling, PR workflows, replies, and reactions for Moatless"
 
 authors.workspace = true
+license.workspace = true
 [dependencies]
 moatless-workspace-types = { workspace = true, features = ["openapi"] }
 async-trait = { workspace = true }

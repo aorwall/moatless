@@ -1,6 +1,7 @@
 {
 	"name": "@moatless/inspector",
 	"version": "0.3.0",
+	"license": "Apache-2.0",
 	"description": "Runtime inspector for AI-assisted UI development - console interception, element inspection, component tagging, element annotation, and bidirectional iframe communication",
 	"type": "module",
 	"main": "./dist/index.js",
@@ -78,7 +79,7 @@
 		"component",
 		"tagger"
 	],
-	"author": "Albert \u00d6rwall",
+	"author": "Albert \u00d6rwall <albert@moatless.ai>",
 	"dependencies": {
 		"@babel/parser": "^8.0.0",
 		"estree-walker": "^3.0.3",

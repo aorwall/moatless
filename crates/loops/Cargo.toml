@@ -5,6 +5,7 @@ edition.workspace = true
 description = "Loops band: loops, bindings, and the Adapter core that no single Adapter owns"
 
 authors.workspace = true
+license.workspace = true
 [dependencies]
 moatless-workspace-types = { workspace = true, features = ["openapi"] }
 moatless-workspace-ports = { workspace = true }

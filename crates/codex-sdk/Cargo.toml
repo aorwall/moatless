@@ -2,6 +2,8 @@
 name = "codex-sdk"
 version = "0.1.0"
 edition = "2024"
+authors = ["Albert Örwall <albert@moatless.ai>"]
+license = "Apache-2.0"
 publish = false
 description = "Rust SDK for the Codex coding agent — mirrors the Claude Agent SDK interface"
 

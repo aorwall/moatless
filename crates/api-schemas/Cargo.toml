@@ -5,6 +5,7 @@ edition.workspace = true
 description = "Shared API request/response types for backend and CLI"
 
 authors.workspace = true
+license.workspace = true
 [dependencies]
 moatless-workspace-types = { workspace = true, features = ["schemas"] }
 serde = { workspace = true, features = ["derive"] }

@@ -3,6 +3,7 @@ name = "moatless-t3code"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+license.workspace = true
 description = "T3 Code compatibility surface for Moatless"
 
 [dependencies]

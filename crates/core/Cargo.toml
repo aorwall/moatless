@@ -3,6 +3,7 @@ name = "moatless-core"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+license.workspace = true
 description = "Lowest-band backend crate: config, db, error, events, file metadata, and core-clean vocabularies"
 
 [dependencies]

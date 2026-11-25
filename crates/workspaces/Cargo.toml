@@ -5,6 +5,7 @@ edition.workspace = true
 description = "Workspaces band: workspace sync, repository, skill, plugin, and credentials for Moatless"
 
 authors.workspace = true
+license.workspace = true
 [dependencies]
 moatless-workspace-types = { workspace = true, features = ["schemas", "openapi"] }
 moatless-workspace-ports = { workspace = true }

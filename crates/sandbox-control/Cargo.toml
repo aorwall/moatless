@@ -5,6 +5,7 @@ edition.workspace = true
 description = "Sandbox-control band: provider-agnostic sandbox lifecycle, gRPC ingress, preflight, secrets, and status reads for Moatless"
 
 authors.workspace = true
+license.workspace = true
 [dependencies]
 moatless-workspace-types = { workspace = true, features = ["openapi"] }
 moatless-workspace-ports = { workspace = true }

@@ -5,6 +5,7 @@ edition.workspace = true
 description = "gRPC proto definitions for sandbox ↔ backend communication"
 
 authors.workspace = true
+license.workspace = true
 [dependencies]
 moatless-workspace-types = { workspace = true }
 async-trait = { workspace = true }

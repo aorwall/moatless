@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "description": "Moatless workflows for coding agents: Artifact pages, task handoff, feature orchestration, code review and installation.",
   "author": {
-    "name": "Albert Örwall"
+    "name": "Albert Örwall",
+    "email": "albert@moatless.ai"
   },
   "skills": "./skills/",
   "interface": {
