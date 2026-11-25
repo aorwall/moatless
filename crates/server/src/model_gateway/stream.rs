@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 use axum::body::{Body, Bytes};
 use axum::http::{HeaderMap, HeaderName, Method, StatusCode, header};
 use axum::response::{IntoResponse, Response};
+use moatless_types::http::RelayedUpstreamFailure;
 use tracing::info;
 
 use crate::proxy::forward::{forwards, stream_back};
@@ -103,7 +104,7 @@ async fn relay_retrying(
     loop {
         // `None` only for a streamed body, which `upstream_request` never sets.
         let Some(attempt) = request.try_clone() else {
-            return Ok(stream_back(request.send().await?, "model_gateway"));
+            return Ok(relayed(request.send().await?));
         };
         match attempt.send().await {
             Ok(response) => {
@@ -113,7 +114,7 @@ async fn relay_retrying(
                         "A model request reached its upstream after a retry"
                     );
                 }
-                return Ok(stream_back(response, "model_gateway"));
+                return Ok(relayed(response));
             }
             Err(error) if error.is_connect() && started.elapsed() + wait <= retry.budget => {
                 tokio::time::sleep(wait).await;
@@ -123,6 +124,17 @@ async fn relay_retrying(
             Err(error) => return Err(error),
         }
     }
+}
+
+/// `response` streamed back, a 5xx marked [`RelayedUpstreamFailure`]: a hub
+/// answering 503 while a provider throttles it is the provider's failure, not
+/// this backend's, and logging it at ERROR fires the error-burst alert.
+fn relayed(response: reqwest::Response) -> Response {
+    let mut relayed = stream_back(response, "model_gateway");
+    if relayed.status().is_server_error() {
+        relayed.extensions_mut().insert(RelayedUpstreamFailure);
+    }
+    relayed
 }
 
 /// The headers a caller presents its task token in, or that name an account

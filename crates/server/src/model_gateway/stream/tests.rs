@@ -118,3 +118,37 @@ async fn only_an_oversized_body_is_refused_as_too_large() {
     let refused = buffered(broken).await.err().unwrap().into_response();
     assert_eq!(refused.status(), StatusCode::BAD_REQUEST);
 }
+
+#[tokio::test]
+async fn a_relayed_5xx_is_marked_as_the_upstreams_and_a_success_is_not() {
+    let app = Router::new()
+        .route(
+            "/v1/responses",
+            post(|| async { StatusCode::SERVICE_UNAVAILABLE }),
+        )
+        .route("/v1/messages", post(|| async { StatusCode::OK }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let send = |path: &str| {
+        upstream_request(
+            &client(),
+            Method::POST,
+            &format!("http://{addr}{path}"),
+            &HeaderMap::new(),
+            Bytes::new(),
+        )
+    };
+
+    let unavailable = relay_retrying(send("/v1/responses"), &SHORT).await.unwrap();
+    let ok = relay_retrying(send("/v1/messages"), &SHORT).await.unwrap();
+
+    assert_eq!(unavailable.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert!(
+        unavailable
+            .extensions()
+            .get::<RelayedUpstreamFailure>()
+            .is_some()
+    );
+    assert!(ok.extensions().get::<RelayedUpstreamFailure>().is_none());
+}
