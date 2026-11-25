@@ -66,11 +66,9 @@ pub(super) fn pr_opened(subject: &GithubPrSubject) -> String {
     pr_event("opened", subject, None)
 }
 
-/// `github:pr:synchronize:<owner>/<repo>#<number>:<sha>`.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "stable GitHub PR external-id codec retained")
-)]
+/// `github:pr:synchronize:<owner>/<repo>#<number>:<sha>`. Test-only: the
+/// webhook mints it through [`pr_event`] because its sha may be absent.
+#[cfg(test)]
 pub(super) fn pr_synchronize(subject: &GithubPrSubject, sha: &str) -> String {
     pr_event("synchronize", subject, Some(sha))
 }

@@ -83,9 +83,7 @@ struct AuthTestResponse {
 #[derive(Debug, Clone)]
 pub struct AuthTestInfo {
     pub user_id: String,
-    #[allow(dead_code, reason = "logged with the resolved bot identity")]
     pub user: Option<String>,
-    #[allow(dead_code, reason = "logged with the resolved bot identity")]
     pub team: Option<String>,
     pub team_id: Option<String>,
 }

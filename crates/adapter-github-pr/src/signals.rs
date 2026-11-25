@@ -72,20 +72,13 @@ impl MergeableState {
 }
 
 /// Latest review verdict recorded for a PR. Mirrors the states GitHub reports
-/// on a `pull_request_review` submission, plus GitHub's PR-level
-/// `review_required` bucket.
+/// on a `pull_request_review` submission.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ReviewDecision {
     /// At least one approving review, no outstanding change requests.
     Approved,
     /// A reviewer requested changes.
     ChangesRequested,
-    /// A review is required but none has landed yet.
-    #[expect(
-        dead_code,
-        reason = "GitHub review-decision vocabulary includes this state"
-    )]
-    ReviewRequired,
     /// A review was dismissed.
     Dismissed,
     /// A review was left as a plain comment (no verdict).
@@ -111,7 +104,6 @@ impl ReviewDecision {
         match self {
             Self::Approved => "approved",
             Self::ChangesRequested => "changes_requested",
-            Self::ReviewRequired => "review_required",
             Self::Dismissed => "dismissed",
             Self::Commented => "commented",
         }

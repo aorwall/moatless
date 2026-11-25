@@ -165,14 +165,6 @@ pub struct AgentSessionComment {
 #[derive(Debug, Clone, Deserialize)]
 pub struct AgentActivityPayload {
     pub id: String,
-    /// `prompt` | `response` | `thought` | `elicitation` | `action` | `error`.
-    ///
-    /// Deserialized but never read: the `prompted` action routes the delivery,
-    /// not this type; kept since dropping the field changes what the payload
-    /// records.
-    #[allow(dead_code, reason = "see the doc comment")]
-    #[serde(default, rename = "type")]
-    pub kind: String,
     #[serde(default)]
     pub body: String,
 }
@@ -414,7 +406,6 @@ mod tests {
         let env: LinearWebhookEnvelope = serde_json::from_value(raw).expect("parse");
         assert_eq!(env.action, "prompted");
         let activity = env.agent_activity.expect("activity present");
-        assert_eq!(activity.kind, "prompt");
         assert_eq!(activity.body, "follow up message");
     }
 

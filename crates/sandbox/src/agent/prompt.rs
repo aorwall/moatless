@@ -28,7 +28,6 @@ impl PromptToolName {
 }
 
 /// A pending prompt waiting for user input.
-#[allow(dead_code)]
 pub struct PendingPrompt {
     /// Which tool triggered the prompt.
     pub tool_name: PromptToolName,

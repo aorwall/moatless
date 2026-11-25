@@ -36,7 +36,6 @@ chrono = { workspace = true, features = ["serde"] }
 reqwest = { workspace = true, features = ["json", "query", "form", "rustls"] }
 
 # Crypto
-rand = { workspace = true }
 # Derives a task's workspace-repository password from the deployment secret.
 hkdf = { workspace = true }
 

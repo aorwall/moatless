@@ -82,13 +82,6 @@ pub(super) struct PrInfo {
     pub(super) closed_at: Option<String>,
 }
 
-impl PrInfo {
-    #[expect(dead_code, reason = "kept with the concrete GitHub PR response model")]
-    pub(super) fn author(&self) -> &str {
-        self.user.as_ref().map_or("unknown", |u| u.login.as_str())
-    }
-}
-
 #[derive(Debug, Clone, Deserialize)]
 pub(super) struct PrInfoUser {
     pub(super) login: String,
@@ -153,11 +146,6 @@ pub(super) struct CommitParent {
 #[derive(Debug, Clone, Deserialize)]
 pub(super) struct CommitPr {
     pub(super) number: u64,
-    #[expect(
-        dead_code,
-        reason = "deserialized GitHub field retained for endpoint parity"
-    )]
-    pub(super) state: String,
     /// Set (non-null) once the PR has been merged. Distinguishes a merged PR
     /// from an open PR that merely has this commit on its head branch.
     #[serde(default)]

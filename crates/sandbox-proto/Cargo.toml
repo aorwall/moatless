@@ -7,7 +7,6 @@ description = "gRPC proto definitions for sandbox ↔ backend communication"
 authors.workspace = true
 license.workspace = true
 [dependencies]
-moatless-workspace-types = { workspace = true }
 async-trait = { workspace = true }
 chrono = { workspace = true }
 thiserror = { workspace = true }
@@ -26,7 +25,7 @@ tracing = { workspace = true }
 
 [features]
 default = []
-openapi = ["moatless-workspace-types/openapi", "moatless-types/openapi"]
+openapi = ["moatless-types/openapi"]
 
 [lints]
 workspace = true

@@ -73,7 +73,6 @@ impl AgentState {
         self.inner.read().await.pending_prompt.is_some()
     }
 
-    #[allow(dead_code)]
     pub async fn pending_prompt_tool_name(&self) -> Option<String> {
         self.inner
             .read()

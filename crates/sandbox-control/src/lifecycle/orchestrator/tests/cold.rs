@@ -82,7 +82,7 @@ async fn unreadable_archive_keeps_the_volume() {
         .expect_err("blocked");
 
     assert!(matches!(err, LifecycleError::ArchiveUnproven { .. }));
-    assert!(err.is_retriable(), "the next cycle must try again");
+    assert!(err.class().is_transient(), "the next cycle must try again");
     assert_eq!(h.log.lock().expect("lock").as_slice(), ["archived_at"]);
     assert!(
         !h.store.storage_reclaimed(),

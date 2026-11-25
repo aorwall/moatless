@@ -33,7 +33,6 @@ pub const DEFAULT_COMMAND_TIMEOUT_SECS: u64 = 4 * 60 * 60;
 
 /// Agent-specific configuration parsed from `REPO_CONFIG`.
 #[derive(Debug, Clone, Default)]
-#[allow(dead_code)]
 pub struct AgentConfig {
     pub timeout: Option<u64>,
     pub model: Option<String>,
@@ -58,7 +57,6 @@ impl AgentConfig {
 /// Code execution configuration from `REPO_CONFIG`.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[allow(dead_code)]
 pub struct CodeExecutionConfig {
     #[serde(default)]
     pub setup_commands: Vec<String>,
@@ -113,7 +111,6 @@ struct ParsedRepoConfig {
 
 /// Main sandbox configuration.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct Config {
     /// HTTP port (default: 8001) — kept for K8s health probes
     pub port: u16,

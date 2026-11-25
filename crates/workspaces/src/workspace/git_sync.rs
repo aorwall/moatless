@@ -68,7 +68,8 @@ pub struct CodeExecution {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MoatlessWorkspacesFile {
-    #[allow(dead_code)] // reserved for forward-compat; not yet branched on
+    /// Read by nothing yet; declared so it stays out of `unknown` and draws no
+    /// unknown-key warning.
     pub version: Option<u32>,
     pub workspaces: Vec<MoatlessWorkspaceEntry>,
     #[serde(flatten)]

@@ -262,7 +262,37 @@ POSTGRES_PORT=5432
 
 ### Environment Variable Reference
 
-See `.env.example` for complete list with descriptions.
+See `.env.example` for the common variables with descriptions. The backend
+also reads the variables below, which `.env.example` leaves out. Each one has a
+working default; `crates/core/src/config.rs` is where they are read.
+
+| Variable | Default | Applies to | Purpose |
+|----------|---------|------------|---------|
+| `WORKSPACE_S3_PREFIX` | `workspaces` | S3 storage | Key prefix for workspace archives in the uploads bucket. |
+| `ARTIFACT_S3_PREFIX` | `artifacts` | S3 storage | Key prefix for published Artifact pages in the uploads bucket. |
+| `SECRETS_KMS_KEY_ID` | unset | all | KMS key id or alias recorded on encrypted secret rows. |
+| `AWS_KMS_KEY_ID` | unset | all | Fallback for `SECRETS_KMS_KEY_ID`. |
+| `BACKEND_SKILL_CACHE_TTL_SECONDS` | `3600` | all | How long the backend caches a parsed skill list. |
+| `CODEX_OAUTH_ISSUER` | `https://auth.openai.com` | all | Issuer for Codex device-code sign-in and token refresh. |
+| `CODEX_OAUTH_CLIENT_ID` | the Codex CLI's public client id | all | OAuth client id for Codex sign-in. |
+| `DEFAULT_CLAUDE_CODE_MODEL` | unset | Kubernetes, local | Claude model a sandbox agent uses when the Task names none. |
+| `DOCKER_ENABLE_SOCKET_MOUNT` | `false` | Docker | Mount the host Docker socket into sandbox containers. |
+| `DOCKER_SOCKET_PATH` | `/var/run/docker.sock` | Docker | Host path of that socket. |
+| `DOCKER_EXTRA_NETWORKS` | unset | Docker | Comma-separated extra networks to attach sandbox containers to. |
+| `GITHUB_CHANNEL_WEBHOOK_SECRET` | unset | GitHub PR adapter | Webhook signing secret used when the org connection has none of its own. |
+| `K8S_SANDBOX_DOCKER_DIND_CPU_REQUEST` | `500m` | Kubernetes | CPU request of the `dind` sidecar. |
+| `K8S_SANDBOX_DOCKER_DIND_CPU_LIMIT` | `2` | Kubernetes | CPU limit of the `dind` sidecar. |
+| `K8S_SANDBOX_DOCKER_DIND_MEMORY_REQUEST` | `1Gi` | Kubernetes | Memory request of the `dind` sidecar. |
+| `K8S_SANDBOX_DOCKER_DIND_MEMORY_LIMIT` | `4Gi` | Kubernetes | Memory limit of the `dind` sidecar. |
+| `SANDBOX_ACCEPT_CLAIMLESS_TOKENS` | `true` | all | Accept sandbox tokens minted without a `taskId` claim, checking task access in the database instead. |
+| `SANDBOX_EMIT_LEGACY_USER_TOKEN` | `true` | Kubernetes | Also put the long-lived `USER_AUTH_TOKEN` in the sandbox pod's env, for images that still read it there. |
+| `SESSION_COOKIE_NAME` | `moatless_session` | all | Name of the browser session cookie. |
+| `SSE_BROADCAST_CAPACITY` | `4096` | all | Buffer size of the server-sent-events fan-out channel. |
+| `T3_UI_RPC_CLIPROXY_LABEL` | `CLIProxyAPI` | T3 Code | Label T3 Code shows for the CLIProxyAPI usage-limit source. |
+| `T3_UI_RPC_LINEAR_DEFAULT_TEAM` | unset | T3 Code | Linear team key listed for a Workspace that declares no `linearTeam`. |
+| `T3_UI_RPC_ORCHESTRATION_PROTOCOL_VERSION` | `1` | T3 Code | `2` also serves orchestration V2 to clients that ask for it; any value other than `1` or `2` fails startup. |
+| `T3_UI_RPC_SCRATCH_WORKSPACE` | unset | T3 Code | Id of the Workspace a thread with no project runs in. |
+| `TRAEFIK_INGRESS_NAMESPACES` | sandbox namespace, `platform-ingress` | Kubernetes | Comma-separated namespaces whose Traefik pods may reach sandbox preview ports. |
 
 ## Common Operations
 

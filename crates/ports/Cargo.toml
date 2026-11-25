@@ -14,7 +14,6 @@ chrono = { workspace = true, features = ["serde"] }
 # crate boundary, so the automock attributes here are feature-gated instead.
 mockall = { workspace = true, optional = true }
 moatless-types = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true, features = ["v4", "serde"] }

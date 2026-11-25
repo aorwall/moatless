@@ -103,11 +103,6 @@ impl LifecycleError {
         }
     }
 
-    /// Whether the reconciler's attempt cap should retry this failure.
-    pub fn is_retriable(&self) -> bool {
-        self.class().is_transient()
-    }
-
     /// Bounded cause slug published as the `Error` fact's `lifecycle_event`. A
     /// runtime failure defers to its [`RuntimeError`] so the adapter's own
     /// vocabulary survives the wrap.
@@ -152,21 +147,27 @@ mod tests {
 
     #[test]
     fn permanent_errors_are_not_retriable() {
-        assert!(!LifecycleError::TaskNotFound("t".into()).is_retriable());
+        assert!(
+            !LifecycleError::TaskNotFound("t".into())
+                .class()
+                .is_transient()
+        );
         assert!(
             !LifecycleError::NotAllowed {
                 kind: OperationKind::Start,
                 task_id: "t".into(),
                 status: TaskStatus::Closed,
             }
-            .is_retriable()
+            .class()
+            .is_transient()
         );
         assert!(
             !LifecycleError::Interrupted {
                 task_id: "t".into(),
                 reason: "panic".into(),
             }
-            .is_retriable()
+            .class()
+            .is_transient()
         );
     }
 
@@ -179,28 +180,32 @@ mod tests {
                 task_id: "t".into(),
                 reason: "conn reset".into(),
             }
-            .is_retriable()
+            .class()
+            .is_transient()
         );
         assert!(
             LifecycleError::GenerationUnavailable {
                 task_id: "t".into(),
                 reason: "seq locked".into(),
             }
-            .is_retriable()
+            .class()
+            .is_transient()
         );
         assert!(
             LifecycleError::CompletionCommit {
                 task_id: "t".into(),
                 reason: "deadlock".into(),
             }
-            .is_retriable()
+            .class()
+            .is_transient()
         );
         assert!(
             LifecycleError::IntentWrite {
                 task_id: "t".into(),
                 reason: "deadlock".into(),
             }
-            .is_retriable()
+            .class()
+            .is_transient()
         );
         // An unreadable archive must come back next cycle: the volume it would
         // have replaced is still there.
@@ -209,14 +214,16 @@ mod tests {
                 task_id: "t".into(),
                 reason: "s3 timeout".into(),
             }
-            .is_retriable()
+            .class()
+            .is_transient()
         );
         assert!(
             LifecycleError::Runtime {
                 task_id: "t".into(),
                 source: RuntimeError::Infrastructure("timeout".into()),
             }
-            .is_retriable()
+            .class()
+            .is_transient()
         );
         // A stuck-but-accepted deletion is transient so the reconciler keeps
         // re-driving remove until observed absence.
@@ -225,7 +232,8 @@ mod tests {
                 task_id: "t".into(),
                 source: RuntimeError::NotAbsent("pvc".into()),
             }
-            .is_retriable()
+            .class()
+            .is_transient()
         );
     }
 
@@ -249,6 +257,6 @@ mod tests {
         assert_eq!(e.class(), ErrorClass::Contention);
         // Contention is not "transient" — it is resolved by serialization, not
         // by consuming an attempt-cap retry.
-        assert!(!e.is_retriable());
+        assert!(!e.class().is_transient());
     }
 }

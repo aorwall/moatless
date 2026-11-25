@@ -19,7 +19,6 @@ moatless-core = { workspace = true, features = ["openapi"] }
 moatless-sandbox-runtime = { workspace = true }
 moatless-sandbox-control = { workspace = true }
 moatless-types = { workspace = true, features = ["openapi"] }
-sandbox-proto = { workspace = true }
 
 [lints]
 workspace = true

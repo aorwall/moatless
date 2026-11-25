@@ -34,8 +34,6 @@ pub trait UserCredentialDao: Send + Sync {
         at: DateTime<Utc>,
     ) -> Result<(), sqlx::Error>;
     async fn record_login_failure(&self, user_id: &Uuid) -> Result<(), sqlx::Error>;
-    #[expect(dead_code, reason = "no in-tree caller removes a local credential yet")]
-    async fn delete(&self, user_id: &Uuid) -> Result<bool, sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`UserCredentialDao`].
@@ -143,13 +141,5 @@ impl UserCredentialDao for PgUserCredentialDao {
         .execute(&self.0)
         .await?;
         Ok(())
-    }
-
-    async fn delete(&self, user_id: &Uuid) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query("DELETE FROM user_credentials WHERE user_id = $1")
-            .bind(user_id)
-            .execute(&self.0)
-            .await?;
-        Ok(result.rows_affected() > 0)
     }
 }

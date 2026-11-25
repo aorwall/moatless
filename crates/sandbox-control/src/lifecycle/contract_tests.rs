@@ -606,7 +606,7 @@ async fn bad_plan_start_is_permanent_and_keeps_intent(opts: PgPoolOptions, conn:
         1,
     );
     let err = h.lifecycle.start("t1").await.unwrap_err();
-    assert!(!err.is_retriable(), "bad plan is permanent");
+    assert!(!err.class().is_transient(), "bad plan is permanent");
     // Intent is Running (written before the effect) and its Error fact persisted.
     assert_eq!(desired(&h.pool, "t1").await.0, "running");
     assert!(h.sink.facts.lock().unwrap().contains(&EventFact::Error));

@@ -27,22 +27,6 @@ const PROVIDER: &str = moatless_types::adapter::AdapterKind::Linear.as_str();
 /// Refresh tokens whose expiry is within this window.
 const REFRESH_LEEWAY_SECS: i64 = 5 * 60;
 
-/// Authenticated viewer information (agent identity from OAuth).
-#[derive(Debug, Clone, Deserialize)]
-#[allow(
-    dead_code,
-    reason = "reachable only while `agent_api` was `pub`; narrowing `mod.rs` in stage \
-              15 of the Linear breakup surfaced it. Kept rather than deleted because \
-              `agent_api.rs` internals are out of scope for that plan — see the PR."
-)]
-pub struct ViewerInfo {
-    pub id: String,
-    #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub email: Option<String>,
-}
-
 /// Linear `AgentActivityType`. Plain strings on the wire — we only model the
 /// variants we emit.
 #[derive(Debug, Clone, Copy)]
@@ -50,13 +34,6 @@ pub enum ActivityKind {
     Thought,
     Action,
     Response,
-    #[allow(
-        dead_code,
-        reason = "reachable only while `agent_api` was `pub`; narrowing `mod.rs` in stage \
-                  15 of the Linear breakup surfaced it. Kept rather than deleted because \
-                  `agent_api.rs` internals are out of scope for that plan — see the PR."
-    )]
-    Elicitation,
     Error,
 }
 
@@ -66,7 +43,6 @@ impl ActivityKind {
             Self::Thought => "thought",
             Self::Action => "action",
             Self::Response => "response",
-            Self::Elicitation => "elicitation",
             Self::Error => "error",
         }
     }
@@ -96,31 +72,8 @@ pub struct LinearAgentApi {
 }
 
 impl LinearAgentApi {
-    #[allow(
-        dead_code,
-        reason = "reachable only while `agent_api` was `pub`; narrowing `mod.rs` in stage \
-                  15 of the Linear breakup surfaced it. Kept rather than deleted because \
-                  `agent_api.rs` internals are out of scope for that plan — see the PR."
-    )]
-    pub fn new(
-        http: Client,
-        tokens: Arc<dyn AppCredentials>,
-        org_id: String,
-        oauth_client_id: Option<String>,
-        oauth_client_secret: Option<String>,
-    ) -> Self {
-        Self::with_base_url(
-            http,
-            tokens,
-            org_id,
-            oauth_client_id,
-            oauth_client_secret,
-            LINEAR_API_BASE,
-        )
-    }
-
-    /// [`Self::new`] with Linear's host replaced, for driving requests against
-    /// a local stub. Both endpoints derive from `base_url` — deriving only the
+    /// The client against `base_url` rather than Linear's host, for driving
+    /// requests against a local stub. Both endpoints derive from `base_url` — deriving only the
     /// GraphQL one would let token refresh still reach the real API.
     pub(crate) fn with_base_url(
         http: Client,
@@ -319,15 +272,10 @@ impl LinearAgentApi {
         self.graphql_tolerating(body, |_| false).await
     }
 
-    /// Variant for the OAuth-install code path: the access token is in hand
-    /// from a token-exchange response but hasn't been persisted yet.
-    #[allow(
-        dead_code,
-        reason = "reachable only while `agent_api` was `pub`; narrowing `mod.rs` in stage \
-                  15 of the Linear breakup surfaced it. Kept rather than deleted because \
-                  `agent_api.rs` internals are out of scope for that plan — see the PR."
-    )]
-    pub async fn graphql_with_token(
+    /// [`Self::graphql`] with a caller-supplied token, so a test needs no
+    /// stored credential.
+    #[cfg(test)]
+    pub(crate) async fn graphql_with_token(
         &self,
         access_token: &str,
         body: serde_json::Value,
@@ -586,23 +534,6 @@ impl LinearAgentApi {
             .into());
         }
         Ok(())
-    }
-
-    /// Fetch the authenticated viewer (used at OAuth install time to record the
-    /// agent's identity).
-    #[allow(
-        dead_code,
-        reason = "reachable only while `agent_api` was `pub`; narrowing `mod.rs` in stage \
-                  15 of the Linear breakup surfaced it. Kept rather than deleted because \
-                  `agent_api.rs` internals are out of scope for that plan — see the PR."
-    )]
-    pub async fn viewer(&self) -> Result<ViewerInfo, AdapterError> {
-        let value = self
-            .graphql(serde_json::json!({
-                "query": "query { viewer { id name email } }"
-            }))
-            .await?;
-        parse_viewer(&value)
     }
 
     // Issue CRUD + lookup: thin wrappers passing `Value` straight through so
@@ -1283,20 +1214,6 @@ fn require_mutation_success(
         .into());
     }
     Ok(())
-}
-
-#[allow(
-    dead_code,
-    reason = "reachable only while `agent_api` was `pub`; narrowing `mod.rs` in stage \
-              15 of the Linear breakup surfaced it. Kept rather than deleted because \
-              `agent_api.rs` internals are out of scope for that plan — see the PR."
-)]
-fn parse_viewer(value: &serde_json::Value) -> Result<ViewerInfo, AdapterError> {
-    let viewer = value
-        .pointer("/data/viewer")
-        .ok_or_else(|| SharedAdapterError::AdapterApi("Linear viewer missing".into()))?;
-    serde_json::from_value(viewer.clone())
-        .map_err(|e| SharedAdapterError::provider_response_invalid("Linear viewer", e).into())
 }
 
 /// Decide whether a force-refresh can proceed from the stored token row.

@@ -8,7 +8,6 @@
 //! path never returns it, only a fingerprint.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::AssertSqlSafe;
@@ -39,9 +38,6 @@ pub(crate) struct GitHubAppRecord {
     /// Bumped on every write. Obtained GitHub tokens are held against this, so
     /// editing one App discards only that App's tokens.
     pub revision: i32,
-    #[allow(dead_code)]
-    // reason: `SELECT_COLUMNS` decodes the column; no read path uses it.
-    pub updated_at: DateTime<Utc>,
     private_key: EncryptedSecretValue,
 }
 
@@ -98,7 +94,6 @@ impl GitHubAppRecord {
             key_fingerprint: fingerprint(&app.private_key_pem),
             default_installation_id: app.default_installation_id,
             revision: 1,
-            updated_at: Utc::now(),
             private_key,
         })
     }
@@ -199,7 +194,6 @@ struct GitHubAppRow {
     key_fingerprint: String,
     default_installation_id: Option<i64>,
     revision: i32,
-    updated_at: DateTime<Utc>,
 }
 
 impl From<GitHubAppRow> for GitHubAppRecord {
@@ -214,7 +208,6 @@ impl From<GitHubAppRow> for GitHubAppRecord {
             key_fingerprint: row.key_fingerprint,
             default_installation_id: row.default_installation_id.map(i64::unsigned_abs),
             revision: row.revision,
-            updated_at: row.updated_at,
             private_key: EncryptedSecretValue {
                 value_ciphertext: row.private_key_ciphertext,
                 encryption_nonce: row.private_key_nonce,
@@ -240,8 +233,7 @@ const SELECT_COLUMNS: &str = r#"
     s.encryption_version,
     COALESCE(a.secret_fingerprints->>'private_key', '') AS key_fingerprint,
     (a.config_json->>'default_installation_id')::bigint AS default_installation_id,
-    a.revision,
-    a.updated_at
+    a.revision
 "#;
 
 fn github_config_json(record: &GitHubAppRecord) -> serde_json::Value {
