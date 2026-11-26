@@ -299,6 +299,158 @@ mod tests {
         }
     }
 
+    /// Whether one statement, lowercased with comments stripped, removes or
+    /// retypes something the previous release reads, or adds a `NOT NULL`
+    /// column its inserts cannot fill.
+    fn breaks_previous_release(statement: &str) -> bool {
+        let words = statement.split_whitespace().collect::<Vec<_>>();
+        if words
+            .windows(2)
+            .any(|w| matches!(w, ["drop", "table" | "view" | "materialized" | "type"]))
+        {
+            return true;
+        }
+        let Some(start) = words.windows(2).position(|w| w == ["alter", "table"]) else {
+            return false;
+        };
+        let mut rest = &words[start + 2..];
+        while let ["if" | "exists" | "only", tail @ ..] = rest {
+            rest = tail;
+        }
+        // Split the actions after the table name on top-level commas, so a
+        // `numeric(10, 2)` stays inside its action.
+        let mut actions = vec![Vec::new()];
+        let mut depth = 0i32;
+        for word in rest.iter().skip(1) {
+            depth += word.matches('(').count() as i32 - word.matches(')').count() as i32;
+            let action = actions.last_mut().expect("starts with one action");
+            match word.strip_suffix(',') {
+                Some(head) if depth == 0 => {
+                    action.push(head);
+                    actions.push(Vec::new());
+                }
+                _ => action.push(word),
+            }
+        }
+        actions.iter().any(|action| match action.as_slice() {
+            ["rename" | "drop", "constraint", ..] => false,
+            ["rename" | "drop", ..] => true,
+            ["alter", "column", _, next @ ..] | ["alter", _, next @ ..] => {
+                matches!(next, ["type", ..] | ["set", "data", "type", ..])
+            }
+            [
+                "add",
+                "constraint" | "check" | "primary" | "unique" | "foreign" | "exclude",
+                ..,
+            ] => false,
+            ["add", ..] => {
+                action.windows(2).any(|w| w == ["not", "null"]) && !action.contains(&"default")
+            }
+            _ => false,
+        })
+    }
+
+    /// The statements in `sql` that [`breaks_previous_release`] flags, each
+    /// with its whitespace collapsed.
+    fn breaking_statements(sql: &str) -> Vec<String> {
+        sql.lines()
+            .map(|line| line.split("--").next().unwrap_or_default())
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_lowercase()
+            .split(';')
+            .filter(|statement| breaks_previous_release(statement))
+            .map(|statement| statement.split_whitespace().collect::<Vec<_>>().join(" "))
+            .collect()
+    }
+
+    /// Pods of the previous release keep serving after a migration, so it must
+    /// keep every table and column they read or write: 0202's rename failed
+    /// each old task read. Add the new name; drop the old one in a later
+    /// migration marked `-- contract:` naming the release that stopped using it.
+    #[test]
+    fn no_migration_breaks_the_previous_release() {
+        let migrations = sqlx::migrate!();
+
+        for migration in migrations.iter() {
+            let sql = migration.sql.as_str();
+            if migration.version <= BASELINE || sql.contains("-- contract:") {
+                continue;
+            }
+            let breaking = breaking_statements(sql);
+            assert!(
+                breaking.is_empty(),
+                "migration {} breaks the previous release: {breaking:?}",
+                migration.version
+            );
+        }
+    }
+
+    /// 0202 and 0212 each failed the previous release's pods once applied.
+    #[test]
+    fn the_migrations_that_broke_the_previous_release_are_flagged() {
+        let sql = [
+            "ALTER TABLE tasks RENAME COLUMN inactive_ttl_days TO close_after_settled_days;\n\
+             ALTER TABLE tasks ADD COLUMN settle_after_hours INTEGER;",
+            "ALTER TABLE artifact_records RENAME TO collection_records;\n\
+             ALTER INDEX IF EXISTS artifact_records_pkey RENAME TO collection_records_pkey;",
+        ];
+
+        for migration in sql {
+            assert_eq!(breaking_statements(migration).len(), 1, "{migration}");
+        }
+    }
+
+    #[test]
+    fn breaking_statements_are_told_from_compatible_ones() {
+        let cases = [
+            ("alter table tasks rename column a to b", true),
+            ("alter table tasks rename a to b", true),
+            ("alter table if exists tasks rename to jobs", true),
+            ("alter table tasks drop column a", true),
+            ("alter table only tasks drop a", true),
+            ("alter table tasks add column b int, drop column a", true),
+            ("alter table tasks alter column a type bigint", true),
+            ("alter table tasks alter a type bigint", true),
+            (
+                "alter table tasks alter column a set data type bigint",
+                true,
+            ),
+            ("alter table tasks add column a int not null", true),
+            ("drop table tasks", true),
+            ("drop view task_view", true),
+            ("do $$ begin alter table tasks drop column a", true),
+            ("do $$ begin drop table tasks", true),
+            ("alter table tasks add column a int", false),
+            (
+                "alter table tasks add constraint c check (a is not null)",
+                false,
+            ),
+            ("alter table tasks add check (a is not null)", false),
+            ("drop materialized view task_view", true),
+            (
+                "alter table tasks add column a int not null default 0",
+                false,
+            ),
+            ("alter table tasks add column a numeric(10, 2)", false),
+            (
+                "alter table task_events alter column type set not null",
+                false,
+            ),
+            ("alter table task_events alter type set default 'x'", false),
+            ("alter table tasks alter column a drop default", false),
+            ("alter table tasks drop constraint tasks_a_check", false),
+            ("alter table tasks rename constraint a to b", false),
+            ("alter index tasks_a_idx rename to tasks_b_idx", false),
+            ("drop index tasks_a_idx", false),
+            ("update tasks set a = 1", false),
+        ];
+
+        for (statement, breaking) in cases {
+            assert_eq!(breaks_previous_release(statement), breaking, "{statement}");
+        }
+    }
+
     fn chain() -> Vec<(i64, bool, Vec<u8>)> {
         squashed()
             .map(|(version, _, checksum)| (version, true, checksum))
