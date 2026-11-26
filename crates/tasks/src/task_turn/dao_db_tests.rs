@@ -6,7 +6,9 @@ use crate::activities::mapping::ConversationWrite;
 use crate::task::models::TaskStatus;
 use crate::task::test_support as task_fixtures;
 use crate::task_turn::dao::{PgTaskTurnDao, TaskTurnDao};
-use crate::task_turn::models::{TurnSignals, TurnStateEvent, TurnStatus, TurnTransition};
+use crate::task_turn::models::{
+    ClosedTurn, TurnSignals, TurnStateEvent, TurnStatus, TurnTransition,
+};
 use chrono::{Duration, Utc};
 use sqlx::PgPool;
 
@@ -665,15 +667,15 @@ async fn reset_recovery_attempts_zeroes_the_counter(pool: PgPool) {
     repo.reset_recovery_attempts("task-a", 999).await.unwrap();
 }
 
-// ── latest_closed_turn_status — the resume-suppression signal ───────────────
+// ── latest_closed_turn — the resume-suppression signal ───────────────
 
 #[sqlx::test]
-async fn latest_closed_turn_status_skips_the_turn_still_running(pool: PgPool) {
+async fn latest_closed_turn_skips_the_turn_still_running(pool: PgPool) {
     seed_task(&pool, "task-a").await;
     let repo = PgTaskTurnDao(pool.clone());
 
     assert_eq!(
-        repo.latest_closed_turn_status("task-a").await.unwrap(),
+        repo.latest_closed_turn("task-a").await.unwrap(),
         None,
         "a task with no turns has nothing to report"
     );
@@ -700,13 +702,16 @@ async fn latest_closed_turn_status_skips_the_turn_still_running(pool: PgPool) {
     .unwrap();
 
     assert_eq!(
-        repo.latest_closed_turn_status("task-a").await.unwrap(),
-        Some(TurnStatus::Stopped)
+        repo.latest_closed_turn("task-a").await.unwrap(),
+        Some(ClosedTurn {
+            status: TurnStatus::Stopped,
+            resume_session_id: None
+        })
     );
 }
 
 #[sqlx::test]
-async fn latest_closed_turn_status_tracks_the_newest_closed_turn(pool: PgPool) {
+async fn latest_closed_turn_tracks_the_newest_closed_turn(pool: PgPool) {
     seed_task(&pool, "task-a").await;
     let repo = PgTaskTurnDao(pool.clone());
 
@@ -730,9 +735,60 @@ async fn latest_closed_turn_status_tracks_the_newest_closed_turn(pool: PgPool) {
     .unwrap();
 
     assert_eq!(
-        repo.latest_closed_turn_status("task-a").await.unwrap(),
-        Some(TurnStatus::Completed),
+        repo.latest_closed_turn("task-a").await.unwrap(),
+        Some(ClosedTurn {
+            status: TurnStatus::Completed,
+            resume_session_id: None
+        }),
         "a clean turn after a stop makes the session resumable again"
+    );
+}
+
+#[sqlx::test]
+async fn latest_closed_turn_retains_only_the_latest_terminal_sessions(pool: PgPool) {
+    seed_task(&pool, "task-a").await;
+    let repo = PgTaskTurnDao(pool.clone());
+    let mut event = ingress_event(
+        "task-a",
+        1,
+        "configuration-error",
+        "error",
+        TurnTransition::Terminal(TurnStatus::Error),
+    );
+    event.payload = serde_json::json!({
+        "reason": "invalid_configuration",
+        "sessionImpact": "intact",
+        "resumeSessionId": "original-session",
+    });
+    repo.apply_ingress_event(&event).await.unwrap();
+    assert_eq!(
+        repo.latest_closed_turn("task-a").await.unwrap(),
+        Some(ClosedTurn {
+            status: TurnStatus::Error,
+            resume_session_id: Some("original-session".to_string()),
+        })
+    );
+
+    event.event_id = "later-error".to_string();
+    event.payload = serde_json::json!({"reason": "unavailable_session"});
+    repo.apply_ingress_event(&event).await.unwrap();
+    assert_eq!(
+        repo.latest_closed_turn("task-a").await.unwrap(),
+        Some(ClosedTurn {
+            status: TurnStatus::Error,
+            resume_session_id: None
+        })
+    );
+
+    event.event_id = "new-turn-error".to_string();
+    event.turn_number = 2;
+    repo.apply_ingress_event(&event).await.unwrap();
+    assert_eq!(
+        repo.latest_closed_turn("task-a").await.unwrap(),
+        Some(ClosedTurn {
+            status: TurnStatus::Error,
+            resume_session_id: None
+        })
     );
 }
 

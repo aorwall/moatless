@@ -345,7 +345,17 @@ impl Coordinator {
                             .map_or_default(|input| stale_session_id(&input.resume));
                         // Settle this batch against its error Run rather than
                         // dropping the ack, which redelivers a permanent failure.
-                        self.publish_error(&err).await;
+                        let mut payload = error_payload(&err, self.agent_profile.as_deref());
+                        if !self.session_id.is_empty() {
+                            if let Some(state) = &self.agent_state {
+                                state.set_session_id(self.session_id.clone()).await;
+                            }
+                            payload["sessionImpact"] = json!("intact");
+                            payload["resumeSessionId"] = json!(self.session_id);
+                        }
+                        self.run_events()
+                            .publish_agent_event(&self.task_id, AgentSubType::Error, payload)
+                            .await;
                         if let Some(ack) = self.pending_acks.remove(&input) {
                             self.send_run_ack(input, ack, "configuration rejection");
                         }

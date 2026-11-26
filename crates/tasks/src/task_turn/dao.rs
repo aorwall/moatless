@@ -15,7 +15,8 @@ use sqlx::postgres::PgArguments;
 use sqlx::query::Query;
 
 use super::models::{
-    ForkPoint, SettledTurn, TurnSignals, TurnStateEvent, TurnStatus, TurnTransition, UnclosedTurn,
+    ClosedTurn, ForkPoint, SettledTurn, TurnSignals, TurnStateEvent, TurnStatus, TurnTransition,
+    UnclosedTurn,
 };
 use crate::task::dao as task_dao;
 use moatless_core::db::DbPool;
@@ -171,15 +172,12 @@ pub trait TaskTurnDao: Send + Sync {
         turn_number: i32,
     ) -> Result<Option<String>, sqlx::Error>;
 
-    /// The status of the task's most recently *closed* turn, or `None`.
+    /// The task's most recently closed turn, including an intact session if explicitly retained.
     ///
     /// Open turns are skipped so the answer doesn't flip once the next run
     /// opens; read when deriving `--resume` (see
     /// [`TurnStatus::cut_off_session`]).
-    async fn latest_closed_turn_status(
-        &self,
-        task_id: &str,
-    ) -> Result<Option<TurnStatus>, sqlx::Error>;
+    async fn latest_closed_turn(&self, task_id: &str) -> Result<Option<ClosedTurn>, sqlx::Error>;
 
     /// Every turn's stored metrics, oldest first. Turns that never completed
     /// (or predate the column) are omitted.
@@ -639,21 +637,35 @@ impl TaskTurnDao for PgTaskTurnDao {
         Ok(row.and_then(|(trigger,)| trigger))
     }
 
-    async fn latest_closed_turn_status(
-        &self,
-        task_id: &str,
-    ) -> Result<Option<TurnStatus>, sqlx::Error> {
-        let row: Option<(String,)> = sqlx::query_as(
-            r#"SELECT status FROM task_turns
-               WHERE task_id = $1
-                 AND status IN ('completed', 'error', 'stopped')
-               ORDER BY turn_number DESC
+    async fn latest_closed_turn(&self, task_id: &str) -> Result<Option<ClosedTurn>, sqlx::Error> {
+        let row: Option<(String, Option<String>)> = sqlx::query_as(
+            r#"SELECT tt.status,
+                 CASE WHEN tt.status = 'error' AND terminal.sub_type = 'error'
+                   AND terminal.payload->>'reason' = 'invalid_configuration'
+                   AND terminal.payload->>'sessionImpact' = 'intact'
+                 THEN NULLIF(terminal.payload->>'resumeSessionId', '') END
+               FROM task_turns tt
+               LEFT JOIN LATERAL (
+                 SELECT e.sub_type, e.payload FROM task_events e
+                 WHERE e.task_id = tt.task_id AND e.turn_number = tt.turn_number
+                   AND e.type IN ('agent', 'taskTurn')
+                   AND e.sub_type IN ('completed', 'error', 'stopped')
+                 ORDER BY e.id DESC LIMIT 1
+               ) terminal ON true
+               WHERE tt.task_id = $1
+                 AND tt.status IN ('completed', 'error', 'stopped')
+               ORDER BY tt.turn_number DESC
                LIMIT 1"#,
         )
         .bind(task_id)
         .fetch_optional(&self.0)
         .await?;
-        Ok(row.and_then(|(status,)| TurnStatus::parse(&status)))
+        Ok(row.and_then(|(status, resume_session_id)| {
+            TurnStatus::parse(&status).map(|status| ClosedTurn {
+                status,
+                resume_session_id,
+            })
+        }))
     }
 
     async fn increment_recovery_attempts(

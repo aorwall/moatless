@@ -12,6 +12,13 @@ pub use moatless_types::task::TurnStatus;
 
 use chrono::{DateTime, Utc};
 
+/// A task's latest closed turn and its explicitly preserved harness session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClosedTurn {
+    pub status: TurnStatus,
+    pub resume_session_id: Option<String>,
+}
+
 /// A task's newest turn, closed, with activity recorded after it closed.
 ///
 /// The row says the run finished yet something happened since; only the agent

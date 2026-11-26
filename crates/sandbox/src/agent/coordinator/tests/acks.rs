@@ -416,7 +416,7 @@ async fn invalid_configuration_rejection_settles_the_batch_and_allows_a_follow_u
             HarnessRuntime::scripted_sequence(vec![
                 Script::rejecting(error),
                 Script::new(vec![
-                    Step::SessionReady(SessionId("recovered".to_string())),
+                    Step::SessionReady(SessionId("existing-session".to_string())),
                     Step::AcceptInput,
                     Step::Completed,
                 ]),
@@ -424,6 +424,8 @@ async fn invalid_configuration_rejection_settles_the_batch_and_allows_a_follow_u
             events.clone(),
             "task-1",
         );
+        let state = Arc::new(crate::agent::agent_state::AgentState::new());
+        coord.bind(Arc::clone(&state), CancellationToken::new());
         if let Some(run_id) = interrupted_run {
             coord.resume_run(run_id.to_string());
         }
@@ -449,15 +451,40 @@ async fn invalid_configuration_rejection_settles_the_batch_and_allows_a_follow_u
         }
         assert_eq!(sub_types(&received), vec!["error"]);
         assert_eq!(only(&received, "error").run_id, rejected.run_id);
+        let error: serde_json::Value =
+            serde_json::from_str(&only(&received, "error").payload_json).expect("payload");
+        assert_eq!(error["resumeSessionId"], "existing-session");
+        assert_eq!(error["sessionImpact"], "intact");
+        assert_eq!(
+            state.last_session_id().await.as_deref(),
+            Some("existing-session")
+        );
 
         let (ack_tx, ack_rx) = oneshot::channel();
+        let previous = state.last_session_id().await.unwrap_or_default();
+        let resume = build_resume(
+            &previous,
+            None,
+            moatless_types::agent::Harness::Codex,
+            false,
+        );
+        assert_eq!(
+            resume,
+            Some(ResumeSession::WithId("existing-session".to_string()))
+        );
         coord
-            .submit(Input::text("fixed-config", "try again"), ack_tx)
+            .submit(
+                Input {
+                    resume,
+                    ..Input::text("fixed-config", "try again")
+                },
+                ack_tx,
+            )
             .await
             .expect("submit follow-up");
         coord.pump_one_execution().await;
         let accepted = ack_rx.await.expect("follow-up accepted");
-        assert_eq!(accepted.session_id, "recovered");
+        assert_eq!(accepted.session_id, "existing-session");
         assert_ne!(accepted.run_id, rejected.run_id);
     }
 }

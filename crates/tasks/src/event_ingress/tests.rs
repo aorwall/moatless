@@ -104,11 +104,11 @@ impl TaskTurnDao for RecordingTurns {
         Ok(None)
     }
 
-    async fn latest_closed_turn_status(
+    async fn latest_closed_turn(
         &self,
         _task_id: &str,
-    ) -> Result<Option<crate::task_turn::models::TurnStatus>, sqlx::Error> {
-        unreachable!("latest_closed_turn_status is the pending-message path, not ingress")
+    ) -> Result<Option<crate::task_turn::models::ClosedTurn>, sqlx::Error> {
+        unreachable!("latest_closed_turn is the pending-message path, not ingress")
     }
 
     async fn set_turn_metrics(

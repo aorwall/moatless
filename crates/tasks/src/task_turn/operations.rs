@@ -6,7 +6,7 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 
 use super::dao::TaskTurnDao;
-use super::models::{SettledTurn, TurnStatus, TurnTransition, UnclosedTurn};
+use super::models::{ClosedTurn, SettledTurn, TurnTransition, UnclosedTurn};
 
 /// The `task_turns` table, as a host reaches it.
 ///
@@ -86,12 +86,12 @@ impl TaskTurns {
         self.store.triggered_by_task_id(task_id, turn_number).await
     }
 
-    /// See [`TaskTurnDao::latest_closed_turn_status`].
-    pub async fn latest_closed_turn_status(
+    /// See [`TaskTurnDao::latest_closed_turn`].
+    pub async fn latest_closed_turn(
         &self,
         task_id: &str,
-    ) -> Result<Option<TurnStatus>, sqlx::Error> {
-        self.store.latest_closed_turn_status(task_id).await
+    ) -> Result<Option<ClosedTurn>, sqlx::Error> {
+        self.store.latest_closed_turn(task_id).await
     }
 
     /// See [`TaskTurnDao::list_turn_metrics`].

@@ -20,6 +20,10 @@ use moatless_types::agent::AgentProfile;
 
 use super::state::BackendSandboxServiceImpl;
 
+#[cfg(all(test, feature = "db-tests"))]
+#[path = "messages_db_tests.rs"]
+mod db_tests;
+
 /// Hand the Sandbox to `driver` before their turn reads its credentials,
 /// returning their token when this switched it, pushed or not. A failed
 /// switch fails the fetch; a writer who lost write keeps the driver as it is,
@@ -180,23 +184,28 @@ pub(super) async fn get_pending_messages(
     // Keep the explicit id of a harness that `resumes_a_stopped_session`
     // deliberately: a replacement sandbox cannot recover the conversation
     // through Claude's implicit `--continue` fallback.
-    let cut_off = match service.ingress.as_ref().map(|i| &i.task_turns) {
-        Some(turns) => match turns.latest_closed_turn_status(&req.task_id).await {
-            Ok(status) => status.is_some_and(|status| {
-                status.cut_off_session()
-                    && !(status == TurnStatus::Stopped
+    let (cut_off, preserved_session) = match service.ingress.as_ref().map(|i| &i.task_turns) {
+        Some(turns) => match turns.latest_closed_turn(&req.task_id).await {
+            Ok(Some(turn)) => {
+                let preserved = turn.resume_session_id.is_some()
+                    && turn.resume_session_id == task_resume_session_id;
+                let cut_off = turn.status.cut_off_session()
+                    && !(turn.status == TurnStatus::Stopped
                         && task_agent_profile.harness().resumes_a_stopped_session())
-            }),
+                    && !preserved;
+                (cut_off, preserved)
+            }
+            Ok(None) => (false, false),
             Err(e) => {
                 warn!(error = %e, task_id = %req.task_id, "Failed to read last closed turn; assuming resumable");
-                false
+                (false, false)
             }
         },
-        None => false,
+        None => (false, false),
     };
 
     // `will_not_resume` is the explicit refusal. An error row is the implicit
-    // one: resuming the same session id would loop the same failure.
+    // one unless the terminal rejection explicitly retained this session.
     let task_resume_session_id = if task_resume_session_id.is_none() {
         None
     } else if cut_off {
@@ -215,8 +224,9 @@ pub(super) async fn get_pending_messages(
                 None
             }
             Ok(Some(last_result))
-                if last_result.message_type
-                    == moatless_tasks::message::models::MessageType::Error =>
+                if !preserved_session
+                    && last_result.message_type
+                        == moatless_tasks::message::models::MessageType::Error =>
             {
                 debug!(
                     task_id = %req.task_id,
