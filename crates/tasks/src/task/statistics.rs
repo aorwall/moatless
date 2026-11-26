@@ -153,10 +153,10 @@ pub(crate) fn build_task_statistics(
                 total_calls,
             })
             .collect(),
-        // No activities means this Task predates activity storage: an empty
-        // `tool_calls` reads as "not recorded," not "made none" (Decision 9
-        // backfills nothing). Reporting zero would be a wrong answer, not a
-        // missing one.
+        // No activities means this Task predates activity storage, which was
+        // never backfilled: an empty `tool_calls` reads as "not recorded," not
+        // "made none". Reporting zero would be a wrong answer, not a missing
+        // one.
         tool_calls_available: !activities.is_empty(),
     }
 }
@@ -327,7 +327,7 @@ mod tests {
         assert!(stats.tool_calls_available);
     }
 
-    /// Decision 9 backfills nothing, so a Task that ran before activities were
+    /// Activities were never backfilled, so a Task that ran before they were
     /// stored has none — and must say so rather than report no tool calls.
     #[test]
     fn a_task_with_no_activities_reports_tool_calls_unavailable() {

@@ -164,6 +164,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         throw new Error(`Invalid argument: ${flag}`)
       values.set(flag, args[index + 1])
     }
+    if (!values.has('--host')) throw new Error('--host <allowed-host> is required')
     const scratch = path.resolve(values.get('--scratch') ?? process.env.PW_SCRATCH ?? '/tmp/pw')
     const fixture = await backendFixture(
       values.get('--backend') ?? 'http://localhost:8080',
@@ -173,7 +174,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     await browserCheck(
       chromium,
       {
-        host: values.get('--host') ?? 'moatless.xyz',
+        host: values.get('--host'),
         port: Number(values.get('--port') ?? 8444),
         screenshot: values.get('--screenshot') ?? path.join(scratch, 'browser-check.png'),
         executablePath: bakedChromium(),

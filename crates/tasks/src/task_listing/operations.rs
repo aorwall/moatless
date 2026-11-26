@@ -203,8 +203,8 @@ pub struct ListingFilter {
     /// expression the listing resolves `owner_name` against, so picking a name
     /// off a row finds the rest of that person's rows.
     pub owner_user_id: Option<String>,
-    /// A tag by `tags.name`, the handle the Moatless UI and the REST listing
-    /// both filter on (`ListTasksQuery::tag`).
+    /// A tag by `tags.name`, the handle the REST listing filters on
+    /// (`ListTasksQuery::tag`).
     pub tag: Option<String>,
     /// Whether closed Tasks come back alongside open ones. Closing is what T3
     /// calls archiving, so this is the archived half folded into the same read.

@@ -11,8 +11,8 @@
 #        - "Bot User OAuth Token" (xoxb-...)  -> bot_token
 #        - "Signing Secret"                   -> signing_secret
 #
-# The scopes and bot events below match what the SlackAdapter in
-# backend/src/adapters/slack/ uses. When that adapter starts calling a new
+# The scopes and bot events below match what the Slack adapter in
+# crates/adapter-slack/ uses. When that adapter starts calling a new
 # Slack API method or subscribing to a new event type, update this file too.
 
 display_information:

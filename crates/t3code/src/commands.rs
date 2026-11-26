@@ -828,7 +828,7 @@ async fn respond(
             message: "That request is not one this thread is waiting on.".to_string(),
         })?;
     if call.settled {
-        // Answered already — by someone else, or from the Moatless UI. Saying so
+        // Answered already — by someone else, or from another client. Saying so
         // is the honest report; a send failure would be a different fact.
         return Err(CommandRefusal::Rejected {
             message: "That request has already been answered.".to_string(),

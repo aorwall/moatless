@@ -6,9 +6,8 @@ against git repositories, driven by a person or on a schedule by a Loop.
 `crates/` the Rust backend and sandbox, `tests/` the E2E suite, and `docker/`,
 `docker-compose/` and `k8s/` the deployment definitions.
 
-The UI is T3 Code, built from the separate `soaplabs/t3code` repository and
-served over UI-RPC (`crates/t3code`); see the `t3-development` skill. The
-retired Moatless UI lives in the separate `moatless-legacy-frontend` repository.
+The UI is T3 Code, a separate client served over UI-RPC (`crates/t3code`); see
+the `t3-development` skill.
 
 ## Commands
 
@@ -104,8 +103,7 @@ item gets a one-line doc.
 
 ## Finding conventions
 
-- Treat code and tests as the authority, and documents as routing aids. An
-  unplanned idea goes in `docs/ideas/`.
+- Treat code and tests as the authority, and documents as routing aids.
 - When you edit a path, read the `AGENTS.md` files in its directory and parents.
   Put a durable local rule in the nearest one, and do not restate a parent's.
 - An `AGENTS.md` holds what an agent must and must not do, where the code does

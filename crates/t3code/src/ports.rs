@@ -966,8 +966,8 @@ pub trait ThreadCommandSink: Send + Sync {
 
     /// Archive a thread, which in Moatless is closing the Task: the row leaves
     /// the sidebar, the Sandbox is removed, and inbound comments stop waking
-    /// it. Children are left open — the cascade is a choice the Moatless UI
-    /// asks about.
+    /// it. Children are left open: cascading to them is a separate
+    /// decision for the caller.
     async fn archive(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal>;
 
     /// Unarchive a thread, which is reopening the Task. No Sandbox is started;
@@ -1021,7 +1021,7 @@ pub trait ThreadCommandSink: Send + Sync {
     -> Result<(), CommandRefusal>;
 
     /// Delete the thread and everything it owns. Refuses `NotWritable` for a
-    /// viewer who may not delete the Task in the Moatless UI either.
+    /// viewer who may not delete the Task through the REST API either.
     async fn delete(
         &self,
         viewer: &ScopeContext,

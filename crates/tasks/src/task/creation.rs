@@ -154,7 +154,7 @@ pub struct FirstMessage {
     pub source_task_id: Option<String>,
 }
 
-/// Whether the best-effort provision step started the sandbox. Ticket 02's
+/// Whether the best-effort provision step started the sandbox. The Loop
 /// `schedule_runner` records a `provision_failed` metric off this.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProvisionOutcome {

@@ -65,7 +65,7 @@ pub(crate) trait MessageDao: Send + Sync {
     async fn append_binding_reply(&self, entry: &TranscriptEntry) -> Result<(), sqlx::Error>;
 
     /// Whether the Task's history froze at the migration to the conversation
-    /// tables (D4a).
+    /// tables.
     async fn is_frozen(&self, task_id: &str) -> Result<bool, sqlx::Error>;
 
     /// Project a fork's conversation from its ancestors' sources up to `cut`,

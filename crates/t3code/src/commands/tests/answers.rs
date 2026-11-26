@@ -92,7 +92,7 @@ async fn an_answer_to_a_call_that_was_never_stored_is_refused() {
     assert!(calls.is_empty());
 }
 
-/// The call came back already — from the Moatless UI, or from a second person.
+/// The call came back already — from another client, or from a second person.
 /// Sending a second answer would reach an agent that has moved on.
 #[tokio::test]
 async fn an_answer_to_a_settled_call_is_refused() {

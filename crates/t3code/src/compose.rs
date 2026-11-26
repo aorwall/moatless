@@ -347,7 +347,7 @@ pub struct UiRpcDependencies {
     /// `observability.otlpTracesEnabled`.
     pub otlp_traces_enabled: bool,
     /// This deployment's own web address (`config.frontend_url`), for the link
-    /// a Task origin carries back into the Moatless UI.
+    /// a Task origin carries back to this deployment.
     pub frontend_url: String,
     /// Bounds the forward of a client's trace batch to the collector.
     pub client_traces_http: HttpTimeouts,

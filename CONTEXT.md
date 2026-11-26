@@ -52,8 +52,7 @@ Task runs against. One that places none (`"placeRepository": false` in git,
 A Sandbox materializes it on disk under the workspace directory. Every
 Workspace is declared in git and reconciled from its repository (`source =
 git`); a legacy `manual` row is only listed, deleted, or reclaimed by the sync.
-Not the Sandbox (the pod that runs it) nor the Workspace panel (a task-page UI
-view).
+Not the Sandbox (the pod that runs it).
 
 **Default Workspace**:
 The Workspace with key `default` that every registered repository has, with
@@ -118,12 +117,6 @@ A repository a Task works in: each WorkspaceRepo of its Workspace when it was
 created (`workspace`), and each one cloned with `moat repos clone` since
 (`cloned`). Read by T3's pull request reach. `task_repositories`, in
 `moatless_tasks::task::repositories`.
-
-**Workspace panel** (also **Workspace view**):
-The non-chat side of the task page — the pane that switches between the preview,
-the file explorer, and the sandbox diagnostics for a Task. A UI concept only,
-distinct from the Workspace entity; always carry the `panel`/`view` suffix
-to keep them apart.
 
 ### Tasks & lifecycle
 
@@ -410,17 +403,16 @@ _Avoid_: trigger (as a noun / umbrella) — a Loop is *triggered*, but the thing
 a Loop
 
 **Loop configuration source**:
-The authority for a Loop's editable configuration: `git` when reconciled from a
-repository, or `manual` when authored or overridden locally. Distinct from its
+The authority for a Loop's editable configuration (`LoopConfigSource`): `git`
+when reconciled from a repository, or `manual` when authored or overridden
+locally. Distinct from its
 firing condition, which is a Schedule or Subscription.
 _Avoid_: bare source, Loop source
 
 The config that persists a Loop *is* the Loop — its fields are Loop fields, so
-there is no separate "Routing" term beyond `Routing mode`. As of ticket 03 this
-is reflected in code: the whole domain lives in one `loops/` module, the config
-is `LoopConfig` (API) / `LoopSpawnConfig` (runtime), and the public
-`Trigger`/`TaskRoute` types and the API `rule` field are gone (the wire keeps the
-`rule` JSON key via `#[serde(rename)]` for alias compatibility). A Loop names the
+there is no separate "Routing" term beyond `Routing mode`. The domain lives in
+`crates/loops`, and the config is `LoopConfig` (API) / `LoopSpawnConfig`
+(runtime). A Loop names the
 Workspace its Tasks run in, and that Workspace's primary placement, if it has
 one, is the repository they run against.
 
@@ -689,8 +681,7 @@ wire. The subagent's own rows are projected under the spawning call's
 `parent_tool_use_id` (its own Trajectory session) and never nested into the
 parent Message nor streamed. T3 reads only their usage, through
 `SubagentUsage` (`crates/t3code/src/transcript.rs`), and shows the spawning call
-as a task. The `GET …/tool-calls/{tool_use_id}/messages` endpoint that assembled
-the transcript on demand is removed: nothing called it.
+as a task.
 
 ### Access & commands
 
@@ -738,10 +729,9 @@ those as "shell command" / "CLI command".
 
 ### T3 Code — always qualified
 
-T3 Code is a separate client (`soaplabs/t3code`) being adapted to run against this
-backend through the `t3code` surface. Its vocabulary overlaps ours imperfectly, so
-these terms are **only** used with the "T3" qualifier. Full mapping:
-[docs/t3-code-domain-mapping.md](./docs/t3-code-domain-mapping.md).
+T3 Code is a separate client that runs against this backend through the
+`t3code` surface (`crates/t3code`). Its vocabulary overlaps ours imperfectly, so
+these terms are **only** used with the "T3" qualifier.
 
 **T3 Thread**:
 A single agent conversation in T3 Code — the direct equivalent of our **Task**.

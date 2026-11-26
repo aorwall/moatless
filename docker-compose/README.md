@@ -6,17 +6,18 @@ This guide covers deploying Moatless using Docker Compose with PostgreSQL and Do
 
 1. [Quick Start](#quick-start)
 2. [Architecture](#architecture)
-4. [Configuration](#configuration)
-5. [Common Operations](#common-operations)
-6. [Troubleshooting](#troubleshooting)
-7. [Production Deployment](#production-deployment)
+3. [Configuration](#configuration)
+4. [Common Operations](#common-operations)
+5. [Troubleshooting](#troubleshooting)
+6. [Production Deployment](#production-deployment)
 
 ## Quick Start
 
-To run the current Rust backend behind the T3 Code web app, use the dedicated
+`moat docker` (`preflight`, `init`, `install`, `status`) is the shortest path
+to a running stack; the `docker-install` skill walks through it. The steps below
+use the setup script instead. To run the backend from the current checkout
+behind the T3 Code web app, follow the
 [T3 Code local-development runbook](../docs/runbooks/t3-code-local-development.md).
-It uses an additive Compose overlay and leaves this published-image workflow
-unchanged.
 
 ### Prerequisites
 
@@ -204,8 +205,9 @@ ADMIN_USERNAME=admin
 ADMIN_PASSWORD=choose-a-strong-password
 ```
 
-Sign in at `/login`. There is no unauthenticated mode — every API route
-requires a session cookie or an `mvk_` API key.
+Sign in with `moat login`, or `POST /api/v1/auth/password/login`. There is no
+unauthenticated mode — every API route requires a session cookie or an `mvk_`
+API key.
 
 Or enable GitHub App login:
 ```bash

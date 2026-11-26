@@ -874,8 +874,8 @@ mod tests {
         );
     }
 
-    /// Decision 13: only `user` and `assistant` text survives, because that is
-    /// the exclusion both readers already apply on every read.
+    /// Only `user` and `assistant` text survives, because that is the
+    /// exclusion both readers already apply on every read.
     #[test]
     fn text_on_a_row_nobody_said_is_not_stored() {
         for dropped in [MessageType::System, MessageType::Result, MessageType::Error] {

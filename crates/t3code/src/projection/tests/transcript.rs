@@ -198,7 +198,7 @@ fn a_tool_call_with_no_result_yet_is_still_in_progress() {
 }
 
 /// T3 presents what the tool was asked to do. A stored result preview is
-/// Moatless UI data and must not replace that provider-derived request.
+/// REST API data and must not replace that provider-derived request.
 #[test]
 fn a_stored_result_preview_does_not_replace_the_tool_request() {
     let mut conversation = a_conversation();

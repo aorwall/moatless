@@ -1,20 +1,20 @@
 ---
 name: t3-ui-testing
-description: Test the T3 Code UI against a deployed Moatless backend in a real browser with Playwright. Covers signing a headless browser in with an API key, starting a thread, running a project Script and checking its preview, archiving, and running or extending the tests/ui suite. Use when asked to click through, screenshot, smoke-test or verify T3 Code or Moatless "in the browser", "with playwright" or "end to end in the UI", including on moatless.xyz. Not for the CLI-driven tests/api chains (e2e-testing) or the local two-repository dev setup (t3-development).
+description: Test the T3 Code UI against a deployed Moatless backend in a real browser with Playwright. Covers signing a headless browser in with an API key, starting a thread, running a project Script and checking its preview, archiving, and running or extending the tests/ui suite. Use when asked to click through, screenshot, smoke-test or verify T3 Code or Moatless "in the browser", "with playwright" or "end to end in the UI", on any deployment. Not for the CLI-driven tests/api chains (e2e-testing) or the local two-repository dev setup (t3-development).
 ---
 
 # Test T3 Code against Moatless in a browser
 
-This skill drives the deployed T3 client and its Moatless backend from Playwright. The client and the API share one origin, such as `https://moatless.xyz`, and each task's previews live on `https://<task-id>--<port>.preview.<domain>`.
+This skill drives the deployed T3 client and its Moatless backend from Playwright. The client and the API share one origin, written `$MOATLESS_URL` below (for example `https://moatless.example.com`), and each task's previews live on `https://<task-id>--<port>.preview.<domain>`.
 
 ## Sign the browser in
 
 Deployed login pages only offer OAuth, which a headless browser cannot complete. Trade the sandbox's `MOATLESS_API_KEY` (an `mvk_` key) for a session cookie instead:
 
 ```bash
-node .agents/skills/t3-ui-testing/scripts/mint-state.mjs --url https://moatless.xyz --out /tmp/moatless-auth.json
+node .agents/skills/t3-ui-testing/scripts/mint-state.mjs --url "$MOATLESS_URL" --out /tmp/moatless-auth.json
 playwright-cli open && playwright-cli state-load /tmp/moatless-auth.json
-playwright-cli goto https://moatless.xyz/
+playwright-cli goto "$MOATLESS_URL/"
 ```
 
 The script posts to `/api/v1/auth/api-key/session` and writes `moatless_session` and `moatless_csrf` as `.<parent-domain>` cookies, so preview hosts are signed in too. Landing on `/login` means the cookie did not apply.
@@ -24,7 +24,7 @@ The script posts to `/api/v1/auth/api-key/session` and writes `moatless_session`
 `tests/ui` holds the browser suite. It runs against a deployment, not the `scripts/local-e2e` harness, and every run spends two real agent turns on the project:
 
 ```bash
-moat cmd run --cwd <moatless checkout> "E2E_UI_URL=https://moatless.xyz bun run test:e2e:ui"
+moat cmd run --cwd <moatless checkout> "E2E_UI_URL=$MOATLESS_URL bun run test:e2e:ui"
 ```
 
 | Variable | Effect |

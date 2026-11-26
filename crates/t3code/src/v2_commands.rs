@@ -133,7 +133,7 @@ pub(crate) fn translate(command: &Value) -> Result<Translated, CommandRefusal> {
         "thread.merge_back" => merge_back(command),
         "thread.tag.set" => refused(
             tag,
-            "A thread's tags are its Task's: set them with `moat set-tags` or the Moatless UI.",
+            "A thread's tags are its Task's: set them with `moat set-tags` or the REST API.",
         ),
         other => refused(other, "This server does not implement that action."),
     }

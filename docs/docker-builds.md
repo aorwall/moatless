@@ -7,8 +7,12 @@ it under two tags that name the same image:
 
 | Tag | Note |
 |-----|------|
-| `aorwall/moatless-sandbox:<tag>` | The name to use |
-| `aorwall/moatless-sandbox-js:<tag>` | Alias for configurations that still name it |
+| `<org>/moatless-sandbox:<tag>` | The name to use |
+| `<org>/moatless-sandbox-js:<tag>` | Alias for configurations that still name it |
+
+`<org>` is `REGISTRY_ORG`, default `aorwall` (the published images). Export
+`REGISTRY_ORG=<your-org>` to build and push under your own Docker Hub
+organization.
 
 The image is `moatless-sandbox-base` (`docker/Dockerfile.sandbox-base`) plus the
 entrypoint scripts and the `sandbox` and `moat` binaries

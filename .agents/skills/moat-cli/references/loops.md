@@ -48,8 +48,8 @@ Run the daily-health-check skill and file a Linear ticket for any regressions.
 ---
 on: slack
 name: CI Failure Triage
-sourceMatcher: C0000000001      # the channel id to listen on (required for slack)
-teamId: T0000000001             # Slack workspace id; omit if only one slack connection exists
+sourceMatcher: C0123456789      # the channel id to listen on (required for slack)
+teamId: T0123456789             # Slack workspace id; omit if only one slack connection exists
 routingMode: ongoing            # one long-lived task instead of one-per-subject
 adapterConfig:
   allow_bot_messages: true
@@ -98,14 +98,14 @@ Notes:
   displayed as, and can be reworded freely. A `LOOP.md` without a `name` is
   **skipped** with `missing \`name\` field`, and any loop already synced from that
   directory is left untouched — nothing that was firing stops firing.
-- The Loop list prints the source beside the name (`Slack · C0000000001`,
+- The Loop list prints the source beside the name (`Slack · C0123456789`,
   `Schedule · 0 0 6 * * MON-FRI *`), so the name never has to carry the id. What
   reads well depends on `on`: for `slack`, the channel as people say it
   (`#general`); for `github_pr`, the job plus the repo, since nearly every repo
   declares one and the list otherwise fills with identical rows (`PR review —
-  soaplabs/my-service`); for `schedule`, the job rather than the cron (`Daily
+  acme/my-service`); for `schedule`, the job rather than the cron (`Daily
   Health Check`); for `linear`, what the loop picks up (`Ready Pool`). A name like
-  `Slack C0000000001` is the one to avoid — it stutters against the line below it
+  `Slack C0123456789` is the one to avoid — it stutters against the line below it
   and goes stale the moment the channel changes.
 - Synced loops are tracked with `config_source = 'git'`, keyed by
   `(repository, loop dir name)`. Each sync upserts them and removes loops whose
@@ -167,14 +167,14 @@ Notes:
   ```yaml
   on: github_pr
   name: gate-review
-  sourceMatcher: soaplabs/*
+  sourceMatcher: acme/*
   workspace: auto
   skills: [pr-review]
   adapterConfig:
     create_on: check_run
     check_run:
-      names: [soap-review-request]
-      app_ids: [5421124]
+      names: [review-request]
+      app_ids: [123456]
       conclusions: [neutral]
     provision:
       workspace_template: review-template
@@ -203,7 +203,7 @@ Notes:
   with any filter that drops `issue_comment`, including a sender entry naming
   `issue_comment`. A task does not hear the edits it made itself.
 - `slack` loops resolve their **connection** from `teamId` (the Slack workspace id,
-  e.g. `T0000000001`); if `teamId` is omitted and exactly one slack connection
+  e.g. `T0123456789`); if `teamId` is omitted and exactly one slack connection
   exists it's used, otherwise the loop is **skipped** with a reason. `sourceMatcher`
   (the channel id) is **required** — there's no `owner/repo` default. Pair with
   `routingMode: ongoing` for a single long-lived triage task.

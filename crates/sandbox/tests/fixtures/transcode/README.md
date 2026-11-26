@@ -3,7 +3,7 @@
 One conversation recorded in each harness, and each rendered into the other
 harness's format. `trajectory_e2e.rs` resumes the rendered files with the real
 CLIs (`claude_to_codex_resume_knows_history` and its siblings), and
-`SessionFormat::render` (`src/agent/harness/transcode.rs`) must reproduce them
+`SessionFormat::render` (`src/agent/harness/trajectory.rs`) must reproduce them
 (`trajectory_tests.rs`).
 
 | File | What it is |

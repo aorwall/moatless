@@ -21,9 +21,6 @@ supported local path — no Docker Hub pull, no private registry mirror, no clou
 - Rust cross-compile toolchain: `cargo-zigbuild` and `zig` on PATH, plus the
   Linux target's std library — **`rustup target add aarch64-unknown-linux-gnu`**
   (zig provides the linker; rustup must provide the target std).
-- The sandbox image also needs a `dev-browser` checkout. Auto-detected at
-  `../../stuffs/dev-browser` **relative to the repo root** — from a git worktree
-  that path is wrong, so pass `--dev-browser-dir <abs-path>` explicitly.
 - `kubectl` and `helm` 3.x pointed at the Docker Desktop context
   (`kubectl config use-context docker-desktop`).
 
@@ -31,8 +28,7 @@ supported local path — no Docker Hub pull, no private registry mirror, no clou
 
 ```bash
 task build:backend TAG=dev                                    # backend
-./docker/build-sandbox.sh --local --tag dev \                 # sandbox (base + tools + runtime)
-  --dev-browser-dir "$(cd ../.. && pwd)/stuffs/dev-browser"
+./docker/build-sandbox.sh --local --tag dev                   # sandbox (base + tools + runtime)
 ```
 
 Use `docker/build-*.sh --local` (single-arch, loads into the local store), **not**
@@ -124,10 +120,10 @@ Open `http://moatless.localhost`, sign in at `/login`, and you are in.
 - **Add the agent credential in the UI:** Settings → Secrets →
   `CLAUDE_CODE_OAUTH_TOKEN`. It is read only from the encrypted DB (never from
   chart values), so it needs a working `SECRETS_ENCRYPTION_KEY`.
-- **Create a repository without a provider.** The seeded "Moatable" repo sets
-  `provider: Github`, which trips the GitHub-token preflight and errors the task
-  before any pod is created — even for a public, anonymously clonable repo. Create
-  one omitting `provider`:
+- **Create a repository without a provider.** A repository with
+  `provider: Github` trips the GitHub-token preflight and errors the task before
+  any pod is created — even for a public, anonymously clonable repo. Create one
+  omitting `provider`:
 
   ```bash
   # Log in once and reuse the session cookie, exactly as the browser does.
@@ -139,7 +135,7 @@ Open `http://moatless.localhost`, sign in at `/login`, and you are in.
   curl -X POST -H 'Host: moatless.localhost' -H 'Content-Type: application/json' \
     -H "Cookie: $COOKIE" \
     localhost/api/v1/repositories \
-    -d '{"name":"local-smoke","remoteUrl":"https://github.com/aorwall/moatable","defaultBranch":"main","kind":"remote"}'
+    -d '{"name":"local-smoke","remoteUrl":"https://github.com/<owner>/<public-repo>","defaultBranch":"main","kind":"remote"}'
   ```
 
   The clone URL field is `remoteUrl` (not `git_url`), and `kind` is required. Omit
@@ -175,7 +171,7 @@ Cross-compiles the backend, bakes it into the thin runtime image
 and asserts the running image is the one just built. No registry push: kubeadm
 mode shares the local Docker image store.
 
-Measured on Apple Silicon, one-line change in `backend/src/`:
+Measured on Apple Silicon, one-line change in `crates/`:
 
 | Change | Time |
 |---|---|

@@ -4,7 +4,7 @@
 //! `IssueTrackerSource` and `AttachmentStore`, over `AppState`. Everything under here is
 //! translation: a T3 command has already been validated by `super::commands`
 //! by the time it arrives, and each method turns it into the same service
-//! call the Moatless UI makes.
+//! call the REST API makes.
 
 mod attachments;
 mod commands;

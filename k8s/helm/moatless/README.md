@@ -24,7 +24,7 @@ external managed service.
 | External (default) | `postgres.enabled: false` — supply `DATABASE_URL` in the Secret. |
 
 The schema is created automatically at boot by the sqlx migrations compiled into
-the backend (`backend/migrations/`), which run and fail-fast on startup. The
+the backend (`crates/*/migrations/`), which run and fail-fast on startup. The
 bundled Postgres defaults to an ephemeral data dir; set
 `postgres.persistence.enabled: true` for a PVC-backed database.
 
@@ -196,8 +196,7 @@ trusted repositories.
 
 ### T3 Code UI
 
-The default front end for the backend, built from
-[soaplabs/t3code](https://github.com/soaplabs/t3code) and published as
+The default front end for the backend, a T3 Code client published as
 `aorwall/moatless-t3`. With the default empty `t3.host`, T3 owns the app host.
 
 ```bash
@@ -251,7 +250,7 @@ is refused unless its `Origin` is `auth.frontendUrl`, the derived T3 origin
 
 `t3.extraAllowedOrigins` is **not** inherited by that check, and the two lists
 are separate for a reason: this one may carry a wildcard such as
-`https://*.preview.moatless.xyz` so sandbox previews can open a socket, and
+`https://*.preview.example.com` so sandbox previews can open a socket, and
 a preview serves agent-authored code. Trusting it for writes would let a
 preview page spend a visitor's session under any `auth.cookieDomain` covering
 both. Add a REST origin to `auth.csrfTrustedOrigins`, exactly and by name.
@@ -390,6 +389,36 @@ fronts the deployment.
 | `kubernetes.nodeArchive.enabled` | Track, retain, and clean node-local archives | `false` |
 | `kubernetes.imagePrepull.enabled` | DaemonSet that pre-pulls the sandbox image | `true` |
 | `kubernetes.nodeStorageJanitor.enabled` | Per-node cleanup of stale workspace/docker dirs when node archives are enabled | `true` |
+
+#### Sizing Rust-heavy repositories
+
+A full `cargo build` of a multi-crate workspace peaks around 5 GiB of RSS and
+grows `target/` past several Gi, so a sandbox on the deployment defaults is
+prone to two evictions: node-pressure eviction (the pod has a low memory
+request) and `Usage of EmptyDir volume 'workspace-data' exceeds the limit`
+(build artifacts fill the workspace volume). Give such a repository its own
+`resources` block, in its `.moatless/workspaces.json` entry or through the
+workspace API, with a raised memory request and limit and a sized `storage`:
+
+```json
+"resources": {
+  "requests": { "cpu": "1", "memory": "4Gi" },
+  "limits":   { "cpu": "4", "memory": "8Gi" },
+  "storage":  "20Gi"
+}
+```
+
+Each of `requests.cpu`, `requests.memory`, `limits.cpu` and `limits.memory`
+overrides the deployment `K8S_RESOURCE_*` default on its own, so a block that
+sets only `storage` still leaves the container bounded rather than BestEffort.
+
+Setting `K8S_SANDBOX_PERSIST_TOOLCHAIN=true` on the backend (default off)
+keeps cargo's registry and git caches across pod replacement, as
+`workspace-data` subPath mounts at `/opt/cargo/registry` and `/opt/cargo/git`.
+Only those cache directories ride the volume: a mount over all of `/opt/cargo`
+or `/opt/rust` would hide the toolchain baked into the image, because a subPath
+mount is not seeded from image content. A warm registry is several Gi, so raise
+`storage` when you enable it.
 
 #### Claude transcript persistence on S3
 

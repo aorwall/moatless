@@ -126,7 +126,7 @@ Pi's `X-Moatless-Auth-Mode` is a restrictive policy, not authorization, and is
 removed before forwarding upstream. Use the configured gateway and its existing
 credentials; do not copy a developer's login file into the checkout or image.
 
-Resolve T3 client support in the separate `soaplabs/t3code` repository if the
+Resolve T3 client support in the separate T3 Code client repository if the
 new provider needs client changes. Backend catalog exposure alone does not
 prove that the client can select it.
 

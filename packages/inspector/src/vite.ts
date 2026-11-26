@@ -13,8 +13,8 @@ export interface InspectorPluginOptions {
    * and comment about elements in this page (default: true).
    *
    * It is a second ~80 kB of inlined script and it only wakes up for a host
-   * that speaks its protocol, so a project previewed solely in the Moatless UI
-   * can turn it off and lose nothing.
+   * that speaks its protocol, so a project previewed only by another host can
+   * turn it off and lose nothing.
    */
   annotation?: boolean
 }
@@ -51,7 +51,7 @@ export default function inspectorPlugin(options: InspectorPluginOptions = {}): P
 
       // Both clients talk to whatever framed the page, over postMessage, and
       // each ignores what it does not recognise — so a page carrying both is
-      // annotatable from T3 Code and inspectable from the Moatless UI without
+      // annotatable from T3 Code and inspectable from any inspector host without
       // either knowing about the other.
       if (annotation) {
         tags.push({

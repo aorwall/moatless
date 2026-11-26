@@ -240,8 +240,8 @@ pub struct TaskPatch {
 
 impl TaskPatch {
     /// Whether this patch moves anything a sidebar listing shows — status,
-    /// name, description, visibility, or expiry (Decision 6, T3 shell
-    /// projection spec). Other fields carry no sidebar-visible value.
+    /// name, description, visibility, or expiry. Other fields carry no
+    /// sidebar-visible value.
     pub(crate) fn touches_listing(&self) -> bool {
         self.status.is_some()
             || self.name.is_some()

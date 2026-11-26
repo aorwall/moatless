@@ -27,7 +27,7 @@ pub(crate) struct UiRpcState {
     pub(crate) environment: Arc<EnvironmentIdentity>,
     pub(crate) session_cookie_name: Arc<str>,
     /// This deployment's own web address, for the one link this module builds —
-    /// a Task origin's link back into the Moatless UI.
+    /// a Task origin's link back to this deployment.
     pub(crate) frontend_url: Arc<str>,
     /// Signs WebSocket tickets. Absent when the deployment configures no JWT
     /// secret, which is the same condition under which session cookies do not

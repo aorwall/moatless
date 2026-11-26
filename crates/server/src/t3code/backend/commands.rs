@@ -1,5 +1,5 @@
 //! [`ThreadCommandSink`]: every command a T3 thread sends, as the service call
-//! the Moatless UI makes for the same thing.
+//! the REST API makes for the same thing.
 
 use super::attachments::ResolvedAttachments;
 use super::pull_requests::github_owner_repo;
