@@ -324,6 +324,47 @@ async fn sandbox_crash_reopens_errored_task(pool: PgPool) {
     assert_eq!(status_of(&pool, "task-f").await, TaskStatus::Open);
 }
 
+async fn set_sandbox_running(pool: &PgPool, task_id: &str) {
+    sqlx::query(
+        "UPDATE sandboxes SET desired_state = 'running', desired_state_updated_at = NOW() \
+         WHERE sandbox_id = $1",
+    )
+    .bind(task_id)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+/// Regression: a pod failure closed the turn its replacement was to resume, so
+/// the resumed agent read its cut-off tool call as the user interrupting it.
+#[sqlx::test]
+async fn a_pod_death_under_a_running_intent_leaves_the_run_to_its_replacement(pool: PgPool) {
+    seed_task_pair_with_created_by(&pool, "task-parent", "task-child").await;
+    seed_turn_triggered_by(&pool, "task-child", 1, "task-parent").await;
+    set_sandbox_running(&pool, "task-child").await;
+    let (state, waker) = state_with_recording_waker(&pool);
+
+    for lifecycle_event in ["pod_failed", "pod_evicted", "fatal"] {
+        let event = sandbox_error_event(lifecycle_event, "task-child", lifecycle_event);
+        handle_sandbox_fatal(&(&state).into(), &event).await;
+    }
+
+    assert!(visible_parent_texts(&pool, "task-parent").await.is_empty());
+    assert!(waker.woken.lock().unwrap().is_empty());
+}
+
+#[sqlx::test]
+async fn an_auto_stop_under_a_running_intent_still_closes_the_run(pool: PgPool) {
+    seed_with_status(&pool, "task-a", TaskStatus::Error).await;
+    set_sandbox_running(&pool, "task-a").await;
+    let state = test_app_state(pool.clone());
+
+    let event = sandbox_error_event("evt-a", "task-a", "auto_stopped");
+    handle_sandbox_fatal(&(&state).into(), &event).await;
+
+    assert_eq!(status_of(&pool, "task-a").await, TaskStatus::Open);
+}
+
 /// Records the task ids it is woken with.
 #[derive(Default)]
 struct RecordingWaker {

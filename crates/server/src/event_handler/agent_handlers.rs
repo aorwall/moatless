@@ -710,16 +710,50 @@ async fn completion_notice(
     )
 }
 
-/// Handle `sandbox.fatal` event — delegates to `handle_agent_error` to create
-/// an error result message when the sandbox crashes fatally (OOM, crash loop,
-/// etc.).
+/// Handle a `sandbox.error` event: close the run as errored, unless a pod died
+/// that its replacement will resume (see [`POD_REPLACED_LIFECYCLE_EVENTS`]).
 pub async fn handle_sandbox_fatal(ports: &AgentErrorPorts, event: &AgentEvent) {
-    let marked_errored = event
+    let lifecycle_event = event
         .payload
         .get("lifecycleEvent")
-        .and_then(serde_json::Value::as_str)
-        .is_some_and(|e| TASK_ERRORED_LIFECYCLE_EVENTS.contains(&e));
+        .and_then(serde_json::Value::as_str);
+    if lifecycle_event.is_some_and(|e| POD_REPLACED_LIFECYCLE_EVENTS.contains(&e))
+        && sandbox_still_desired_running(ports, &event.task_id).await
+    {
+        tracing::info!(
+            task_id = %event.task_id,
+            lifecycle_event = ?lifecycle_event,
+            "Sandbox pod died under a running intent; leaving the turn for its replacement"
+        );
+        return;
+    }
+    let marked_errored =
+        lifecycle_event.is_some_and(|e| TASK_ERRORED_LIFECYCLE_EVENTS.contains(&e));
     finish_errored_run(ports, event, !marked_errored).await;
+}
+
+/// `lifecycleEvent`s for a pod that died while its Deployment schedules a
+/// replacement. Closing the turn on these deliberately does not happen: the
+/// replacement would find no turn to replay or note, and the resumed agent
+/// reads its cut-off tool call as the user interrupting. `auto_stopped` and the
+/// reaper's recovery window close a turn no replacement resumes.
+const POD_REPLACED_LIFECYCLE_EVENTS: &[&str] = &["pod_failed", "pod_evicted", "fatal"];
+
+/// Whether `task_id`'s Sandbox has an explicit `running` intent. A failed read
+/// answers `false`, so the turn closes as it would without this check.
+async fn sandbox_still_desired_running(ports: &AgentErrorPorts, task_id: &str) -> bool {
+    match ports.tasks.get_sandbox_intents(&[task_id.to_owned()]).await {
+        Ok(mut intents) => intents
+            .remove(task_id)
+            .filter(moatless_tasks::task::models::SandboxIntentView::has_explicit_intent)
+            .is_some_and(|intent| {
+                intent.desired_state == moatless_types::sandbox::SandboxDesiredState::Running
+            }),
+        Err(e) => {
+            tracing::warn!(task_id, error = %e, "Failed to read Sandbox intent after a pod failure");
+            false
+        }
+    }
 }
 
 pub async fn handle_agent_session_context_lost(_state: &AppState, event: &AgentEvent) {

@@ -271,9 +271,21 @@ impl WorkspaceOrigin {
             Self::Recloned => workspace_recloned_note(workspace_dir),
         };
         let cause = stop_cause.map_or_default(|cause| format!("{cause}\n"));
-        format!("<sandbox-restart-note>\n{cause}{body}\n</sandbox-restart-note>\n\n")
+        format!(
+            "<sandbox-restart-note>\n{cause}{CUT_OFF_TOOL_CALL_NOTE}\n{body}\n</sandbox-restart-note>\n\n"
+        )
     }
 }
+
+/// Names the lines Claude Code writes when the shutdown cancels a turn: the
+/// sandbox sends the same `interrupt` as the Stop button, so the session blames
+/// the user and says to wait. Without this the resumed agent stops and waits.
+const CUT_OFF_TOOL_CALL_NOTE: &str = "If your previous turn ends in \
+    \"[Request interrupted by user for tool use]\", or in a tool result saying \
+    the user doesn't want to proceed and to stop and wait, the sandbox's \
+    shutdown wrote it, not the user: nobody interrupted you, and nobody is \
+    waiting to tell you how to proceed. That tool call may have run in part or \
+    in full, so check what it did before running it again.";
 
 /// Attempts at [`look_up_stop_cause`] for a kept volume, and the wait between.
 /// The watcher writes an in-place kill's event on its own schedule, and a kept
@@ -524,9 +536,8 @@ fn superseded_run_note(turn_number: i64) -> String {
         "<sandbox-restart-note>\n\
          This sandbox was restarted in the middle of turn {turn_number}, and the \
          messages below arrived before it could resume, so they run instead of a \
-         replay. If your previous turn ends abruptly or is marked as interrupted \
-         by the user, the restart cut it off: nobody interrupted you. Finish what \
-         it left undone unless the messages below change the plan.\n\
+         replay. Finish what it left undone unless the messages below change \
+         the plan.\n\
          </sandbox-restart-note>\n\n"
     )
 }
@@ -795,6 +806,29 @@ mod tests {
         ] {
             let note = origin.restart_note(WS, None);
             assert!(note.contains(".env"), "{origin:?}: {note}");
+        }
+    }
+
+    /// Regression: a resumed agent read Claude Code's cancel lines as the user
+    /// stopping it, and waited for an instruction nobody was going to give.
+    #[test]
+    fn every_restart_note_disowns_the_cut_off_tool_calls_interruption() {
+        for origin in [
+            WorkspaceOrigin::Persisted,
+            WorkspaceOrigin::KeptVolume,
+            WorkspaceOrigin::RestoredFromFinalFlush,
+            WorkspaceOrigin::RestoredFromSnapshot { taken_at: None },
+            WorkspaceOrigin::Recloned,
+        ] {
+            let note = origin.restart_note(WS, Some(CAUSE));
+            assert!(
+                note.contains("\"[Request interrupted by user for tool use]\""),
+                "{origin:?}: {note}"
+            );
+            assert!(
+                note.contains("nobody interrupted you"),
+                "{origin:?}: {note}"
+            );
         }
     }
 
