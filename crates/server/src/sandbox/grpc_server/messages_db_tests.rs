@@ -3,13 +3,15 @@ use std::sync::Arc;
 
 use moatless_core::config::Config;
 use moatless_ports::sandbox::SandboxError;
-use moatless_tasks::message::test_support as messages;
+use moatless_tasks::message::{models::MessageType, test_support as messages};
 use moatless_tasks::task::test_support as tasks;
 use sandbox_proto::backend_sandbox_service_server::BackendSandboxService;
 use sandbox_proto::client::{SandboxClient, SandboxConnector};
 use sandbox_proto::{AppendTrajectoryRequest, PublishEventRequest, TrajectoryLine};
 use serde_json::json;
 use sqlx::PgPool;
+
+use super::super::authorize::SandboxAuthorizer;
 
 struct UnusedConnector;
 
@@ -23,14 +25,16 @@ impl SandboxConnector for UnusedConnector {
 fn service(pool: &PgPool) -> BackendSandboxServiceImpl {
     let config = Config::test_minimal();
     let ports = crate::compose::compose(pool.clone(), &config, None);
-    crate::compose::infrastructure::grpc_service(
+    let mut service = crate::compose::infrastructure::grpc_service(
         &config,
-        Some(&ports),
-        None,
+        &ports,
+        crate::compose::infrastructure::init_event_publisher(pool),
         None,
         None,
         Arc::new(UnusedConnector),
-    )
+    );
+    service.authorizer = SandboxAuthorizer::dev_unauthenticated(None, None);
+    service
 }
 
 async fn pending(service: &BackendSandboxServiceImpl) -> GetPendingMessagesResponse {
@@ -103,18 +107,12 @@ async fn follow_up_after_rejection(pool: PgPool, preserved_session: Option<&str>
         .await
         .expect("terminal batch settled");
     assert!(pending(&original).await.deliveries.is_empty());
-    original
-        .publish_event(Request::new(PublishEventRequest {
-            task_id: task.task_id.clone(),
-            event_type: sandbox_proto::EventType::Task as i32,
-            sub_type: "error".to_string(),
-            payload_json: json!({"text": "Provider configuration must be restored"}).to_string(),
-            event_id: uuid::Uuid::new_v4().to_string(),
-            run_id: "rejected-run".to_string(),
-            sequence: 2,
-        }))
+    let mut result = messages::make_message_row(&task.task_id, "provider-error-result");
+    result.message_type = MessageType::Error;
+    result.message_text = Some("Provider configuration must be restored".to_string());
+    messages::seed_message(&pool, &result, &[], &Default::default())
         .await
-        .expect("error result projected");
+        .expect("stored error result");
     queue(&pool, "provider restored, continue").await;
     let expected = preserved_session.filter(|session| *session == "original-codex-session");
     let follow_up = pending(&original).await;

@@ -424,6 +424,7 @@ async fn invalid_configuration_rejection_settles_the_batch_and_allows_a_follow_u
             events.clone(),
             "task-1",
         );
+        coord.agent_profile = Some("codex".to_string());
         let state = Arc::new(crate::agent::agent_state::AgentState::new());
         coord.bind(Arc::clone(&state), CancellationToken::new());
         if let Some(run_id) = interrupted_run {
@@ -453,6 +454,7 @@ async fn invalid_configuration_rejection_settles_the_batch_and_allows_a_follow_u
         assert_eq!(only(&received, "error").run_id, rejected.run_id);
         let error: serde_json::Value =
             serde_json::from_str(&only(&received, "error").payload_json).expect("payload");
+        assert_eq!(error["agentProfile"], "codex");
         assert_eq!(error["resumeSessionId"], "existing-session");
         assert_eq!(error["sessionImpact"], "intact");
         assert_eq!(
