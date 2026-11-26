@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Fail when a repo in docker/playwright-consumers.json resolves a playwright-core
+# Fail when a repo in docker/playwright-consumers.json, or in the JSON array
+# PLAYWRIGHT_EXTRA_CONSUMERS, resolves a playwright-core
 # build that docker/Dockerfile.sandbox-base does not bake, or when
 # docker/Dockerfile.e2e's base tag disagrees with this repo's own lockfile.
 #
@@ -91,7 +92,8 @@ while read -r repo lockfile is_local; do
 			failed=1
 		fi
 	done
-done < <(jq -r '.consumers[] | [.repo, .lockfile, (.local // false)] | @tsv' "$CONSUMERS")
+done < <(jq -r --argjson extra "${PLAYWRIGHT_EXTRA_CONSUMERS:-[]}" \
+	'.consumers + $extra | .[] | [.repo, .lockfile, (.local // false)] | @tsv' "$CONSUMERS")
 
 # A compat entry exists for a consumer and nothing else, so one no consumer
 # resolves is a browser build the image carries for nobody. Say so: the loop

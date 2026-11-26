@@ -91,8 +91,8 @@ RUN echo "OS security refresh: ${APT_SECURITY_REFRESH}" \
 # Running it again would re-fetch Ubuntu's repo which has nodejs 18 at higher priority.
 #
 # 24 rather than 22 because `Intl.DurationFormat` lands in 24 and consuming
-# repos already ask for it: soap-frontend's duration-formatter tests fail on 22
-# on an unmodified checkout, and t3code's package.json declares `node:
+# repos already ask for it: duration-formatter tests in consuming frontends fail
+# on 22 on an unmodified checkout, and t3code's package.json declares `node:
 # ^24.13.1`. The July-2026 Permission Model batch the APT_SECURITY_REFRESH notes
 # track (CVE-2026-58043 and the ten alongside it) is fixed in 24.18.1, so the
 # floor for this line is >= 24.18.1 — below 22.23.2's equivalent only in number.
@@ -126,7 +126,7 @@ RUN install -m 0755 -d /etc/apt/keyrings && \
 
 # Install AWS CLI v2 — used by the CodeArtifact token mint in
 # /etc/codeartifact-env.sh and /etc/mavenrc (gated on env vars, no-op if
-# unset). Fork-wide infrastructure, not soap/Java-specific, so it lives here
+# unset). Shared infrastructure, not Java-specific, so it lives here
 # rather than behind a feature only Java recipes pull in. Arch-aware.
 RUN ARCH=$(dpkg --print-architecture) && \
     AWS_ARCH=$([ "$ARCH" = "amd64" ] && echo "x86_64" || echo "aarch64") && \
@@ -179,8 +179,8 @@ RUN ARCH=$(dpkg --print-architecture) && \
     chmod +x /usr/local/bin/yq && \
     yq --version
 
-# helm — pinned to the version soap-platform-gitops' validate.yml installs, so
-# `helm lint`/`helm template` here reproduces the required check rather than
+# helm — pinned to the version the consuming gitops repos' CI installs, so
+# `helm lint`/`helm template` here reproduces their required check rather than
 # approximating it.
 # renovate: datasource=github-releases depName=helm/helm
 ARG HELM_VERSION=v3.22.1
@@ -203,8 +203,8 @@ RUN ARCH=$(dpkg --print-architecture) && \
     rm /tmp/crane.tgz && \
     crane version
 
-# terraform — pinned to soap-infra's CI version. `terraform validate` needs the
-# same minor to agree with what plans there.
+# terraform — pinned to the consuming infra repos' CI version. `terraform
+# validate` needs the same minor to agree with what plans there.
 # renovate: datasource=hashicorp depName=terraform
 ARG TERRAFORM_VERSION=1.10.5
 RUN ARCH=$(dpkg --print-architecture) && \
@@ -233,7 +233,7 @@ RUN chmod +x /usr/local/bin/task \
 # validation scripts that import yaml directly. python3-pil is the programmatic
 # half of reading a screenshot: `file` above names a PNG's dimensions, PIL
 # compares two baselines. A repo whose deliverable is screenshot baselines
-# (soap-specs) otherwise has to unpack PNG headers by hand.
+# otherwise has to unpack PNG headers by hand.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev \
     libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev \

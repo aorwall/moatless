@@ -93,7 +93,7 @@ RUN curl -fsSL https://bun.sh/install | BUN_INSTALL=/opt/bun bash \
 # Vite+ (`vp`) — https://viteplus.dev/guide/. sandbox-base installs it, but this
 # image builds FROM whatever moatless-sandbox tag the workflow is handed, which
 # may predate that layer; reinstalling the pin here keeps `vp` independent of the
-# base tag. Same rationale as the CLI reinstalls in Dockerfile.sandbox-soap.
+# base tag.
 # The /usr/local/bin symlink is what puts it on PATH — re-declaring ENV PATH
 # would just duplicate the entry the base already has.
 # renovate: datasource=npm depName=vite-plus

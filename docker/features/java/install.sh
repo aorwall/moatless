@@ -8,7 +8,6 @@
 # there is no fallback default here on purpose: the recipe pins it, this
 # script trusts the recipe.
 #
-# Mirrors the JDK layer proven in the deleted docker/Dockerfile.sandbox-soap:
 # Adoptium apt repo, not Ubuntu's own openjdk package (noble's repos don't
 # reliably carry a JDK 25 build; Adoptium gives 21 and 25 the same way).
 

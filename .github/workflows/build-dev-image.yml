@@ -56,8 +56,8 @@ jobs:
 
       # No "free disk space" step: that was a workaround for the ~14 GB free on
       # a stock ubuntu-latest runner, which this multi-GB image build overran.
-      # ci-runners-large builds against the DinD sidecar's own storage on
-      # the soap-build nodepool, and has no `sudo` to reclaim with anyway.
+      # ci-runners-large builds against the DinD sidecar's own storage on its
+      # build nodepool, and has no `sudo` to reclaim with anyway.
       - name: Compute image refs
         id: refs
         env:

@@ -16,14 +16,16 @@ name: E2E (manual)
 # Required repo secrets:
 #   CLIPROXY_API_KEY  — an inference api-key minted in the hub's management UI
 #   E2E_GITHUB_PAT    — repo-clone / Playwright api suite
-# `vars.CLIPROXY_URL` overrides the hub's public URL.
+# Required repo variables:
+#   CLIPROXY_URL      — the hub's public URL
+#   E2E_LARGE_RUNNER  — runner label for the heavy jobs (default ubuntu-latest)
 #
-# Runner: the playwright suite runs on ci-runners-large, in the sandbox base
+# Runner: the playwright suite runs on `vars.E2E_LARGE_RUNNER`, in the sandbox base
 # image, which ships the `claude` and `codex` CLIs the sandboxes spawn.
 # The Rust-backed jobs shell out to a host Rust toolchain, which the arc-runner
 # image does not ship. They default to ubuntu-latest for that reason. The test
 # runner uses native Cargo when host and target match and requires cargo-zigbuild
-# only for cross-host local runs. Once Rust is baked into soap-platform-ci's
+# only for cross-host local runs. Once Rust is baked into the self-hosted
 # runner image, set `E2E_RUST_RUNNER` to that pool's label to move them.
 #
 # The playwright suite needs three compiled artifacts: the backend under test,
@@ -75,13 +77,13 @@ env:
   CARGO_NET_RETRY: 10
   RUSTUP_MAX_RETRIES: 10
 
-  CLIPROXY_URL: ${{ vars.CLIPROXY_URL || 'https://cliproxy.staging.moatless.xyz' }}
+  CLIPROXY_URL: ${{ vars.CLIPROXY_URL }}
 
 jobs:
   # ── The binaries the suite runs against ──
   #
   # Same container, same preamble and same cache key as ci.yml's `build-rust`.
-  # That is the whole point of the job: on soaplabs/moatless it restores the
+  # That is the whole point of the job: on the upstream repo it restores the
   # dependency cache main last wrote and compiles only what changed. A fork,
   # or any runner where RUNNER_TEMP differs, hashes RUSTC_WRAPPER differently,
   # misses, and compiles cold — slower, still correct.
@@ -91,7 +93,7 @@ jobs:
   build-binaries:
     name: Build backend, sandbox + moat CLI
     if: inputs.run_playwright || inputs.run_trajectory_cli
-    runs-on: ${{ github.repository == 'soaplabs/moatless' && 'ci-runners-large' || 'ubuntu-latest' }}
+    runs-on: ${{ vars.E2E_LARGE_RUNNER || 'ubuntu-latest' }}
     container:
       image: rust:1.97-bookworm
     env:
@@ -202,7 +204,7 @@ jobs:
     name: Playwright
     needs: build-binaries
     if: inputs.run_playwright
-    runs-on: ${{ github.repository == 'soaplabs/moatless' && 'ci-runners-large' || 'ubuntu-latest' }}
+    runs-on: ${{ vars.E2E_LARGE_RUNNER || 'ubuntu-latest' }}
     container:
       image: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-sandbox-base:latest
     services:
@@ -287,7 +289,7 @@ jobs:
     name: Real-CLI trajectory tier
     needs: build-binaries
     if: inputs.run_trajectory_cli
-    runs-on: ${{ github.repository == 'soaplabs/moatless' && 'ci-runners-large' || 'ubuntu-latest' }}
+    runs-on: ${{ vars.E2E_LARGE_RUNNER || 'ubuntu-latest' }}
     container:
       image: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-sandbox-base:latest
     steps:

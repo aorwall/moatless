@@ -7,16 +7,11 @@
 # it deliberately does not fall back to a GHA-backed sccache.
 #
 # Required to activate:
-#   vars.SCCACHE_S3_BUCKET   S3 bucket name — soap-platform-ci-sccache
-#   vars.SCCACHE_AWS_ROLE    ARN of GHA-SccacheRW-moatless, which only main can
+#   vars.SCCACHE_S3_BUCKET   S3 bucket name
+#   vars.SCCACHE_AWS_ROLE    ARN of a read-write role that only main can
 #                            assume via OIDC (see ci.yml)
-#   vars.SCCACHE_AWS_READ_ROLE  ARN of GHA-SccacheRead-moatless, for every other
-#                            ref
-#   vars.SCCACHE_S3_REGION   bucket region (defaults to eu-north-1, where the
-#                            platform ECR registry already lives)
-#
-# Both the bucket and the role are defined in soap-infra,
-# terraform/platform/ci-artifacts/sccache.tf.
+#   vars.SCCACHE_AWS_READ_ROLE  ARN of a read-only role, for every other ref
+#   vars.SCCACHE_S3_REGION   bucket region (defaults to eu-north-1)
 
 set -euo pipefail
 

@@ -1,24 +1,85 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["local>soaplabs/renovate-config"],
-  "ignoreDeps": ["node", "bun"],
+  "extends": [
+    "config:recommended",
+    "helpers:pinGitHubActionDigests"
+  ],
+  "timezone": "Europe/Stockholm",
+  "schedule": [
+    "before 9am on Monday"
+  ],
+  "labels": [
+    "dependencies"
+  ],
+  "minimumReleaseAge": "3 days",
+  "prConcurrentLimit": 10,
+  "prHourlyLimit": 5,
+  "dependencyDashboard": true,
+  "platformAutomerge": false,
+  "osvVulnerabilityAlerts": true,
+  "vulnerabilityAlerts": {
+    "labels": [
+      "dependencies",
+      "security"
+    ]
+  },
+  "ignoreDeps": [
+    "node",
+    "bun"
+  ],
   "packageRules": [
     {
+      "description": "Collapse every non-major update into a single grouped PR.",
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "digest",
+        "pinDigest"
+      ],
+      "groupName": "all non-major dependencies"
+    },
+    {
+      "description": "Playwright moves in its own PR. Repos whose sandboxes run this image wait longer, so the image bakes a new build first.",
+      "matchPackageNames": [
+        "playwright",
+        "playwright-core",
+        "@playwright/test"
+      ],
+      "groupName": "Playwright",
+      "rangeStrategy": "pin"
+    },
+    {
       "description": "kube 3 requires k8s-openapi 0.27; upgrade them together to preserve shared Kubernetes types.",
-      "matchManagers": ["cargo"],
-      "matchPackageNames": ["k8s-openapi"],
+      "matchManagers": [
+        "cargo"
+      ],
+      "matchPackageNames": [
+        "k8s-openapi"
+      ],
       "allowedVersions": ">=0.27 <0.28"
     },
     {
       "description": "utoipa-axum 0.3 requires utoipa 6; upgrade them together to preserve shared OpenAPI types.",
-      "matchManagers": ["cargo"],
-      "matchPackageNames": ["utoipa-axum"],
+      "matchManagers": [
+        "cargo"
+      ],
+      "matchPackageNames": [
+        "utoipa-axum"
+      ],
       "allowedVersions": ">=0.2 <0.3"
     },
     {
       "description": "check-playwright-pins.sh compares the exact Dockerfile ARGs to bun.lock. `bump` moves these caret ranges, and so the lock, in the PR that bumps the ARGs, rather than leaving bun.lock on a build the images no longer bake.",
-      "matchManagers": ["bun", "npm"],
-      "matchPackageNames": ["playwright", "playwright-core", "@playwright/test"],
+      "matchManagers": [
+        "bun",
+        "npm"
+      ],
+      "matchPackageNames": [
+        "playwright",
+        "playwright-core",
+        "@playwright/test"
+      ],
       "rangeStrategy": "bump"
     }
   ],

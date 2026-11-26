@@ -2,7 +2,6 @@ name: SAST
 
 # No path filter, so the required `sast` check reports on every PR and no PR is
 # left stuck. Diff-scoped: new ERROR findings block, pre-existing ones do not.
-# Required status check (soap-infra terraform/modules/catalog/catalog.yaml).
 
 on:
   pull_request:
@@ -17,10 +16,40 @@ permissions:
 jobs:
   sast:
     runs-on: ci-runners
+    env:
+      # renovate: datasource=pypi depName=semgrep
+      SEMGREP_VERSION: "1.179.0"
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          fetch-depth: 0  # full history so the diff range resolves
+          fetch-depth: 0  # full history so the baseline commit resolves
           persist-credentials: false
-      - name: SAST (semgrep, diff-scoped)
-        uses: soaplabs/soap-platform-ci/actions/sast@main
+      - name: Install semgrep
+        run: |
+          set -euo pipefail
+          if command -v semgrep >/dev/null 2>&1; then semgrep --version; exit 0; fi
+          pipx install "semgrep==${SEMGREP_VERSION}"
+          echo "${HOME}/.local/bin" >> "$GITHUB_PATH"
+      - name: Pick the baseline commit
+        id: baseline
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          base="${PR_BASE_SHA:-${PUSH_BEFORE:-}}"
+          if [ -z "$base" ] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            base="$(git rev-parse --verify --quiet HEAD~1 || true)"
+          fi
+          echo "base=${base}" >> "$GITHUB_OUTPUT"
+      - name: Run semgrep on what changed since the baseline
+        env:
+          BASE: ${{ steps.baseline.outputs.base }}
+        run: |
+          set -euo pipefail
+          args=(scan --oss-only --metrics=off --disable-version-check
+            --severity ERROR --config p/default
+            --exclude '**/generated/**' --exclude '**/target/**')
+          # No baseline means a root commit: report everything, block nothing.
+          if [ -z "$BASE" ]; then semgrep "${args[@]}" || true; exit 0; fi
+          semgrep "${args[@]}" --baseline-commit "$BASE" --error

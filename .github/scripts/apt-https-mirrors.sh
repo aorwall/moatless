@@ -1,10 +1,8 @@
 #!/bin/sh
 # Point this container's Debian/Ubuntu apt sources at HTTPS.
 #
-# The `arc-runners` NetworkPolicy (soap-platform-gitops ->
-# apps/nonprod/arc-runner-rbac/templates/networkpolicy.yaml) allows external
-# egress on 443/TCP only, so the stock `http://deb.debian.org` sources hang
-# until they time out on the self-hosted staging runners:
+# Self-hosted runners whose NetworkPolicy allows external egress on 443/TCP
+# only hang on the stock `http://deb.debian.org` sources until they time out:
 #
 #   Err:1 http://deb.debian.org/debian bookworm InRelease
 #     Could not connect to debian.map.fastlydns.net:80 (...), connection timed out
@@ -17,8 +15,8 @@
 # and there is no way to install them inside rust:*-bookworm without a working
 # package manager. taiki-e/install-action doesn't avoid this: it apt-installs
 # its own jq/curl/tar prerequisites and fails here for exactly the same reason.
-# The durable fix is baking sccache + mold into soap-platform-ci's arc-runner
-# image; until then, run this before `apt-get update`.
+# The durable fix is baking sccache + mold into the runner image; until then,
+# run this before `apt-get update`.
 set -e
 
 bootstrap_ca=false
