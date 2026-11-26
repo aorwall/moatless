@@ -205,8 +205,7 @@ impl PiProcess {
             );
             let mut providers = serde_json::Map::new();
             for p in ["anthropic", "openai"] {
-                let suffix = if p == "openai" { "/v1" } else { "" };
-                providers.insert(p.into(),json!({"baseUrl":format!("{}/llm/{p}{suffix}",base.trim_end_matches('/')),"apiKey":helper,"authHeader":true,"headers":{"X-Moatless-Auth-Mode":"api-key-or-hub"}}));
+                providers.insert(p.into(), gateway_provider(base, &helper, p));
             }
             if provider == "openrouter" {
                 providers.insert(
@@ -268,8 +267,12 @@ impl PiProcess {
         self.send(json!({"type":"get_state","id":"state"})).await?;
         let cancelled = self.cancelled.clone();
         let response = tokio::select! {
-            ()=cancelled.cancelled()=>return Err(error(ErrorClass::ProcessExit,"Pi startup cancelled")),
-            result=tokio::time::timeout(Duration::from_secs(30),self.read())=>result.map_err(|e|error(ErrorClass::UnresponsiveProcess,e))??,
+            () = cancelled.cancelled() => {
+                return Err(error(ErrorClass::ProcessExit, "Pi startup cancelled"));
+            }
+            result = tokio::time::timeout(Duration::from_secs(30), self.read()) => {
+                result.map_err(|e| error(ErrorClass::UnresponsiveProcess, e))??
+            }
         };
         if response["id"] != "state"
             || response["success"] != true
@@ -496,6 +499,16 @@ impl AgentProcess for PiProcess {
 /// forwards; Pi's built-in `openrouter` speaks chat completions, a route the
 /// gateway lacks. The model is declared here because the hub's ids are not all
 /// in Pi's catalogue, and a declared model takes this provider's `api`.
+fn gateway_provider(base: &str, key_helper: &str, provider: &str) -> serde_json::Value {
+    let suffix = if provider == "openai" { "/v1" } else { "" };
+    json!({
+        "baseUrl": format!("{}/llm/{provider}{suffix}", base.trim_end_matches('/')),
+        "apiKey": key_helper,
+        "authHeader": true,
+        "headers": {"X-Moatless-Auth-Mode": "api-key-or-hub"},
+    })
+}
+
 fn openrouter_provider(base: &str, key_helper: &str, model: &str) -> serde_json::Value {
     json!({
         "baseUrl": format!("{}/llm/openai/v1", base.trim_end_matches('/')),

@@ -136,12 +136,7 @@ pub(crate) async fn sse_handler(
                                 let allowed = if let Some(&a) = access_cache.get(&task_id) {
                                     a
                                 } else {
-                                    let a = match tasks.as_ref() {
-                                        Some(reader) => {
-                                            reader.may_access(&task_id, ctx).await.unwrap_or(false)
-                                        }
-                                        None => false,
-                                    };
+                                    let a = tasks.may_access(&task_id, ctx).await.unwrap_or(false);
                                     access_cache.insert(task_id, a);
                                     a
                                 };

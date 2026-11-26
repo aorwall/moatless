@@ -65,8 +65,8 @@ pub struct SandboxAuthorizer {
     tasks: Option<Arc<TaskCommands>>,
     /// The platform-admin lookup behind the control gate.
     users: Option<Arc<dyn CommitIdentity>>,
-    /// The generation a token must carry. `None` refuses every token: only a
-    /// databaseless backend has none, and it can grant no task anyway.
+    /// The generation a token must carry. `None` refuses every token; only a
+    /// test harness builds the authorizer without one.
     generations: Option<Arc<dyn jwt::TokenGenerations>>,
 }
 

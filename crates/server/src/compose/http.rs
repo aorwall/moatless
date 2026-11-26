@@ -157,9 +157,8 @@ pub(crate) fn finish(
     feature_flags: FeatureFlags,
     device_pairing: bool,
     sse_state: crate::sse::routes::SseState,
-    auth_middleware_state: Option<auth::middleware::AuthMiddlewareState>,
+    auth_middleware_state: auth::middleware::AuthMiddlewareState,
 ) -> Router {
-    // Routes that don't require a database
     let (feature_flags_router, feature_flags_api) =
         feature_flags::feature_flags_router(feature_flags, device_pairing);
     router = router.merge(feature_flags_router);
@@ -175,15 +174,9 @@ pub(crate) fn finish(
 
     // Apply auth middleware. Runs inside the request-trace span (added below)
     // so it can record `user_id` onto the current span.
-    let router = if let Some(mw_state) = auth_middleware_state {
-        info!("Auth middleware enabled");
-        router
-            .layer(axum::middleware::from_fn(auth::middleware::auth_middleware))
-            .layer(axum::Extension(mw_state))
-    } else {
-        info!("Auth middleware disabled (no database)");
-        router
-    };
+    let router = router
+        .layer(axum::middleware::from_fn(auth::middleware::auth_middleware))
+        .layer(axum::Extension(auth_middleware_state));
 
     // Outermost layer — opens one `http_request` span (request_id, method,
     // path, …) per request so every downstream log line inherits the context,

@@ -83,9 +83,6 @@ pub struct TaskBindingSummary {
     pub adapter_kind: AdapterKind,
     pub source_id: String,
     pub source_name: Option<String>,
-    /// Deprecated legacy thread identifier. Canonical callers should use
-    /// `binding_id`, which carries the task binding id.
-    pub thread_id: Option<i32>,
     /// Adapter thread identifier such as GitHub PR number or Slack thread ts.
     pub external_thread_id: Option<String>,
     /// Adapter-specific subject key such as `owner/repo#123` for GitHub PR

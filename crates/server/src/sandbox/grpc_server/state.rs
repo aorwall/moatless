@@ -7,7 +7,6 @@ use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
 use moatless_core::file_storage::Files;
 use moatless_identity::auth::github::registry::GitHubAppRegistry;
-use moatless_identity::auth::github::service::GitHubAppService;
 use moatless_ports::identity::{
     CommitIdentity, GitHostTokenIssuer, ProviderIdentityLink, UserResolver,
 };
@@ -22,11 +21,9 @@ use moatless_tasks::trajectory::operations::Trajectories;
 
 use super::authorize::SandboxAuthorizer;
 
-/// Database-backed ports the request handlers read — the databaseless gate's
-/// set minus the durable-admission writers ([`IngressPorts`]).
-///
-/// Present together because the single `ports` gate (a DB connection) builds
-/// them all at once; `None` as a whole when the backend runs databaseless.
+/// Database-backed ports the request handlers read, minus the
+/// durable-admission writers ([`IngressPorts`]). Built together from one
+/// `Ports`.
 pub struct HandlerDbPorts {
     /// Hands the Sandbox to the person whose message starts a turn.
     pub drivers: Arc<crate::sandbox_driver::SandboxDrivers>,
@@ -95,10 +92,11 @@ pub struct IngressPorts {
 /// from.
 pub struct BackendSandboxServiceImpl {
     pub events: Option<Arc<dyn EventPublisher>>,
-    /// Database-backed ports the request handlers read; `None` databaseless.
+    /// Database-backed ports the request handlers read; `None` only in test
+    /// harnesses.
     pub handlers: Option<HandlerDbPorts>,
-    /// Durable-admission writers; `None` databaseless, `Some` on its own in the
-    /// ingress test harness.
+    /// Durable-admission writers; `None` only in test harnesses, `Some` on its
+    /// own in the ingress test harness.
     pub ingress: Option<IngressPorts>,
     /// JWT signing key for *minting* the user token delivered over
     /// `GetCredentials`. Token *verification* lives entirely in `authorizer`.
@@ -106,9 +104,6 @@ pub struct BackendSandboxServiceImpl {
     /// The single verification layer: every RPC resolves its bearer token to a
     /// [`TaskGrant`] through this before touching task data.
     pub authorizer: SandboxAuthorizer,
-    /// Refreshes an expired user access token. See
-    /// [`crate::state::AppState::github_app_service`] for what it aliases.
-    pub github_app_service: Option<Arc<GitHubAppService>>,
     /// Every configured GitHub App, for installation tokens and bot identities.
     pub github_apps: Arc<GitHubAppRegistry>,
     /// Backend config. Read here for `sandbox.user_token_ttl_secs`, and
@@ -165,7 +160,6 @@ impl BackendSandboxServiceImpl {
             event_dedup: Arc::new(crate::sandbox::event_dedup::EventDedup::new()),
             admissions: tokio_util::task::TaskTracker::new(),
             task_token_secret: None,
-            github_app_service: None,
             backend_config: Arc::new(Config::test_minimal()),
             s3: None,
             workspace_repository: None,

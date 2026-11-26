@@ -6,7 +6,7 @@ use super::model::default_model_selection;
 use super::scalar::non_empty;
 use super::scalar::timestamp;
 use crate::nominal_path;
-use moatless_workspace_types::schemas::repository::ScriptConfig;
+use moatless_workspace_types::schemas::workspace::ScriptConfig;
 use moatless_workspaces::workspace::models::{
     ListedWorkspace, Workspace, WorkspaceIcon, WorkspaceSource,
 };

@@ -86,7 +86,6 @@ pub(super) fn service_with(
         ingress: None,
         task_token_secret: None,
         authorizer: SandboxAuthorizer::dev_unauthenticated(Some(tasks), Some(users)),
-        github_app_service: None,
         github_apps: Arc::new(GitHubAppRegistry::default()),
         backend_config: Arc::new(Config::test_minimal()),
         s3: None,

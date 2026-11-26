@@ -41,7 +41,6 @@ pub enum LoopsAction {
     /// --adapter-config); --event-filter allowlists, `ignored_events`
     /// denylists and wins; ignoring a derived signal
     /// (`merge_conflict`/`post_merge`/`pr_merged`) skips only that signal.
-    #[command(alias = "create-adapter-event")]
     CreateSubscription {
         #[arg(long)]
         adapter: String,
@@ -151,9 +150,9 @@ pub enum LoopsAction {
         /// the agent profile.
         #[arg(long)]
         clear_model: bool,
-        #[arg(long, value_name = "DAYS", alias = "inactive-ttl-days")]
+        #[arg(long, value_name = "DAYS")]
         close_after_settled_days: Option<i32>,
-        #[arg(long, alias = "clear-inactive-ttl-days")]
+        #[arg(long)]
         clear_close_after_settled_days: bool,
         #[arg(long, value_name = "HOURS")]
         settle_after_hours: Option<i32>,
@@ -297,7 +296,7 @@ pub struct CreateConfigArgs {
     /// Tasks spawned by this loop auto-close this many days after they are
     /// settled (0 = never close). Omit to inherit the platform-wide default
     /// (`TASK_CLOSE_AFTER_SETTLED_DAYS`).
-    #[arg(long, alias = "inactive-ttl-days")]
+    #[arg(long)]
     close_after_settled_days: Option<i32>,
     /// Tasks spawned by this loop are settled after this many idle hours
     /// (0 = never settle). Omit for the loop default of 1.

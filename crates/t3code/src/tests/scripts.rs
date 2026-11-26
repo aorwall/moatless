@@ -8,7 +8,7 @@ use super::*;
 use crate::authentication::viewer_scope;
 use crate::scripts::resolve;
 use crate::startup_scripts::StartupScripts;
-use moatless_workspace_types::schemas::repository::ScriptConfig;
+use moatless_workspace_types::schemas::workspace::ScriptConfig;
 use moatless_workspaces::workspace::scripts::ScriptOrigin;
 
 /// A `ScriptsState` over `tasks`, with every other seam unreachable: the

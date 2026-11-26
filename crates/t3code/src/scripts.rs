@@ -24,7 +24,7 @@ use crate::terminal::{self, TerminalError, TerminalHub};
 use moatless_ports::sandbox::{SandboxError, SandboxPortPublisher};
 use moatless_types::access_control::ScopeContext;
 use moatless_types::store::StoreError;
-use moatless_workspace_types::schemas::repository::ScriptConfig;
+use moatless_workspace_types::schemas::workspace::ScriptConfig;
 use moatless_workspaces::workspace::scripts::{ResolvedScript, ScriptOrigin, merge};
 use sandbox_proto::TaskScript;
 use sandbox_proto::client::{SandboxConnector, classify_grpc_error};

@@ -13,7 +13,7 @@ use tracing::info;
 pub(crate) struct SandboxDependencies {
     pub workspace_archive: Option<Arc<sandbox::lifecycle::S3WorkspaceArchive>>,
     pub workspace_snapshots: Option<Arc<dyn moatless_ports::sandbox::WorkspaceSnapshotSource>>,
-    pub provision_deps: Option<sandbox::lifecycle::ProvisionDeps>,
+    pub provision_deps: sandbox::lifecycle::ProvisionDeps,
     pub sandbox_runtime: Arc<dyn moatless_sandbox_runtime::runtime::SandboxRuntime>,
     pub sandbox_observer: Arc<dyn sandbox::status_reader::SandboxStatusReader>,
     pub sandbox_connector: Arc<dyn sandbox_proto::client::SandboxConnector>,
@@ -27,7 +27,7 @@ pub(crate) struct SandboxDependencies {
 
 pub(crate) async fn build(
     config: &Config,
-    ports: Option<&Ports>,
+    ports: &Ports,
     s3_client: Option<moatless_s3::S3Storage>,
 ) -> Result<SandboxDependencies, Box<dyn std::error::Error>> {
     let workspace_archive =
@@ -59,13 +59,11 @@ pub(crate) async fn build(
                     ),
                 ) as Arc<dyn moatless_ports::sandbox::WorkspaceSnapshotSource>
             });
-    let provision_deps = ports.map(|p| {
-        p.sandbox_graph.provision_deps(
-            p.workspace_resolver.clone(),
-            p.user_directory.clone(),
-            config.sandbox.role_identities.clone(),
-        )
-    });
+    let provision_deps = ports.sandbox_graph.provision_deps(
+        ports.workspace_resolver.clone(),
+        ports.user_directory.clone(),
+        config.sandbox.role_identities.clone(),
+    );
     // Build the configured runtime/observer/connector adapter once. The rich
     // 13-field read the HTTP routes need is the backend-local
     // `SandboxStatusReader`; the T3 contract observer is projected from it at
@@ -96,7 +94,7 @@ pub(crate) async fn build(
                 config,
                 k8s.clone(),
                 s3_client.clone().map(std::sync::Arc::new),
-                provision_deps.clone(),
+                Some(provision_deps.clone()),
             );
             sandbox_runtime = adapter.clone();
             sandbox_observer = adapter.clone();
@@ -124,7 +122,7 @@ pub(crate) async fn build(
                 config,
                 docker_client.clone(),
                 s3_client.clone().map(std::sync::Arc::new),
-                provision_deps.clone(),
+                Some(provision_deps.clone()),
             );
             sandbox_runtime = adapter.clone();
             sandbox_observer = adapter.clone();
@@ -153,7 +151,7 @@ pub(crate) async fn build(
             let adapter = infrastructure::build_local_sandbox_adapter(
                 config,
                 local_client.clone(),
-                provision_deps.clone(),
+                Some(provision_deps.clone()),
             );
             sandbox_runtime = adapter.clone();
             sandbox_observer = adapter.clone();
@@ -186,39 +184,29 @@ pub(crate) async fn build(
 
 pub(crate) async fn lifecycle(
     config: &Config,
-    ports: Option<&Ports>,
+    ports: &Ports,
     dependencies: &SandboxDependencies,
-    events: Option<Arc<dyn moatless_core::events::EventPublisher>>,
-) -> Result<Option<Arc<sandbox::lifecycle::Lifecycle>>, Box<dyn std::error::Error>> {
-    Ok(match ports {
-        Some(ports) => {
-            let db_url = config
-                .database_url
-                .as_deref()
-                .ok_or("DATABASE_URL required to build the lifecycle lock pool")?;
-            let lock_pool = moatless_core::db::create_pool_kind(
-                db_url,
-                config.database.max_connections,
-                moatless_core::db::PoolKind::Lock,
-            )
-            .await?;
-            Some(
-                ports
-                    .sandbox_graph
-                    .lifecycle(moatless_sandbox_control::compose::LifecycleInputs {
-                        lock_pool,
-                        runtime: dependencies.sandbox_runtime.clone(),
-                        connector: dependencies.sandbox_connector.clone(),
-                        plan: dependencies
-                            .provision_deps
-                            .clone()
-                            .ok_or("provision dependencies missing with database pool")?,
-                        default_sandbox_image: dependencies.default_sandbox_image.clone(),
-                        events,
-                        workspace_archive: dependencies.workspace_archive.clone(),
-                    }),
-            )
-        }
-        None => None,
-    })
+    events: Arc<dyn moatless_core::events::EventPublisher>,
+) -> Result<Arc<sandbox::lifecycle::Lifecycle>, Box<dyn std::error::Error>> {
+    let db_url = config
+        .database_url
+        .as_deref()
+        .ok_or("DATABASE_URL required to build the lifecycle lock pool")?;
+    let lock_pool = moatless_core::db::create_pool_kind(
+        db_url,
+        config.database.max_connections,
+        moatless_core::db::PoolKind::Lock,
+    )
+    .await?;
+    Ok(ports
+        .sandbox_graph
+        .lifecycle(moatless_sandbox_control::compose::LifecycleInputs {
+            lock_pool,
+            runtime: dependencies.sandbox_runtime.clone(),
+            connector: dependencies.sandbox_connector.clone(),
+            plan: dependencies.provision_deps.clone(),
+            default_sandbox_image: dependencies.default_sandbox_image.clone(),
+            events: Some(events),
+            workspace_archive: dependencies.workspace_archive.clone(),
+        }))
 }

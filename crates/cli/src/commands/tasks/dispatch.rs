@@ -116,7 +116,7 @@ pub enum TaskAction {
         message: Option<String>,
         /// File to upload and attach to `--message`. Repeatable. The new task's
         /// sandbox writes it in before its agent runs.
-        #[arg(long = "context-file", alias = "relevant-file", value_name = "PATH")]
+        #[arg(long = "context-file", value_name = "PATH")]
         context_files: Vec<String>,
         #[arg(long)]
         branch: Option<String>,
@@ -209,7 +209,7 @@ pub enum TaskAction {
         #[arg(long)]
         ttl_minutes: Option<i32>,
         /// Days from settling to auto-closing the task (0 = never auto-close)
-        #[arg(long, alias = "inactive-ttl-days")]
+        #[arg(long)]
         close_after_settled_days: Option<i32>,
     },
     /// Show full task status (environment, agent)

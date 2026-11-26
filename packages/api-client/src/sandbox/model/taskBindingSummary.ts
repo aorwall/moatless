@@ -42,10 +42,4 @@ export interface TaskBindingSummary {
      * @nullable
      */
   subjectKey?: string | null;
-  /**
-     * Deprecated legacy thread identifier. Canonical callers should use
-     * `binding_id`, which carries the task binding id.
-     * @nullable
-     */
-  threadId?: number | null;
 }

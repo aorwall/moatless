@@ -18497,14 +18497,6 @@
               "null"
             ],
             "description": "Adapter-specific subject key such as `owner/repo#123` for GitHub PR\nbindings."
-          },
-          "threadId": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "description": "Deprecated legacy thread identifier. Canonical callers should use\n`binding_id`, which carries the task binding id."
           }
         }
       },

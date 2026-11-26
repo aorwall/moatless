@@ -5,12 +5,6 @@ use serde::{Deserialize, Serialize};
 use crate::repository::{RepositoryKind, RepositoryProvider};
 use moatless_types::access_control::Scope;
 
-// Workspace run configuration is defined in the Workspace wire module.
-#[deprecated(note = "use moatless_workspace_types::schemas::workspace::ResourceConfig")]
-pub use crate::schemas::workspace::ResourceConfig;
-#[deprecated(note = "use moatless_workspace_types::schemas::workspace::ScriptConfig")]
-pub use crate::schemas::workspace::ScriptConfig;
-
 // =============================================================================
 // CreateRepositoryRequest
 // =============================================================================
@@ -141,7 +135,7 @@ pub struct GitHostRepoResponse {
 
 #[cfg(test)]
 mod tests {
-    use crate::schemas::workspace::StorageMedium;
+    use crate::schemas::workspace::{ResourceConfig, StorageMedium};
 
     use super::*;
 

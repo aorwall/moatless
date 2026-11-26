@@ -7,20 +7,17 @@ use crate::sandbox::k8s::client::K8sClient;
 use moatless_core::config::Config;
 use moatless_core::db::{self, DbPool};
 use moatless_core::events::{EventPublisher, FeedEventPublisher};
-use moatless_identity::secret::service::LocalEnvelopeSecretCipher;
 use moatless_workspaces::skill::fetcher::GitHostSkillFetcher;
 
+/// Connect to the database, retrying for about 30 seconds, and run the
+/// migrations. A missing `DATABASE_URL` or an unreachable database fails
+/// startup: the backend has no mode without one.
 pub async fn init_database(
     database_url: Option<&str>,
     max_connections: u32,
     run_migrations: bool,
-) -> Result<Option<DbPool>, Box<dyn std::error::Error>> {
-    let url = if let Some(u) = database_url {
-        u
-    } else {
-        info!("DATABASE_URL not set — database features disabled");
-        return Ok(None);
-    };
+) -> Result<DbPool, Box<dyn std::error::Error>> {
+    let url = database_url.ok_or("DATABASE_URL is required")?;
 
     const MAX_ATTEMPTS: u32 = 10;
     for attempt in 1..=MAX_ATTEMPTS {
@@ -37,7 +34,7 @@ pub async fn init_database(
                 } else {
                     info!("RUN_MIGRATIONS=false — skipping database migrations");
                 }
-                return Ok(Some(pool));
+                return Ok(pool);
             }
             Err(e) if attempt < MAX_ATTEMPTS => {
                 tracing::warn!(
@@ -52,23 +49,18 @@ pub async fn init_database(
                 tracing::error!(
                     error = %e,
                     attempts = MAX_ATTEMPTS,
-                    "Failed to create database pool after retries — database features disabled"
+                    "Failed to create database pool after retries"
                 );
-                return Ok(None);
+                return Err(e.into());
             }
         }
     }
-    Ok(None)
+    Err("database connection attempts exhausted".into())
 }
 
-/// The event publisher, which is the database — `None` only where there is no
-/// database at all, which is also where nothing consumes events.
-pub fn init_event_publisher(pool: Option<&DbPool>) -> Option<Arc<dyn EventPublisher>> {
-    let Some(pool) = pool else {
-        info!("DATABASE_URL not set — event publishing disabled");
-        return None;
-    };
-    Some(Arc::new(FeedEventPublisher::new(pool.clone())))
+/// The event publisher, which is the database.
+pub fn init_event_publisher(pool: &DbPool) -> Arc<dyn EventPublisher> {
+    Arc::new(FeedEventPublisher::new(pool.clone()))
 }
 
 pub async fn init_s3(config: &Config) -> Option<moatless_s3::S3Storage> {
@@ -238,8 +230,8 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
 
 pub fn grpc_service(
     config: &Config,
-    ports: Option<&Ports>,
-    event_publisher: Option<Arc<dyn EventPublisher>>,
+    ports: &Ports,
+    event_publisher: Arc<dyn EventPublisher>,
     s3: Option<Arc<moatless_s3::S3Storage>>,
     workspace_repository: Option<
         Arc<crate::sandbox::workspace_repository::WorkspaceRepositoryAccess>,
@@ -248,36 +240,26 @@ pub fn grpc_service(
 ) -> BackendSandboxServiceImpl {
     // `tasks` and `users` are read by the authorizer's control gate; the request
     // handlers reach them (and the rest of the db-backed set) through `handlers`.
-    let tasks = ports.map(|p| p.tasks.clone());
-    let users = ports
-        .map(|p| p.user_directory.clone() as Arc<dyn moatless_ports::identity::CommitIdentity>);
+    let tasks = Some(ports.tasks.clone());
+    let users =
+        Some(ports.user_directory.clone() as Arc<dyn moatless_ports::identity::CommitIdentity>);
     let backend_config = Arc::new(config.clone());
     let token_secret = config.sandbox.task_token_secret.clone();
     let s3_bucket = config.s3.bucket_name.clone();
     let s3_key_prefix = config.s3.key_prefix.clone();
     let transcript_s3_prefix = config.s3.transcript_prefix.clone();
     let workspace_s3_prefix = config.s3.workspace_prefix.clone();
-    // Without a database there are no stored Apps to reach, so the deployment's
-    // login App is the whole registry.
-    let github_apps = match ports {
-        Some(ports) => ports.github_apps.clone(),
-        None => moatless_identity::compose::github_app_registry(
-            config,
-            None,
-            LocalEnvelopeSecretCipher::from_config(&config.secrets),
-        ),
-    };
-    let github_app_service = github_apps.default_service();
+    let github_apps = ports.github_apps.clone();
 
-    // The db-backed ports resolve as two present-together values off the one
-    // `ports` gate: the durable-admission writers and the handler set. Both are
-    // `None` databaseless.
-    let ingress = ports.map(|p| crate::sandbox::grpc_server::IngressPorts {
-        admission: p.task_graph.event_ingress(event_publisher.clone()),
-        task_turns: p.task_turns.clone(),
-        task_events: p.task_events.clone(),
+    let ingress = Some(crate::sandbox::grpc_server::IngressPorts {
+        admission: ports
+            .task_graph
+            .event_ingress(Some(event_publisher.clone())),
+        task_turns: ports.task_turns.clone(),
+        task_events: ports.task_events.clone(),
     });
-    let handlers = ports.map(|p| {
+    let handlers = Some({
+        let p = ports;
         let drivers =
             crate::sandbox_driver::SandboxDrivers::compose(config, p, Arc::clone(&connector));
         crate::sandbox::grpc_server::HandlerDbPorts {
@@ -316,19 +298,16 @@ pub fn grpc_service(
         config.sandbox.accept_claimless_tokens,
         tasks.clone(),
         users.clone(),
-        ports.map(|p| {
-            p.sandbox_graph.token_generations()
-                as Arc<dyn moatless_core::sandbox_jwt::TokenGenerations>
-        }),
+        Some(ports.sandbox_graph.token_generations()
+            as Arc<dyn moatless_core::sandbox_jwt::TokenGenerations>),
     );
 
     BackendSandboxServiceImpl {
-        events: event_publisher,
+        events: Some(event_publisher),
         handlers,
         ingress,
         task_token_secret: token_secret,
         authorizer,
-        github_app_service,
         github_apps,
         backend_config,
         s3,

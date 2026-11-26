@@ -318,7 +318,12 @@ impl TaskCreationService {
             req.checkout_mode
                 .unwrap_or(moatless_types::task::CheckoutMode::Shared)
         });
-        let persisted_checkout_mode = join_checkout_mode.or(req.checkout_mode);
+        // Every new row names its mode, so the column can go NOT NULL.
+        let persisted_checkout_mode = Some(
+            join_checkout_mode
+                .or(req.checkout_mode)
+                .unwrap_or(moatless_types::task::CheckoutMode::Shared),
+        );
         let short_id = self.generate_unique_short_id().await?;
         let now = chrono::Utc::now();
         let owner_user_id = req.owner_user_id.clone().or_else(|| req.created_by.clone());

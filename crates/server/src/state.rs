@@ -23,7 +23,6 @@ use moatless_core::events::EventPublisher;
 use moatless_core::file_storage::Files;
 use moatless_identity::adapter_apps::administration::AppAdministration;
 use moatless_identity::auth::github::registry::GitHubAppRegistry;
-use moatless_identity::auth::github::service::GitHubAppService;
 use moatless_identity::forgejo::{ForgejoAccess, ForgejoInstances};
 use moatless_identity::git_host_access::GitHostAccess;
 use moatless_identity::secret::service::SecretService;
@@ -115,13 +114,6 @@ pub struct AppState {
     /// Construction, capability registration, delivery wiring, and concrete
     /// handler access remain joined behind this value.
     pub adapter_installations: Option<Arc<AdapterInstallations>>,
-    /// Optional GitHub App service for installation tokens and user token
-    /// refresh.
-    ///
-    /// Convenience handle to the default App, equivalent to
-    /// `github_apps.default_service()`; kept for back-compat, new code should
-    /// use `github_apps` to pick an App by key.
-    pub github_app_service: Option<Arc<GitHubAppService>>,
     /// Registry of all configured GitHub Apps (the default user-auth App plus
     /// any admin-registered bot Apps, read from storage). Bot users' provider
     /// tokens reference an App by `key` (stored in `provider_user_id`).

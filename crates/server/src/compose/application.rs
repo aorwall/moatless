@@ -89,7 +89,6 @@ impl AppState {
             adapter_apps,
             secrets,
             github_apps,
-            github_app_service,
             git_host_tokens,
             forgejo_instances,
             forgejo_access,
@@ -457,7 +456,6 @@ impl AppState {
             s3,
             adapters,
             adapter_installations,
-            github_app_service,
             github_apps,
             credential_sync,
             git_host_access,
@@ -485,15 +483,13 @@ pub(crate) struct ApplicationAssembly {
 pub(crate) fn build(
     config: &Config,
     ports: &Ports,
-    lifecycle: Option<Arc<Lifecycle>>,
+    lifecycle: Arc<Lifecycle>,
     connector: Arc<dyn SandboxConnector>,
-    events: Option<Arc<dyn EventPublisher>>,
+    events: Arc<dyn EventPublisher>,
     s3: Option<moatless_s3::S3Storage>,
-) -> Result<ApplicationAssembly, Box<dyn std::error::Error>> {
+) -> ApplicationAssembly {
     let adapter_installations = Arc::new(AdapterInstallations::install(config, ports));
-    // The shared lifecycle was built above; it is present whenever the DB is.
-    let lifecycle =
-        lifecycle.ok_or("lifecycle handle required to build AppState (missing database pool)")?;
+    let events = Some(events);
     let sandbox_notify: Arc<dyn crate::sandbox::lifecycle::NotifyPort> = Arc::new(
         crate::sandbox::lifecycle::GrpcNotify::new(connector.clone()),
     );
@@ -510,10 +506,10 @@ pub(crate) fn build(
         s3,
         Some(adapter_installations.clone()),
     );
-    Ok(ApplicationAssembly {
+    ApplicationAssembly {
         app_state,
         adapter_installations,
         sandbox_notify,
         sandbox_member_registry,
-    })
+    }
 }

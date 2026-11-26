@@ -232,21 +232,17 @@ pub fn spawn_metrics_server(port: u16, cancel: CancellationToken) -> JoinHandle<
 /// Create the SSE broadcast sender and spawn this pod's change-feed poller.
 ///
 /// The feed carries only the live tail; historical replay is served separately
-/// from `task_events`. Without `tasks`, per-tenant firehose filtering can't
-/// authorize scoped users against their task.
+/// from `task_events`.
 pub fn init_sse(
     config: &Config,
-    pool: Option<DbPool>,
-    tasks: Option<Arc<dyn TaskReader>>,
+    pool: DbPool,
+    tasks: Arc<dyn TaskReader>,
     cancel: CancellationToken,
-) -> (SseState, Option<JoinHandle<()>>) {
+) -> (SseState, JoinHandle<()>) {
     let (tx, _) = broadcast::channel::<String>(config.sse.broadcast_capacity);
 
-    let feed_handle = pool.map(|pool| {
-        let handle = tokio::spawn(EventFeed::new(pool, tx.clone(), cancel.clone()).run());
-        info!("SSE event feed spawned");
-        handle
-    });
+    let feed_handle = tokio::spawn(EventFeed::new(pool, tx.clone(), cancel.clone()).run());
+    info!("SSE event feed spawned");
 
     (
         SseState {
