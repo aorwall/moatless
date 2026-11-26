@@ -11,7 +11,7 @@ DEFAULT_LIMIT=""           # resolved from the cluster unless --default-limit is
 DEFAULT_REQUEST=""         # likewise, unless --default-request is given
 FALLBACK_LIMIT=16Gi        # backend config.rs + Helm chart default, if the cluster can't be read
 FALLBACK_REQUEST=2Gi       # same source: env_str("K8S_RESOURCE_REQUEST_MEMORY", "2Gi")
-GRAFANA=${GRAFANA_URL:-https://g-0000000000.grafana-workspace.eu-central-1.amazonaws.com}
+GRAFANA=${GRAFANA_URL:-${GRAFANA_WORKSPACE_URL:-}}
 
 usage() {
   cat <<EOF
@@ -30,7 +30,8 @@ $FALLBACK_LIMIT are the last resort. Guessing the limit low inflates every "% of
 limit" and invents RAISE verdicts; treating an inherited request as zero
 suppresses every request verdict, which is what most rows inherit.
 
-Requires: GRAFANA_URL (a sandbox's relay) or GRAFANA_TOKEN (see .envrc), the
+Requires: GRAFANA_URL (a sandbox's relay), or GRAFANA_WORKSPACE_URL and
+GRAFANA_TOKEN (see .envrc), the
 'moat' CLI, jq. kubectl optional.
 EOF
 }
@@ -52,6 +53,8 @@ GRAFANA_AUTH=()
 if [ -z "${GRAFANA_URL:-}" ]; then
   [ -n "${GRAFANA_TOKEN:-}" ] || {
     echo "Neither GRAFANA_URL nor GRAFANA_TOKEN is set — export GRAFANA_TOKEN in .envrc" >&2; exit 1; }
+  [ -n "$GRAFANA" ] || {
+    echo "No Grafana URL — export GRAFANA_WORKSPACE_URL or pass --grafana" >&2; exit 1; }
   GRAFANA_AUTH=(-H "Authorization: Bearer $GRAFANA_TOKEN")
 fi
 command -v jq >/dev/null || { echo "jq not found" >&2; exit 1; }

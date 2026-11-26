@@ -79,11 +79,11 @@ error.
 ## Deployment config
 
 Every value is read at startup, so a change takes a PR to the values and a
-redeploy. For moatless.xyz, Argo CD deploys
-`soaplabs/soap-platform-gitops` at `apps/nonprod/moatless-vibe/values.yaml`,
-an umbrella chart over `k8s/helm/moatless` in this repository; that
-chart's `values.yaml` holds the upstream defaults and is not edited per
-deployment. On Docker Compose the values are `~/.moatless/compose/.env`, and
+redeploy. A Kubernetes deployment usually keeps its values in a gitops
+repository, often as an umbrella chart over `k8s/helm/moatless` in this
+repository; that chart's `values.yaml` holds the upstream defaults and is not
+edited per deployment. The deployment skill your organisation's plugins
+provide, if any, names where. On Docker Compose the values are `~/.moatless/compose/.env`, and
 `docker compose up -d` applies them. `k8s-install`'s
 `references/values-schema.md` documents each chart value.
 

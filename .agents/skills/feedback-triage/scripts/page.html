@@ -228,7 +228,7 @@
   function outcome(c) {
     const d = c.decision;
     const by = d && d.login ? ` by ${esc(d.login)}` : "";
-    const pr = c.pr ? ` <a href="${esc(c.pr)}">${esc(c.pr.replace(/^https:\/\/github.com\/soaplabs\//, ""))}</a>` : "";
+    const pr = c.pr ? ` <a href="${esc(c.pr)}">${esc(c.pr.replace(/^https:\/\/github.com\/[^/]+\//, ""))}</a>` : "";
     const lines = {
       "in-progress": () => `<span class="chip state on">In progress</span> Approved${by}. <a href="/tasks/${esc(c.childTaskId)}">The fix task</a> is working on it.${pr ? ` PR:${pr}` : ""}`,
       fixed: () => `<span class="chip state done">Fixed</span> ${pr ? `Merged${pr}, items closed.` : `Approved${by}, items closed as fixed.`}`,

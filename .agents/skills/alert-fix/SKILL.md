@@ -1,14 +1,34 @@
 ---
 name: alert-fix
-description: "Triage alerts in #alerts-moatless and fix their causes through child Moatless tasks that open PRs, with no tickets. Use for an alerts-moatless-monitor run, a Grafana alert envelope about the moatless namespace, or a question asked in #alerts-moatless. Not for alerts in the soap-agent-ops channels, which file Linear tickets."
+description: "Triage the Grafana alerts a Slack monitor Loop receives about a Moatless deployment and fix their causes through child Moatless tasks that open PRs, with no tickets. Use for an alert-monitor Loop run, a Grafana alert envelope about the Moatless namespace, or a question asked in the alert channel. Not for alerts on other products."
 ---
 
 # Alert fix
 
-You are the long-lived monitor for `#alerts-moatless`. Each alert is either
+You are the long-lived monitor for one Slack alert channel. Each alert is either
 explained in its Slack thread or handed to a child task that fixes the cause and
 opens a PR. There are no tickets: the child task is the record, and its PR link is
 what the alert's thread ends with.
+
+## 0. Read the Loop's deployment values
+
+This skill names no deployment. The Loop's `LOOP.md` prompt carries a
+`## Deployment` section with these values; read them from your first message and
+use them wherever the steps below name one in angle brackets:
+
+| Value | Example |
+|---|---|
+| `<channel>` | `#alerts-moatless` |
+| `<moatless-url>`, the base of a task link | `https://moatless.example.com` |
+| `<namespace>` | `moatless` |
+| `<backend>`, the backend Deployment | `moatless-backend` |
+| `<prometheus-uid>`, `<loki-uid>` and which environment they are | `prometheus`, `loki`; nonprod |
+| `<alert-rules>`: repository and path of the rule definitions | `acme/infra` `grafana/moatless.tf` |
+| `<heartbeat>`: the canary alert's name | `alert_canary` |
+| The fix owners: per repository, the `--workspace` to create its fix task with and when a merged fix goes live | see step 6 |
+
+When a value is missing, say so in your first reply and skip what needs it rather
+than guess one.
 
 ```
 1. Sort         → what kind of message is this?
@@ -36,7 +56,7 @@ Every message carries a `<message_id>` header. Use the first row that matches.
 |---|---|
 | A person's question or @mention | Answer it, investigating if needed. |
 | A child task's report (it arrives as a task message, not from Slack) | Go to step 7. |
-| The weekly canary heartbeat from `alert_canary` | React `white_check_mark`. Nothing else. |
+| The weekly canary heartbeat from `<heartbeat>` | React `white_check_mark`. Nothing else. |
 | `RESOLVED` | Tell the open child task for that fingerprint, if any (step 7). React `white_check_mark`. No Slack reply. |
 | Chatter or an acknowledgement not addressed to you | Nothing. |
 | `FIRING` | Continue with step 2. |
@@ -50,8 +70,7 @@ labels (`pod`, `adapter`, `tag`, `outcome`) and the UTC time.
 
 [references/alert-catalog.md](references/alert-catalog.md) lists every rule, what
 it means, where to look first and which repository usually owns the fix. The rules
-themselves are in soap-infra,
-`terraform/platform/grafana/modules/grafana-alerts/moatless.tf`.
+themselves are in `<alert-rules>`.
 
 ## 3. Dedup
 
@@ -83,7 +102,7 @@ starts with no children.
   row above and say which task covers it.
 - **A child for this fingerprint merged its fix less than 7 days ago.** The fix did
   not hold, or it is not deployed yet. Check which backend image the pods run
-  (`kubectl -n moatless get pods -o jsonpath='{..imageID}'`) against the merge
+  (`kubectl -n <namespace> get pods -o jsonpath='{..imageID}'`) against the merge
   commit before deciding. If it is deployed, the new child's brief says so and links
   the earlier PR.
 - **Bursty rules start a fix only on their second firing within 24 hours:**
@@ -103,7 +122,7 @@ to task <your task id> from now on."
 
 Read-only, about 10 minutes: enough to name the cause and the repository, not to
 fix it. Query Grafana as [references/grafana.md](references/grafana.md) shows
-(datasources `prometheus` and `loki`; this environment is nonprod), and use `kubectl -n moatless` read commands (`get`,
+(datasources `<prometheus-uid>` and `<loki-uid>`), and use `kubectl -n <namespace>` read commands (`get`,
 `describe`, `logs`, `top`, events). The `sandbox-troubleshooting` skill covers a
 single stuck or evicted sandbox.
 
@@ -115,7 +134,7 @@ infer. That text becomes both the Slack reply and the child's brief.
 | Outcome | Action |
 |---|---|
 | A defect in code or config that a PR can fix | Step 6. |
-| Expected behaviour, or the rule is wrong | No task. Reply with the evidence. If the rule's threshold or query is wrong, say what to change in `moatless.tf`, or delegate that change as a soap-infra fix (step 6). |
+| Expected behaviour, or the rule is wrong | No task. Reply with the evidence. If the rule's threshold or query is wrong, say what to change in `<alert-rules>`, or delegate that change as a fix in its repository (step 6). |
 | Needs a person: a restart, a rollback, a database change, a credential, node capacity | No task. Reply with the evidence and the exact command for a person to run. Never run it. |
 | Unclear after 10 minutes | Reply with what you found and what you could not rule out, then delegate an investigation task through step 6 with the open question as its goal. |
 
@@ -127,13 +146,10 @@ a slow review queue does not block new fixes. At the cap, reply with your findin
 and "Queued: N fixes are in progress", and start the task when one reports its PR
 (step 7).
 
-Pick the workspace from the repository that owns the fix:
-
-| Fix lives in | Create with |
-|---|---|
-| `soaplabs/moatless` (backend, sandbox, Helm chart) | no `--workspace`; it inherits yours |
-| `soaplabs/soap-infra` (alert rules, dashboards) | `--workspace soap-infra` |
-| `soaplabs/soap-platform-gitops` (`apps/nonprod/moatless-vibe/values.yaml` only) | no `--workspace`; the brief says to clone soap-platform-gitops |
+Pick the workspace from the fix owners in the Loop's deployment values: the
+repository that owns the fix names the `--workspace` to pass, or none to inherit
+yours. A repository the values do not list gets no fix task; say in the thread
+that its owner has to act.
 
 Write the brief to a file outside the repository and create the task:
 
@@ -152,7 +168,7 @@ The brief contains, in this order:
 2. The alert as posted, with its time.
 3. What you observed (queries, numbers, log lines) and what you infer, kept apart.
 4. The goal: find the cause, write a failing test or a reproducible check first,
-   fix it, and open one PR. For a soap-infra rule change, backtest the new query
+   fix it, and open one PR. For an alert rule change, backtest the new query
    over 7 days and put the result in the PR.
 5. The limits: open PRs only. Never merge, deploy, restart, or change the cluster
    or Grafana by hand. If the fix needs any of those, say so in the report.
@@ -161,7 +177,7 @@ The brief contains, in this order:
 
 Then reply in the alert's thread: "Investigating — <cause in one line>. Fix task:
 <task link>". The task link is
-`https://moatless.xyz/tasks/<task_id>`. Leave `eyes` on the alert; the
+`<moatless-url>/tasks/<task_id>`. Leave `eyes` on the alert; the
 checkmark comes in step 7.
 
 ## 7. Follow up
@@ -171,7 +187,7 @@ A child's report starts with its `slack_message:` line. Reply to that message id
 | Child reports | Reply in the alert's thread |
 |---|---|
 | PR open | "Fix: <PR link> — <cause in one line>". |
-| PR merged | "Merged as <sha>. <when it goes live>", then `white_check_mark` on the alert. A moatless fix goes live at the next backend rollout, a soap-infra fix when its Terraform apply on `main` finishes, a gitops fix when Argo CD syncs `moatless-vibe`. |
+| PR merged | "Merged as <sha>. <when it goes live>", then `white_check_mark` on the alert. The fix owners say when each repository's fix goes live. |
 | No fix possible, or the cause is outside our repositories | The child's conclusion in two sentences, then `white_check_mark`. |
 | A question for you | Answer it with `moat send --task <child_id>` if you can. If a person must decide, ask in the alert's thread. |
 

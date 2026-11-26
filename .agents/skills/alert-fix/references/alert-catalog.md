@@ -1,12 +1,13 @@
 # Moatless alert catalog
 
-Every rule in the `Moatless Alerts` Grafana folder, all routed to `#alerts-moatless`
-by the `route=moatless` label. The queries are in soap-infra,
-`terraform/platform/grafana/modules/grafana-alerts/moatless.tf`; read the current
-query there before you call a rule wrong, because this table summarises it.
+The alert rules a Moatless deployment is expected to carry, by the names the
+alert envelopes use. The queries are in `<alert-rules>` from the Loop's deployment
+values; read the current query there before you call a rule wrong, because this
+table summarises it.
 
-The backend runs 2 replicas (`moatless-vibe-backend`), each with a 20-connection
-database pool and a 1536Mi memory limit. Sandbox pods are named `moatless-ws-*`.
+Read the backend's replica count, database pool size and memory limit from
+`kubectl -n <namespace> get deploy/<backend> -o yaml` before you judge a threshold.
+Sandbox pods are named `moatless-ws-*`.
 
 ## Platform
 
@@ -61,4 +62,4 @@ UI-RPC Defects and Error Log Burst start a fix only on their second firing in
 |---|---|---|---|
 | UI-RPC Defects | a UI-RPC method (`tag`) died at least once in 15m | Loki `target="moatless_t3code::rpc::errors"` for that tag | moatless |
 | UI-RPC Slow | UI-RPC p95 above 2s for 10m | `moatless_ui_rpc_request_duration_seconds` by `tag`; database pool and poll gate waits | moatless |
-| Error Log Burst | 5 or more backend ERROR lines in 5m | Loki `{namespace="moatless", service_name="moatless", log_level="ERROR"}` grouped by `target` and `message` | moatless |
+| Error Log Burst | 5 or more backend ERROR lines in 5m | Loki `{namespace="<namespace>", service_name="moatless", log_level="ERROR"}` grouped by `target` and `message` | moatless |

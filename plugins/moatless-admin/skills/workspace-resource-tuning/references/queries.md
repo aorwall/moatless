@@ -81,10 +81,9 @@ Sanity-check the metric against a known-throttled workload elsewhere in the
 cluster before believing a fleet-wide zero. A pod with **no** `cfs_periods`
 series has no CPU quota at all — that's an unbounded container, worth reporting.
 
-These three series are retained by an explicit keep-list in the nonprod
-Prometheus values (`apps/nonprod/prometheus/values.yaml` in
-`soap-platform-gitops`). If they return nothing cluster-wide, check that
-keep-list before concluding the workload isn't throttling.
+A Prometheus that keeps only an explicit list of series may drop these three.
+If they return nothing cluster-wide, check its keep-list before concluding the
+workload isn't throttling.
 
 ## Concurrency and duty cycle
 

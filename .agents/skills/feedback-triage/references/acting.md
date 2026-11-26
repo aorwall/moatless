@@ -139,7 +139,7 @@ For every cluster entry with `status: in-progress`:
 
 ```bash
 # Phrase search splits on hyphens, so it also finds `<slug>-more`; keep exact lines only.
-moat gh pr list -R "soaplabs/$owner" --state all --search "\"Feedback-triage: $slug\" in:body" \
+moat gh pr list -R "$GITHUB_ORG/$owner" --state all --search "\"Feedback-triage: $slug\" in:body" \
   --json number,url,state,mergedAt,body --limit 20 \
   | jq --arg l "Feedback-triage: $slug" \
       '[.[] | select(.body | split("\n") | map(rtrimstr("\r") | ltrimstr(" ") | rtrimstr(" ")) | index($l))]'

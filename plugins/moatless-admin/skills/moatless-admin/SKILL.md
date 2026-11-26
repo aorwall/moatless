@@ -1,6 +1,6 @@
 ---
 name: moatless-admin
-description: Use for administering Moatless, whether users, workspaces, loops, repositories, plugins, secrets, adapters and apps, or the git and Helm configuration behind them. Not for a first install (moatless-setup), sandbox CPU and memory (workspace-resource-tuning), the daily health report, or a stuck sandbox (sandbox-troubleshooting).
+description: Use for administering Moatless, whether users, workspaces, loops, repositories, plugins, secrets, adapters and apps, or the git and Helm configuration behind them. Not for a first install (moatless-setup), sandbox CPU and memory (workspace-resource-tuning), or a stuck sandbox (sandbox-troubleshooting).
 ---
 
 # Moatless admin
@@ -25,10 +25,8 @@ be edited through the API, and a git-synced loop refuses edits until it is
 overridden. The deployment wins over both: a plugin declared in Helm comes back
 on the next start.
 
-For this deployment (moatless.xyz), Argo CD deploys
-`soaplabs/soap-platform-gitops` at `apps/nonprod/moatless-vibe/values.yaml`.
-Load `infra:helm-values` before editing it. For another deployment, ask where
-its values live.
+Where the deployment's values live depends on the deployment: load the
+deployment skill your organisation's plugins provide, if any, or ask.
 
 ## 2. Pick the path
 

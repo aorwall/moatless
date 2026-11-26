@@ -203,10 +203,11 @@ them and a person can reject them in one decision.
 ## 7. Check for work already done
 
 Before a cluster goes on the page, search its owning repository for a PR on the
-same cause:
+same cause. `GITHUB_ORG` is the owner of the repository this run cloned:
 
 ```bash
-moat gh pr list -R soaplabs/<owner> --state all --search "<two or three cause words>" --limit 5 \
+GITHUB_ORG=$(basename "$(dirname "$GIT_CLONE_URL")")
+moat gh pr list -R "$GITHUB_ORG/<owner>" --state all --search "<two or three cause words>" --limit 5 \
   --json number,title,state,mergedAt,url
 ```
 
