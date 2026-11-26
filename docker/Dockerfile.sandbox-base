@@ -541,17 +541,17 @@ RUN python3 -m venv /opt/mini-swe \
 # The symlink target is resolved from the npm prefix, not `which`: /usr/local/bin
 # precedes npm's bin dir on PATH, so once the symlink exists `which` returns it
 # and the link points at itself (ELOOP at runtime).
-ARG CODEX_CLI_VERSION=0.170.0
+ARG CODEX_CLI_VERSION=0.172.0
 RUN npm install -g "@openai/codex@${CODEX_CLI_VERSION}" \
     && ln -sf "$(npm prefix -g)/bin/codex" /usr/local/bin/codex \
     && (codex --version 2>/dev/null || echo "unknown") > /opt/moatless/.codex-cli-version
 
-ARG CLAUDE_CLI_VERSION=2.1.328
+ARG CLAUDE_CLI_VERSION=2.1.332
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}" \
     && ln -sf "$(npm prefix -g)/bin/claude" /usr/local/bin/claude \
     && (claude --version 2>/dev/null || echo "unknown") > /opt/moatless/.claude-cli-version
 
-ARG PI_CLI_VERSION=1.5.2
+ARG PI_CLI_VERSION=1.6.1
 RUN npm install -g "@earendil-works/pi-coding-agent@${PI_CLI_VERSION}" \
     && ln -sf "$(npm prefix -g)/bin/pi" /usr/local/bin/pi \
     && pi --version > /opt/moatless/.pi-cli-version
