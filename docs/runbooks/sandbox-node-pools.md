@@ -2,8 +2,8 @@
 
 How a Workspace or a Loop puts its sandbox pods on dedicated capacity, and what
 the node pool behind that has to look like. The pool itself is not defined here:
-the NodePool and its NodeClass live in `soap-infra`, and the tolerations that
-reach it in `soap-platform-gitops`.
+the NodePool and its NodeClass belong to the cluster's infrastructure, and the
+tolerations that reach it to the deployment's Helm values.
 
 ## What the platform sends to Kubernetes
 
@@ -45,13 +45,11 @@ Both columns are admin-API-only. Neither `.moatless/workspaces.json` nor
 `LOOP.md` can set one — commit access would otherwise be enough to move a
 repository's work onto more expensive capacity.
 
-## The pool that exists today
+## An example pool
 
-`moatless-egress-od` — on-demand, and otherwise the same NodeClass, instance
-shape and zone as `moatless-egress`, so an opted-in sandbox gets the same machine
-and the same IGW egress path. It is defined in `soap-infra`
-(`terraform/modules/eks-auto/nodepool.tf`, behind
-`enable_moatless_ondemand_nodepool`) and reached with
+An on-demand pool for unattended Loops: the same NodeClass, instance shape and
+zone as the spot sandbox pool, so an opted-in sandbox gets the same machine and
+egress path, labelled and tainted `workload: moatless-od` and reached with
 `--node-selector '{"workload":"moatless-od"}'`.
 
 ## What a new pool has to carry
@@ -66,7 +64,7 @@ and the same IGW egress path. It is defined in `soap-infra`
 2. **The matching taint**, `workload=<value>:NoSchedule`, so nothing outside
    moatless drifts onto it.
 3. **That taint in `kubernetes.sandboxTolerations`**
-   (`soap-platform-gitops apps/nonprod/moatless-vibe/values.yaml`). Tolerations
+   in the deployment's Helm values. Tolerations
    are deployment-wide and additive, and one places nothing on its own, so it is
    safe to add before the pool exists — and it has to be there before any row
    selects the pool, or those sandboxes sit Pending on the taint.

@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "moatless-skills",
-  "description": "Moatless workflows for coding agents: Artifact pages, task handoff, feature orchestration, code review and installation.",
+  "description": "Moatless workflows for coding agents: Artifact pages, task handoff, code review and installation.",
   "owner": {
     "name": "Albert Örwall",
     "email": "albert@moatless.ai"
@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "moatless-skills",
-      "description": "Moatless workflows for coding agents: Artifact pages, task handoff, feature orchestration, code review and installation.",
+      "description": "Moatless workflows for coding agents: Artifact pages, task handoff, code review and installation.",
       "author": {
         "name": "Albert Örwall",
         "email": "albert@moatless.ai"

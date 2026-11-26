@@ -239,8 +239,8 @@ docker build -f docker/Dockerfile.sandbox-dev \
 docker push aorwall/moatless-dev:<tag>
 ```
 
-> Ops prerequisite: the `moatless-dev` ECR repo must exist — add it to the
-> moatless service's `ecr_repos` in soap-infra `services.yaml`.
+> Ops prerequisite: the `moatless-dev` image repository must exist in the
+> registry you push to.
 
 Then point the shadow workspace at it so provisioning uses the warm image —
 `moat workspaces update <workspace-id> --docker-image <ecr-registry>/moatless-dev:latest`

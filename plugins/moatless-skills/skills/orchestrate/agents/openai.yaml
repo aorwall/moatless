@@ -1,5 +1,0 @@
-interface:
-  display_name: "Orchestrate"
-  short_description: "Plan, ticket, spawn, review, and land a feature stack"
-policy:
-  allow_implicit_invocation: false

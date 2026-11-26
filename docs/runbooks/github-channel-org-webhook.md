@@ -17,10 +17,18 @@ openssl rand -hex 32 > /tmp/gh-org-webhook-secret
 chmod 600 /tmp/gh-org-webhook-secret
 ```
 
-## 2. Register the org webhook on `soaplabs`
+## 2. Register the org webhook
+
+Set `ORG` to the GitHub organization and `REPOS` to the repositories that carry a
+legacy per-repo webhook:
 
 ```bash
-gh api -X POST /orgs/soaplabs/hooks \
+ORG=<org>
+REPOS="<repo> <repo>"
+```
+
+```bash
+gh api -X POST /orgs/$ORG/hooks \
   -f name=web \
   -f active=true \
   -F 'events[]=pull_request' \
@@ -44,7 +52,7 @@ Capture the resulting hook id from the response — needed for rollback.
 lets the default-branch Loop sync skip polling this organization's
 repositories, and `repository` registers a new one at once; without them the
 backend polls. An existing hook takes the same
-list with `gh api -X PATCH /orgs/soaplabs/hooks/<id>`, which replaces it.
+list with `gh api -X PATCH /orgs/$ORG/hooks/<id>`, which replaces it.
 
 ## 3. Apply migration `0034`
 
@@ -63,12 +71,12 @@ kubectl -n moatless run pg-migrate --rm -it \
 The `RAISE NOTICE` output must show counts roughly matching:
 
 ```
-NOTICE:  GitHub channel migration: provider_connections=1, ingress_rules=6,
+NOTICE:  GitHub channel migration: provider_connections=1, ingress_rules=<R>,
          task_subscriptions=N, leftover_configs=0, leftover_threads=0
 ```
 
-`N` should be close to the pre-migration `channel_threads` count — currently
-about 306. Threads with missing `owner` / `repo` / `pr_number` properties are
+`<R>` is the number of legacy `github_pr` configs and `N` should be close to
+the pre-migration `channel_threads` count. Threads with missing `owner` / `repo` / `pr_number` properties are
 dropped (see the earlier `RAISE NOTICE` line). If the migration aborts with
 `Expected exactly 1 github provider_connections row, got X` or
 `Legacy github_pr rows still present`, abort the cutover and investigate.
@@ -84,26 +92,26 @@ re-running the backfill.
 ## 5. Smoke test
 
 ```bash
-moat triggers list --adapter github            # expect 6 adapter-event triggers
+moat triggers list --adapter github            # expect one adapter-event trigger per legacy config
 moat bindings list --task <recent-task-id>     # confirm task is bound to its PR thread
 ```
 
-Trigger a manual PR comment from a soaplabs repo and confirm the agent
+Trigger a manual PR comment from a repository in `$ORG` and confirm the agent
 receives it. Backend logs should show the org connection resolving and the
 ingress rule routing the event to the right task.
 
-## 6. Delete the 6 legacy per-repo webhooks
+## 6. Delete the legacy per-repo webhooks
 
 ```bash
-for repo in soap-auth soap-config soap-external-api soap-specs tm-api tm-interface; do
-  gh api /repos/soaplabs/$repo/hooks --jq \
+for repo in $REPOS; do
+  gh api /repos/$ORG/$repo/hooks --jq \
     '.[] | select(.config.url | contains("/api/v1/channels/webhooks/github")) | .id' \
-    | xargs -I{} gh api -X DELETE /repos/soaplabs/$repo/hooks/{}
+    | xargs -I{} gh api -X DELETE /repos/$ORG/$repo/hooks/{}
 done
 
 # Verify
-for repo in soap-auth soap-config soap-external-api soap-specs tm-api tm-interface; do
-  count=$(gh api /repos/soaplabs/$repo/hooks --jq 'length')
+for repo in $REPOS; do
+  count=$(gh api /repos/$ORG/$repo/hooks --jq 'length')
   echo "$repo: $count"
 done
 ```
@@ -119,7 +127,7 @@ rm -P /tmp/gh-org-webhook-secret
 ## Rollback
 
 ```sql
-DELETE FROM provider_connections WHERE scope_value = 'soaplabs';
+DELETE FROM provider_connections WHERE scope_value = '<org>';
 -- This cascades through ingress_rules and task_subscriptions.
 ```
 
