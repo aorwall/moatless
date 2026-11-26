@@ -5,6 +5,8 @@
 //! `squashed_migrations.tsv` lists. [`adopt_baseline`] moves a database that
 //! applied that chain onto it.
 
+use std::time::Duration;
+
 use sqlx::AssertSqlSafe;
 use sqlx::Connection;
 use sqlx::PgConnection;
@@ -21,11 +23,27 @@ const BASELINE: i64 = 254;
 /// database's rows against it byte for byte.
 const SQUASHED: &str = include_str!("squashed_migrations.tsv");
 
+/// How long one transactional migration waits for a lock before it rolls back
+/// and is retried.
+///
+/// Every query on the table queues behind the waiting `ALTER TABLE`, so this
+/// stays below the pool's 5 s `acquire_timeout` rather than letting the
+/// serving replica's requests time out, as 0224's 12 s wait did.
+const LOCK_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Attempts at the pending migrations before startup fails on the lock.
+const LOCK_ATTEMPTS: u32 = 15;
+
+/// Pause between attempts, so the queued queries drain before the next wait.
+const LOCK_RETRY_PAUSE: Duration = Duration::from_secs(2);
+
 /// Run pending SQL migrations from `./migrations/` after [`adopt_baseline`],
 /// under sqlx's advisory migration lock, so replicas run one at a time.
 ///
 /// A schema other than `public` (an isolated E2E run, chosen by `search_path`
 /// in `DATABASE_URL`) gets its SQL through [`scope_to_current_schema`].
+/// Returns the lock error once [`LOCK_ATTEMPTS`] have each waited
+/// [`LOCK_TIMEOUT`].
 pub async fn run_migrations(pool: &DbPool) -> Result<(), MigrateError> {
     let mut migrator = sqlx::migrate!("./migrations");
     let mut conn = pool.acquire().await?;
@@ -37,12 +55,54 @@ pub async fn run_migrations(pool: &DbPool) -> Result<(), MigrateError> {
         migrator = isolated(&migrator);
     }
     let baseline = baseline_checksum(&migrator)?;
+    let migrator = bounded_lock_waits(&migrator, LOCK_TIMEOUT);
     locked(&mut conn, async |conn| {
         adopt_baseline(conn, &baseline).await?;
-        // The session lock nests, so `run` taking it again does not wait.
-        migrator.run(&mut *conn).await
+        run_retrying_locks(&migrator, conn, LOCK_ATTEMPTS, LOCK_RETRY_PAUSE).await
     })
     .await
+}
+
+/// Run `migrator` on `conn`, which holds the migration lock, starting over
+/// after a migration that gave up waiting for a table lock, at most
+/// `attempts` times.
+///
+/// Safe to repeat only for a transactional migration: its rollback leaves no
+/// `_sqlx_migrations` row, so the next attempt applies it whole.
+async fn run_retrying_locks(
+    migrator: &Migrator,
+    conn: &mut PgConnection,
+    attempts: u32,
+    pause: Duration,
+) -> Result<(), MigrateError> {
+    let mut attempt = 1;
+    loop {
+        // The session lock nests, so `run` taking it again does not wait.
+        match migrator.run(&mut *conn).await {
+            Err(MigrateError::ExecuteMigration(err, version))
+                if attempt < attempts && is_lock_timeout(&err) =>
+            {
+                tracing::warn!(
+                    version,
+                    attempt,
+                    "A migration gave up waiting for a table lock; retrying"
+                );
+                // Drop the nesting the failed `run` left, or the caller's one
+                // `unlock` keeps the lock held on a pooled connection.
+                conn.unlock().await?;
+                attempt += 1;
+                tokio::time::sleep(pause).await;
+            }
+            result => return result,
+        }
+    }
+}
+
+/// `lock_not_available`, which `lock_timeout` raises.
+fn is_lock_timeout(err: &sqlx::Error) -> bool {
+    err.as_database_error()
+        .and_then(sqlx::error::DatabaseError::code)
+        .is_some_and(|code| code == "55P03")
 }
 
 /// Put a database adopted by [`run_migrations`] back on the squashed chain,
@@ -220,22 +280,44 @@ fn source(message: String) -> MigrateError {
     MigrateError::Source(message.into())
 }
 
-/// `migrator` with every migration's SQL scoped to the current schema.
+/// `migrator` with every transactional migration's lock waits capped at
+/// `timeout`.
 ///
-/// Each migration keeps its original checksum, so a schema migrated this way
-/// records the same `_sqlx_migrations` rows as `public` does.
-fn isolated(migrator: &Migrator) -> Migrator {
+/// A `no_tx` migration is left alone: a `CREATE INDEX CONCURRENTLY` that times
+/// out leaves an invalid index its `IF NOT EXISTS` retry would then skip.
+fn bounded_lock_waits(migrator: &Migrator, timeout: Duration) -> Migrator {
+    let set = format!("SET LOCAL lock_timeout = '{}ms';\n", timeout.as_millis());
+    map_sql(migrator, |migration| {
+        if migration.no_tx {
+            migration.sql.as_str().to_owned()
+        } else {
+            format!("{set}{}", migration.sql.as_str())
+        }
+    })
+}
+
+/// `migrator` with each migration's SQL rewritten by `rewrite`.
+///
+/// Each migration keeps its original checksum, so a database migrated this
+/// way records the same `_sqlx_migrations` rows as the files do.
+fn map_sql(migrator: &Migrator, rewrite: impl Fn(&sqlx::migrate::Migration) -> String) -> Migrator {
     Migrator::with_migrations(
         migrator
             .iter()
             .map(|migration| {
-                let mut migration = migration.clone();
-                let sql = scope_to_current_schema(migration.sql.as_str());
-                migration.sql = AssertSqlSafe(sql).into_sql_str();
-                migration
+                let mut rewritten = migration.clone();
+                rewritten.sql = AssertSqlSafe(rewrite(migration)).into_sql_str();
+                rewritten
             })
             .collect(),
     )
+}
+
+/// `migrator` with every migration's SQL scoped to the current schema.
+fn isolated(migrator: &Migrator) -> Migrator {
+    map_sql(migrator, |migration| {
+        scope_to_current_schema(migration.sql.as_str())
+    })
 }
 
 /// Restrict the catalog probes the migrations make to `current_schema()`.
@@ -549,6 +631,117 @@ mod tests {
             }
         }
     }
+
+    /// The constraints a migration checks against every row of a table it did
+    /// not create, each as `table.constraint`.
+    ///
+    /// The scan holds `ACCESS EXCLUSIVE`, stalling the serving replica's reads.
+    /// `VALIDATE` in the adding migration still scans under the `ADD`'s lock.
+    fn validating_constraints(sql: &str) -> Vec<String> {
+        let sql = sql
+            .lines()
+            .map(|line| line.split("--").next().unwrap_or_default())
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_lowercase();
+        let statements: Vec<Vec<&str>> = sql
+            .split(';')
+            .map(|statement| statement.split_whitespace().collect())
+            .collect();
+        let created: Vec<&str> = statements
+            .iter()
+            .filter_map(|words| match words.as_slice() {
+                ["create", "table", "if", "not", "exists", table, ..]
+                | ["create", "table", table, ..] => Some(table.trim_end_matches('(')),
+                _ => None,
+            })
+            .collect();
+        let mut added = Vec::new();
+        let mut validating = Vec::new();
+        for words in &statements {
+            let ["alter", "table", rest @ ..] = words.as_slice() else {
+                continue;
+            };
+            let rest = rest.strip_prefix(&["if", "exists"]).unwrap_or(rest);
+            let rest = rest.strip_prefix(&["only"]).unwrap_or(rest);
+            let Some((table, clauses)) = rest.split_first() else {
+                continue;
+            };
+            if created.contains(table) {
+                continue;
+            }
+            let text = format!(" {}", clauses.join(" "));
+            for clause in text.split(" add constraint ").skip(1) {
+                let name = clause.split_whitespace().next().unwrap_or_default();
+                added.push(name.to_owned());
+                if (clause.contains(" check") || clause.contains(" foreign key"))
+                    && !clause.contains("not valid")
+                {
+                    validating.push(format!("{table}.{name}"));
+                }
+            }
+            for clause in text.split(" validate constraint ").skip(1) {
+                let name = clause.split_whitespace().next().unwrap_or_default();
+                if added.iter().any(|added| added == name) {
+                    validating.push(format!("{table}.{name}"));
+                }
+            }
+        }
+        validating
+    }
+
+    #[test]
+    fn no_new_migration_validates_a_constraint_under_the_table_lock() {
+        let migrations = sqlx::migrate!();
+
+        for migration in migrations.iter() {
+            if migration.version <= BASELINE {
+                continue;
+            }
+            let validating = validating_constraints(migration.sql.as_str());
+            assert!(
+                validating.is_empty(),
+                "migration {} adds {validating:?} with a full-table check; add it `NOT VALID` \
+                 and `VALIDATE CONSTRAINT` it in a later migration",
+                migration.version,
+            );
+        }
+    }
+
+    #[test]
+    fn a_rewritten_check_on_an_existing_table_is_flagged() {
+        // 0224, which stalled the serving replica's reads for 12 s.
+        let pi_harness = "ALTER TABLE trajectory_sessions DROP CONSTRAINT trajectory_sessions_harness_check;\n\
+             ALTER TABLE trajectory_sessions ADD CONSTRAINT trajectory_sessions_harness_check CHECK (harness IN ('claude-code', 'codex', 'pi'));\n\
+             ALTER TABLE conversation_messages DROP CONSTRAINT conversation_messages_harness_check;\n\
+             ALTER TABLE conversation_messages ADD CONSTRAINT conversation_messages_harness_check CHECK (harness IN ('claude-code', 'codex', 'pi'));";
+
+        assert_eq!(
+            validating_constraints(pi_harness),
+            [
+                "trajectory_sessions.trajectory_sessions_harness_check",
+                "conversation_messages.conversation_messages_harness_check",
+            ],
+        );
+    }
+
+    #[test]
+    fn validating_in_the_adding_migration_is_flagged() {
+        let sql = "ALTER TABLE tasks ADD CONSTRAINT tasks_kind_check CHECK (kind IN ('a')) NOT VALID;\n\
+                   ALTER TABLE tasks VALIDATE CONSTRAINT tasks_kind_check;";
+
+        assert_eq!(validating_constraints(sql), ["tasks.tasks_kind_check"]);
+    }
+
+    #[test]
+    fn an_unvalidated_constraint_or_a_new_table_s_own_is_not_flagged() {
+        let sql = "ALTER TABLE tasks ADD CONSTRAINT tasks_kind_check CHECK (kind IN ('a')) NOT VALID;\n\
+                   CREATE TABLE notes (id int, task_id text);\n\
+                   ALTER TABLE notes ADD CONSTRAINT notes_task_fk FOREIGN KEY (task_id) REFERENCES tasks;\n\
+                   ALTER TABLE tasks VALIDATE CONSTRAINT tasks_older_check;";
+
+        assert!(validating_constraints(sql).is_empty());
+    }
 }
 
 #[cfg(all(test, feature = "db-tests"))]
@@ -685,3 +878,7 @@ mod db_tests {
         assert_eq!(versions(&pool).await, [BASELINE, BASELINE + 1]);
     }
 }
+
+#[cfg(all(test, feature = "db-tests"))]
+#[path = "migrations_lock_db_tests.rs"]
+mod lock_db_tests;

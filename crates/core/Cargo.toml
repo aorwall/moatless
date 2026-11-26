@@ -61,7 +61,7 @@ openapi = [
 ]
 # Hand-written test doubles a consumer can name: `file_storage::test_support`.
 test-support = []
-# Tests against a real Postgres (`DATABASE_URL`): the migration baseline adoption.
+# Tests against a real Postgres (`DATABASE_URL`): baseline adoption and lock waits.
 db-tests = []
 
 [lints]
