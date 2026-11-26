@@ -1,1 +1,0 @@
-ALTER TABLE tasks ALTER COLUMN ttl_minutes SET DEFAULT 15;

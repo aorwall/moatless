@@ -592,58 +592,6 @@ async fn a_switch_back_renders_lines_whose_ids_sort_first(pool: PgPool) {
     assert_eq!(texts, ["10", "11"], "the Codex turn is rendered, in order");
 }
 
-/// Rows recorded before `ord` existed get it from the migration's backfill,
-/// which must order a later session's low ids after its source's lines too.
-#[sqlx::test]
-async fn the_ord_backfill_orders_existing_rows_by_when_they_were_written(pool: PgPool) {
-    const MIGRATION: &str = include_str!("../../../core/migrations/0175_trajectory_switch.sql");
-    let start = MIGRATION
-        .find("UPDATE trajectory_events e")
-        .expect("the backfill statement");
-    let backfill = &MIGRATION[start..start + MIGRATION[start..].find(';').unwrap()];
-
-    seeded(&pool, "claude-1", lines(0..3)).await;
-    let trajectories =
-        crate::trajectory::operations::Trajectories::new(PgTrajectoryDao(pool.clone()));
-    let codex = trajectories
-        .open_switch_session("source", Harness::Codex)
-        .await
-        .unwrap()
-        .expect("a head to switch from")
-        .session;
-    let low = Uuid::from_u128(1);
-    sqlx::query(
-        "INSERT INTO trajectory_events
-             (id, session_id, seq, kind, turn_number, payload, content, created_at)
-         VALUES ($1, $2, 0, 'user', 2, '{}', '{}', NOW() + interval '1 second')",
-    )
-    .bind(low)
-    .bind(codex.id)
-    .execute(&pool)
-    .await
-    .unwrap();
-    sqlx::query(
-        "UPDATE trajectory_sessions SET last_seq = 0, last_event_id = $2, own_from_seq = 0
-          WHERE id = $1",
-    )
-    .bind(codex.id)
-    .bind(low)
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    for statement in [
-        "ALTER TABLE trajectory_events ALTER COLUMN ord DROP NOT NULL",
-        "UPDATE trajectory_events SET ord = NULL",
-        backfill,
-    ] {
-        sqlx::query(statement).execute(&pool).await.unwrap();
-    }
-
-    let head = trajectories.head("source").await.unwrap().unwrap();
-    assert_eq!(head.harness_session_id, codex.harness_session_id);
-}
-
 /// An assistant line, which projects a Message.
 fn reply(n: i64) -> NewEvent {
     NewEvent {

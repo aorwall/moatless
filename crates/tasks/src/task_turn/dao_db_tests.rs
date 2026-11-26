@@ -511,66 +511,6 @@ async fn list_unclosed_active_turns_filters_by_age_and_status(pool: PgPool) {
     assert_eq!(ids, vec!["old-active", "old-interrupted"]);
 }
 
-#[sqlx::test]
-async fn backfill_recovers_open_turns_from_event_log(pool: PgPool) {
-    // Simulate the pre-migration event log: task A's latest taskTurn is active,
-    // task B's latest is completed (closed). The migration's backfill already ran
-    // on an empty table, so we re-run the same statement against seeded events.
-    let insert_event = |task_id: &'static str, sub_type: &'static str, turn: i32, secs_ago: i64| {
-        let pool = pool.clone();
-        async move {
-            sqlx::query(
-                r#"INSERT INTO task_events
-                       (event_id, task_id, type, sub_type, turn_number, agent_profile, timestamp, created_at)
-                   VALUES ($1, $2, 'taskTurn', $3, $4, 'claude-code', '', now() - ($5 || ' seconds')::interval)"#,
-            )
-            .bind(format!("{task_id}-{sub_type}-{turn}"))
-            .bind(task_id)
-            .bind(sub_type)
-            .bind(turn)
-            .bind(secs_ago.to_string())
-            .execute(&pool)
-            .await
-            .unwrap();
-        }
-    };
-    // Task A: active is the latest event → should backfill.
-    insert_event("task-a", "active", 1, 10).await;
-    // Task B: active then completed (completed is latest) → should NOT backfill.
-    insert_event("task-b", "active", 1, 20).await;
-    insert_event("task-b", "completed", 1, 5).await;
-
-    // The exact backfill statement from migration 0071.
-    sqlx::query(
-        r#"INSERT INTO task_turns (task_id, turn_number, status, agent_profile, started_at)
-           SELECT latest.task_id, COALESCE(latest.turn_number, 1), 'active',
-                  latest.agent_profile, latest.created_at
-           FROM (
-               SELECT DISTINCT ON (task_id)
-                      task_id, sub_type, turn_number, agent_profile, created_at
-               FROM task_events
-               WHERE type = 'taskTurn'
-               ORDER BY task_id, created_at DESC, id DESC
-           ) latest
-           WHERE latest.sub_type = 'active'
-           ON CONFLICT (task_id, turn_number) DO NOTHING"#,
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    assert!(
-        turn_row(&pool, "task-a", 1).await.is_some(),
-        "active turn backfilled"
-    );
-    let (status, _, _) = turn_row(&pool, "task-a", 1).await.unwrap();
-    assert_eq!(status, "active");
-    assert!(
-        turn_row(&pool, "task-b", 1).await.is_none(),
-        "closed turn not backfilled"
-    );
-}
-
 // ── resolve_turn_for_run — the turn allocator ───────────────────────────────
 
 /// Seed a repo + task so `task_turns` FKs resolve.

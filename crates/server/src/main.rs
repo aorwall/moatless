@@ -44,7 +44,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if std::env::args().nth(1).as_deref() == Some("migrate") {
-        return moatless_backend::app::migrate().await;
+        let restore = std::env::args().nth(2).as_deref() == Some("restore-squashed-history");
+        return moatless_backend::app::migrate(restore).await;
     }
 
     Box::pin(moatless_backend::app::run()).await

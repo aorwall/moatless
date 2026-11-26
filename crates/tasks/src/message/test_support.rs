@@ -227,7 +227,7 @@ fn inbox_item(
 }
 
 /// `msg` as a frozen `conversation_messages` row's `legacy` object, keyed by
-/// the columns `0178_conversation_read_model.sql` copied.
+/// the retired `task_messages` columns it was frozen from.
 fn legacy(msg: &TaskMessage) -> Value {
     let columns: [(&str, Value); 37] = [
         ("uuid", json!(msg.uuid)),

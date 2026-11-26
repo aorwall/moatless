@@ -1,1 +1,0 @@
-ALTER TABLE tasks ADD COLUMN inactive_ttl_days INTEGER NOT NULL DEFAULT 7;

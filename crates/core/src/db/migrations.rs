@@ -1,28 +1,223 @@
 //! Workspace database migrations. No other crate declares a migration
 //! directory; this is the only one `run_migrations` runs.
+//!
+//! `migrations/` starts at [`BASELINE`], the squash of the chain
+//! `squashed_migrations.tsv` lists. [`adopt_baseline`] moves a database that
+//! applied that chain onto it.
 
 use sqlx::AssertSqlSafe;
+use sqlx::Connection;
+use sqlx::PgConnection;
 use sqlx::SqlSafeStr;
-use sqlx::migrate::Migrator;
+use sqlx::migrate::{Migrate, MigrateError, Migrator};
 
 use super::DbPool;
 
-/// Run pending SQL migrations from `./migrations/`. Uses PostgreSQL advisory
-/// locks — safe for concurrent replicas.
+/// The version of `0254_baseline.sql`, which replaces every squashed one.
+const BASELINE: i64 = 254;
+
+/// `version`, `description` and hex `checksum` of each squashed migration, as
+/// `_sqlx_migrations` recorded them. Never edit it: adoption compares a
+/// database's rows against it byte for byte.
+const SQUASHED: &str = include_str!("squashed_migrations.tsv");
+
+/// Run pending SQL migrations from `./migrations/` after [`adopt_baseline`],
+/// under sqlx's advisory migration lock, so replicas run one at a time.
 ///
-/// Against a schema other than `public` (an isolated E2E run, selected with
-/// `search_path` in `DATABASE_URL`) the SQL goes through
-/// [`scope_to_current_schema`] first.
-pub async fn run_migrations(pool: &DbPool) -> Result<(), sqlx::migrate::MigrateError> {
-    let migrator = sqlx::migrate!("./migrations");
+/// A schema other than `public` (an isolated E2E run, chosen by `search_path`
+/// in `DATABASE_URL`) gets its SQL through [`scope_to_current_schema`].
+pub async fn run_migrations(pool: &DbPool) -> Result<(), MigrateError> {
+    let mut migrator = sqlx::migrate!("./migrations");
+    let mut conn = pool.acquire().await?;
     let schema: String = sqlx::query_scalar("SELECT current_schema()")
-        .fetch_one(pool)
+        .fetch_one(&mut *conn)
         .await?;
-    if schema == "public" {
-        return migrator.run(pool).await;
+    if schema != "public" {
+        tracing::info!(schema, "Migrating an isolated schema");
+        migrator = isolated(&migrator);
     }
-    tracing::info!(schema, "Migrating an isolated schema");
-    isolated(&migrator).run(pool).await
+    let baseline = baseline_checksum(&migrator)?;
+    locked(&mut conn, async |conn| {
+        adopt_baseline(conn, &baseline).await?;
+        // The session lock nests, so `run` taking it again does not wait.
+        migrator.run(&mut *conn).await
+    })
+    .await
+}
+
+/// Put a database adopted by [`run_migrations`] back on the squashed chain,
+/// so an image built before the baseline boots against it. A no-op on a
+/// database already on that chain.
+///
+/// Refuses when any migration after [`BASELINE`] is applied: the old image
+/// would not know that schema.
+pub async fn restore_squashed_history(pool: &DbPool) -> Result<(), MigrateError> {
+    let migrator = sqlx::migrate!("./migrations");
+    let baseline = baseline_checksum(&migrator)?;
+    let mut conn = pool.acquire().await?;
+    locked(&mut conn, async |conn| {
+        let applied = applied(conn).await?;
+        if applied.is_empty() || squashed_chain(&applied)? {
+            return Ok(());
+        }
+        if applied != [(BASELINE, true, baseline)] {
+            return Err(source(format!(
+                "cannot restore the squashed history: `_sqlx_migrations` records {:?}, \
+                 not only the baseline {BASELINE}",
+                applied.iter().map(|(v, ..)| *v).collect::<Vec<_>>()
+            )));
+        }
+        let mut tx = conn.begin().await?;
+        sqlx::query("DELETE FROM _sqlx_migrations WHERE version = $1")
+            .bind(BASELINE)
+            .execute(&mut *tx)
+            .await?;
+        for (version, description, checksum) in squashed() {
+            sqlx::query(
+                "INSERT INTO _sqlx_migrations \
+                 (version, description, success, checksum, execution_time) \
+                 VALUES ($1, $2, true, $3, 0)",
+            )
+            .bind(version)
+            .bind(description)
+            .bind(checksum)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        tracing::warn!("Restored the squashed migration history in place of the baseline");
+        Ok(())
+    })
+    .await
+}
+
+/// Run `work` holding sqlx's migration lock on `conn`.
+///
+/// On failure the connection is closed rather than unlocked: `Migrator::run`
+/// returns early without releasing its own nested lock, and a pooled
+/// connection still holding it would block every later migrator.
+async fn locked(
+    conn: &mut sqlx::pool::PoolConnection<sqlx::Postgres>,
+    work: impl AsyncFnOnce(&mut PgConnection) -> Result<(), MigrateError>,
+) -> Result<(), MigrateError> {
+    conn.lock().await?;
+    let result = work(&mut *conn).await;
+    match result {
+        Ok(()) => conn.unlock().await,
+        Err(e) => {
+            conn.close_on_drop();
+            Err(e)
+        }
+    }
+}
+
+/// Replace a complete squashed chain in `_sqlx_migrations` with the
+/// [`BASELINE`] row, in one transaction, before sqlx validates the rows.
+///
+/// A fresh or already adopted database is left alone. One that applied only
+/// part of the chain fails: its schema is neither the old head nor the
+/// baseline, and guessing would let sqlx skip the rest.
+async fn adopt_baseline(conn: &mut PgConnection, checksum: &[u8]) -> Result<(), MigrateError> {
+    let applied = applied(conn).await?;
+    if !squashed_chain(&applied)? {
+        return Ok(());
+    }
+    let mut tx = conn.begin().await?;
+    sqlx::query("DELETE FROM _sqlx_migrations WHERE version < $1")
+        .bind(BASELINE)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query(
+        "INSERT INTO _sqlx_migrations (version, description, success, checksum, execution_time) \
+         VALUES ($1, 'baseline', true, $2, 0)",
+    )
+    .bind(BASELINE)
+    .bind(checksum)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    tracing::info!(
+        replaced = applied.len(),
+        "Adopted the migration baseline in place of the squashed chain"
+    );
+    Ok(())
+}
+
+/// `(version, success, checksum)` of every `_sqlx_migrations` row, by
+/// version; empty when the table does not exist yet.
+async fn applied(conn: &mut PgConnection) -> Result<Vec<(i64, bool, Vec<u8>)>, MigrateError> {
+    let exists: bool = sqlx::query_scalar("SELECT to_regclass('_sqlx_migrations') IS NOT NULL")
+        .fetch_one(&mut *conn)
+        .await?;
+    if !exists {
+        return Ok(Vec::new());
+    }
+    Ok(
+        sqlx::query_as("SELECT version, success, checksum FROM _sqlx_migrations ORDER BY version")
+            .fetch_all(&mut *conn)
+            .await?,
+    )
+}
+
+/// Whether `applied` is exactly the squashed chain, every row succeeded with
+/// its recorded checksum. `false` when it holds none of it.
+///
+/// Fails on any other overlap with the chain: some of it missing, a
+/// checksum that differs, or the chain beside the baseline or a later row.
+fn squashed_chain(applied: &[(i64, bool, Vec<u8>)]) -> Result<bool, MigrateError> {
+    let expected: Vec<(i64, bool, Vec<u8>)> = squashed()
+        .map(|(version, _, checksum)| (version, true, checksum))
+        .collect();
+    if !applied.iter().any(|(version, ..)| *version < BASELINE) {
+        return Ok(false);
+    }
+    if applied == expected.as_slice() {
+        return Ok(true);
+    }
+    let missing: Vec<i64> = expected
+        .iter()
+        .filter(|row| !applied.contains(row))
+        .map(|(version, ..)| *version)
+        .collect();
+    let extra: Vec<i64> = applied
+        .iter()
+        .filter(|row| !expected.contains(row))
+        .map(|(version, ..)| *version)
+        .collect();
+    Err(source(format!(
+        "this database applied only part of the migration chain squashed into baseline \
+         {BASELINE}: missing or modified {missing:?}, unexpected {extra:?}. Start an image \
+         built before the squash once so it finishes that chain, then this one"
+    )))
+}
+
+/// The squashed chain's rows, parsed from [`SQUASHED`].
+fn squashed() -> impl Iterator<Item = (i64, &'static str, Vec<u8>)> {
+    SQUASHED.lines().map(|line| {
+        let mut fields = line.split('\t');
+        let mut next = || fields.next().unwrap_or_default();
+        let (version, description, checksum) = (next(), next(), next());
+        (
+            version.parse().unwrap_or_default(),
+            description,
+            (0..checksum.len())
+                .step_by(2)
+                .filter_map(|at| u8::from_str_radix(checksum.get(at..at + 2)?, 16).ok())
+                .collect(),
+        )
+    })
+}
+
+fn baseline_checksum(migrator: &Migrator) -> Result<Vec<u8>, MigrateError> {
+    migrator
+        .iter()
+        .find(|migration| migration.version == BASELINE)
+        .map(|migration| migration.checksum.to_vec())
+        .ok_or(MigrateError::VersionNotPresent(BASELINE))
+}
+
+fn source(message: String) -> MigrateError {
+    MigrateError::Source(message.into())
 }
 
 /// `migrator` with every migration's SQL scoped to the current schema.
@@ -50,17 +245,10 @@ fn isolated(migrator: &Migrator) -> Migrator {
 /// migration file: production records its checksum.
 fn scope_to_current_schema(sql: &str) -> String {
     let sql = insert_before_column(sql, "table_name", "table_schema = current_schema() AND ");
-    let sql = insert_before_column(
+    insert_before_column(
         &sql,
         "conname",
         "connamespace = current_schema()::regnamespace AND ",
-    );
-    // 0090's foreign-key sweep filters on an alias, which the rewrite above
-    // does not match.
-    sql.replace(
-        "WHERE con.contype = 'f' AND ref.relname",
-        "WHERE con.contype = 'f' AND con.connamespace = current_schema()::regnamespace \
-         AND ref.relname",
     )
 }
 
@@ -90,7 +278,7 @@ fn insert_before_column(sql: &str, column: &str, filter: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::scope_to_current_schema;
+    use super::*;
 
     /// Two files sharing a version is not a conflict git can see: both merge,
     /// and the loser is silently skipped against a database that recorded the
@@ -111,17 +299,54 @@ mod tests {
         }
     }
 
-    #[test]
-    fn shell_index_migrations_run_outside_a_transaction() {
-        let migrations = sqlx::migrate!();
+    fn chain() -> Vec<(i64, bool, Vec<u8>)> {
+        squashed()
+            .map(|(version, _, checksum)| (version, true, checksum))
+            .collect()
+    }
 
-        for version in (107..=110).chain(209..=210).chain([219, 235]) {
-            let migration = migrations
-                .iter()
-                .find(|migration| migration.version == version)
-                .expect("shell index migration");
-            assert!(migration.no_tx, "migration {version}");
+    #[test]
+    fn the_squashed_chain_parses_and_ends_before_the_baseline() {
+        let chain = chain();
+        assert_eq!(chain.len(), 251);
+        assert_eq!(chain.first().map(|row| row.0), Some(1));
+        assert_eq!(chain.last().map(|row| row.0), Some(BASELINE - 1));
+        assert!(chain.iter().all(|(_, _, checksum)| checksum.len() == 48));
+        assert!(chain.windows(2).all(|pair| pair[0].0 < pair[1].0));
+    }
+
+    #[test]
+    fn only_the_whole_chain_is_adopted() {
+        assert!(!squashed_chain(&[]).unwrap());
+        assert!(!squashed_chain(&[(BASELINE, true, vec![1])]).unwrap());
+        assert!(squashed_chain(&chain()).unwrap());
+    }
+
+    #[test]
+    fn a_partial_or_modified_chain_is_refused() {
+        let mut partial = chain();
+        partial.pop();
+        let mut modified = chain();
+        modified[3].2[0] ^= 1;
+        let mut failed = chain();
+        failed[7].1 = false;
+        let mut beside_baseline = chain();
+        beside_baseline.push((BASELINE, true, vec![1]));
+
+        for applied in [partial, modified, failed, beside_baseline] {
+            let error = squashed_chain(&applied).unwrap_err().to_string();
+            assert!(
+                error.contains("only part of the migration chain"),
+                "{error}"
+            );
         }
+    }
+
+    #[test]
+    fn the_baseline_is_the_only_migration_and_runs_in_a_transaction() {
+        let migrations = sqlx::migrate!();
+        let versions: Vec<(i64, bool)> = migrations.iter().map(|m| (m.version, m.no_tx)).collect();
+        assert_eq!(versions.first(), Some(&(BASELINE, false)));
     }
 
     #[test]
@@ -171,5 +396,140 @@ mod tests {
                 }
             }
         }
+    }
+}
+
+#[cfg(all(test, feature = "db-tests"))]
+mod db_tests {
+    use super::*;
+
+    /// CI's `template1` is already migrated, and each test database copies it.
+    async fn empty(pool: &DbPool) {
+        sqlx::raw_sql("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+
+    async fn versions(pool: &DbPool) -> Vec<i64> {
+        sqlx::query_scalar("SELECT version FROM _sqlx_migrations ORDER BY version")
+            .fetch_all(pool)
+            .await
+            .unwrap()
+    }
+
+    /// Record `rows` of the squashed chain as an old image would have, with no
+    /// schema behind them: adoption reads only `_sqlx_migrations`.
+    async fn record_squashed(pool: &DbPool, rows: usize) {
+        empty(pool).await;
+        sqlx::query(
+            "CREATE TABLE _sqlx_migrations (version BIGINT PRIMARY KEY, description TEXT NOT NULL, \
+             installed_on TIMESTAMPTZ NOT NULL DEFAULT now(), success BOOLEAN NOT NULL, \
+             checksum BYTEA NOT NULL, execution_time BIGINT NOT NULL)",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+        for (version, description, checksum) in squashed().take(rows) {
+            sqlx::query(
+                "INSERT INTO _sqlx_migrations \
+                 (version, description, success, checksum, execution_time) \
+                 VALUES ($1, $2, true, $3, 1)",
+            )
+            .bind(version)
+            .bind(description)
+            .bind(checksum)
+            .execute(pool)
+            .await
+            .unwrap();
+        }
+    }
+
+    fn chain_versions() -> Vec<i64> {
+        squashed().map(|(version, ..)| version).collect()
+    }
+
+    #[sqlx::test(migrations = false)]
+    async fn a_fresh_database_records_only_the_baseline(pool: DbPool) {
+        empty(&pool).await;
+        run_migrations(&pool).await.unwrap();
+
+        assert_eq!(versions(&pool).await, [BASELINE]);
+        let tasks: Option<String> = sqlx::query_scalar("SELECT to_regclass('tasks')::text")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(tasks.as_deref(), Some("tasks"));
+    }
+
+    #[sqlx::test(migrations = false)]
+    async fn the_whole_chain_is_replaced_by_the_baseline_once(pool: DbPool) {
+        record_squashed(&pool, usize::MAX).await;
+
+        run_migrations(&pool).await.unwrap();
+        run_migrations(&pool).await.unwrap();
+
+        assert_eq!(versions(&pool).await, [BASELINE]);
+    }
+
+    #[sqlx::test(migrations = false)]
+    async fn two_replicas_adopting_at_once_both_start(pool: DbPool) {
+        record_squashed(&pool, usize::MAX).await;
+
+        let (first, second) = tokio::join!(run_migrations(&pool), run_migrations(&pool));
+
+        first.unwrap();
+        second.unwrap();
+        assert_eq!(versions(&pool).await, [BASELINE]);
+    }
+
+    #[sqlx::test(migrations = false)]
+    async fn a_partial_chain_fails_and_is_left_as_it_was(pool: DbPool) {
+        record_squashed(&pool, 250).await;
+
+        let error = run_migrations(&pool).await.unwrap_err().to_string();
+
+        assert!(
+            error.contains("only part of the migration chain"),
+            "{error}"
+        );
+        assert!(error.contains(&format!("[{}]", BASELINE - 1)), "{error}");
+        assert_eq!(versions(&pool).await.len(), 250);
+    }
+
+    #[sqlx::test(migrations = false)]
+    async fn restoring_returns_the_chain_and_the_next_start_adopts_again(pool: DbPool) {
+        record_squashed(&pool, usize::MAX).await;
+        run_migrations(&pool).await.unwrap();
+
+        restore_squashed_history(&pool).await.unwrap();
+        assert_eq!(versions(&pool).await, chain_versions());
+        restore_squashed_history(&pool).await.unwrap();
+        assert_eq!(versions(&pool).await, chain_versions());
+
+        run_migrations(&pool).await.unwrap();
+        assert_eq!(versions(&pool).await, [BASELINE]);
+    }
+
+    #[sqlx::test(migrations = false)]
+    async fn restoring_refuses_once_a_later_migration_is_applied(pool: DbPool) {
+        empty(&pool).await;
+        run_migrations(&pool).await.unwrap();
+        sqlx::query(
+            "INSERT INTO _sqlx_migrations (version, description, success, checksum, execution_time) \
+             VALUES ($1, 'later', true, '\\x00', 0)",
+        )
+        .bind(BASELINE + 1)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let error = restore_squashed_history(&pool)
+            .await
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("cannot restore"), "{error}");
+        assert_eq!(versions(&pool).await, [BASELINE, BASELINE + 1]);
     }
 }

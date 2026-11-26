@@ -56,7 +56,6 @@
   "floor-type-admission::moatless_workspace_types::workspace::QuantityParseError read by ",
   "floor-type-admission::moatless_workspace_types::workspace::WorkspaceRepo read by moatless-workspaces",
   "generic-module-name::crates/sandbox-runtime/src/schemas",
-  "migration-contract::0249_drop_review_guides.sql",
   "port-admission::moatless_ports::identity::credentials::AppCredentials read by moatless-adapter-linear",
   "port-admission::moatless_ports::identity::credentials::CodexScopeReader read by moatless-tasks",
   "port-admission::moatless_ports::sandbox::dispatch::SandboxJoiner read by moatless-tasks",

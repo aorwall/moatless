@@ -1,1 +1,0 @@
-ALTER TABLE teams ADD COLUMN IF NOT EXISTS settings jsonb NOT NULL DEFAULT '{}';

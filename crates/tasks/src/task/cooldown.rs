@@ -1,5 +1,5 @@
 //! Until when a user's harness refuses turns: the circuit a Loop's Task is
-//! routed around. See `crates/core/migrations/0250_harness_cooldowns.sql`.
+//! routed around, stored in `harness_cooldowns`.
 
 use chrono::{DateTime, Duration, Utc};
 use moatless_core::db::DbPool;

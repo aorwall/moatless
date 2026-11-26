@@ -964,7 +964,7 @@ mod tests {
 
     /// Observing a snapshot is all a client-served `terminal.open` does, and it
     /// must not raise anyone's drawer: only the environment's path announces,
-    /// which is the rule `0170_terminal_session_relay.sql` records.
+    /// the rule `terminal_session_changes` is written to.
     #[tokio::test]
     async fn observing_a_snapshot_publishes_an_upsert_that_is_not_announced() {
         let hub = TerminalHub::default();

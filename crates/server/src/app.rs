@@ -659,7 +659,9 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
 /// Apply pending migrations from `DATABASE_URL` and exit, for the chart's
 /// `migrate` init container. No startup probe runs until it exits, so a long
 /// backfill finishes rather than being killed and rolled back.
-pub async fn migrate() -> Result<(), Box<dyn std::error::Error>> {
+///
+/// `restore_squashed` runs [`moatless_core::db::restore_squashed_history`].
+pub async fn migrate(restore_squashed: bool) -> Result<(), Box<dyn std::error::Error>> {
     #[allow(clippy::expect_used)]
     // fail-fast: TLS provider must be installed before any networking
     rustls::crypto::aws_lc_rs::default_provider()
@@ -667,12 +669,24 @@ pub async fn migrate() -> Result<(), Box<dyn std::error::Error>> {
         .expect("Failed to install rustls crypto provider");
     let otel_provider = startup::init_tracing(&moatless_core::config::OtelConfig::from_env());
     let url = Config::database_url_from_env();
-    let result = crate::compose::infrastructure::init_database(url.as_deref(), 2, true).await;
+    let result = if restore_squashed {
+        restore_squashed_history(url.as_deref()).await
+    } else {
+        crate::compose::infrastructure::init_database(url.as_deref(), 2, true).await
+    };
     if let Some(provider) = otel_provider {
         shutdown_otel_provider(provider).await;
     }
     result?.close().await;
     Ok(())
+}
+
+async fn restore_squashed_history(
+    url: Option<&str>,
+) -> Result<moatless_core::db::DbPool, Box<dyn std::error::Error>> {
+    let pool = moatless_core::db::create_pool(url.ok_or("DATABASE_URL is required")?, 2).await?;
+    moatless_core::db::restore_squashed_history(&pool).await?;
+    Ok(pool)
 }
 
 /// How long shutdown waits for the OTel batch span processor to flush before

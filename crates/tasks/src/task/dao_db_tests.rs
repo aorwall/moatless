@@ -6,7 +6,6 @@ use crate::task::models::{TaskStatus, Visibility};
 use crate::task::pin_dao::OrderSlot;
 use chrono::{DateTime, Duration, Utc};
 use moatless_types::access_control::ScopeContext;
-use moatless_types::agent::AgentProfile;
 use sqlx::PgPool;
 
 use crate::task::test_support::{
@@ -197,31 +196,6 @@ async fn list_tasks_error_names_the_undecodable_task(pool: PgPool) {
     let err = list_tasks(&pool, &base_filter(user)).await.unwrap_err();
 
     assert!(err.to_string().contains("task-retired"), "{err}");
-}
-
-#[sqlx::test]
-async fn retired_agent_profiles_migration_makes_tasks_listable(pool: PgPool) {
-    let user = "user-1";
-    seed_retired_profile_task(&pool, user, "claude-code-tmux").await;
-    seed_task(&pool, &make_task_row("task-e2e", user))
-        .await
-        .unwrap();
-    sqlx::query("UPDATE tasks SET agent_profile = 'not-an-agent' WHERE task_id = 'task-e2e'")
-        .execute(&pool)
-        .await
-        .unwrap();
-
-    sqlx::raw_sql(include_str!(
-        "../../../core/migrations/0197_retired_agent_profiles.sql"
-    ))
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    let (rows, _) = list_tasks(&pool, &base_filter(user)).await.unwrap();
-    let profile = |id: &str| rows.iter().find(|t| t.task_id == id).unwrap().agent_profile;
-    assert_eq!(profile("task-retired"), AgentProfile::ClaudeCodeCli);
-    assert_eq!(profile("task-e2e"), AgentProfile::ClaudeCode);
 }
 
 #[sqlx::test]
