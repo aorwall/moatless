@@ -380,7 +380,7 @@ RUN curl -fsSL https://vite.plus | VP_VERSION="${VITE_PLUS_VERSION}" VP_NODE_MAN
 # is unreadable to moatless, so a repo's own first install wiped the bake.
 # The floor — the newest build the image offers, full chromium and shell.
 # renovate: datasource=npm depName=playwright
-ARG PLAYWRIGHT_VERSION=1.65.0
+ARG PLAYWRIGHT_VERSION=1.65.1
 # Older builds a consumer in `docker/playwright-consumers.json` still resolves,
 # headless shell only. Renovate's `Playwright` group moves consumers a week
 # after this image, so a bump keeps the previous floor here until they follow.
@@ -388,7 +388,7 @@ ARG PLAYWRIGHT_VERSION=1.65.0
 ARG PLAYWRIGHT_COMPAT_VERSIONS=""
 # Drives `playwright-cli`; `1.62.0` added the `cli` subcommand it calls.
 # renovate: datasource=npm depName=playwright
-ARG PLAYWRIGHT_CLI_VERSION=1.65.0
+ARG PLAYWRIGHT_CLI_VERSION=1.65.1
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
 RUN apt-get update \
     && apt-get install -y --no-install-recommends xvfb dbus \
