@@ -4,7 +4,8 @@ use chrono::{Duration, Utc};
 use moatless_types::agent::Harness;
 use sqlx::PgPool;
 
-use super::{COOLDOWN_WITHOUT_RESET, HarnessCooldowns};
+use super::{COOLDOWN_WITHOUT_RESET, HarnessCooldowns, MAX_COOLDOWN};
+use crate::task::cooldown_dao;
 
 #[sqlx::test]
 async fn a_refusal_cools_its_harness_down_for_its_user_only(pool: PgPool) {
@@ -62,4 +63,38 @@ async fn the_latest_refusal_replaces_the_cooldown(pool: PgPool) {
         .await
         .expect("read");
     assert_eq!(read.map(|u| u.timestamp()), Some(until.timestamp()));
+}
+
+#[sqlx::test]
+async fn a_row_held_past_the_cap_reads_as_the_cap(pool: PgPool) {
+    let now = Utc::now();
+    cooldown_dao::upsert(
+        &pool,
+        "user-1",
+        Harness::Acp,
+        now + Duration::days(4),
+        "usage_limit",
+        now,
+    )
+    .await
+    .expect("upsert");
+    let cooldowns = HarnessCooldowns::new(pool);
+
+    let until = cooldowns
+        .active_until("user-1", Harness::Acp, now)
+        .await
+        .expect("read");
+    assert_eq!(
+        until.map(|u| u.timestamp()),
+        Some((now + MAX_COOLDOWN).timestamp())
+    );
+    let after_cap = cooldowns
+        .active_until(
+            "user-1",
+            Harness::Acp,
+            now + MAX_COOLDOWN + Duration::seconds(1),
+        )
+        .await
+        .expect("read");
+    assert_eq!(after_cap, None);
 }

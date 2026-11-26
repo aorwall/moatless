@@ -1,7 +1,7 @@
 //! The `harness_cooldowns` rows [`super::cooldown::HarnessCooldowns`] reads
 //! and writes.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use moatless_core::db::DbPool;
 use moatless_types::agent::Harness;
 
@@ -31,20 +31,26 @@ pub(super) async fn upsert(
     Ok(())
 }
 
-/// `user_id`'s cooldown on `harness`, when it ends after `now`.
+/// `user_id`'s cooldown on `harness`, held to `max` after it was written, when
+/// it ends after `now`. The read caps too, so a row written before the cap
+/// counts no longer than one written after it.
 pub(super) async fn active_until(
     pool: &DbPool,
     user_id: &str,
     harness: Harness,
     now: DateTime<Utc>,
+    max: Duration,
 ) -> Result<Option<DateTime<Utc>>, sqlx::Error> {
     sqlx::query_scalar(
-        "SELECT until FROM harness_cooldowns \
-              WHERE user_id = $1 AND harness = $2 AND until > $3",
+        "SELECT capped FROM ( \
+             SELECT LEAST(until, updated_at + $4) AS capped \
+               FROM harness_cooldowns WHERE user_id = $1 AND harness = $2 \
+         ) c WHERE capped > $3",
     )
     .bind(user_id)
     .bind(harness.as_str())
     .bind(now)
+    .bind(max)
     .fetch_optional(pool)
     .await
 }

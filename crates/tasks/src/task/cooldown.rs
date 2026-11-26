@@ -12,6 +12,12 @@ use super::cooldown_dao;
 /// sandbox's retries.
 pub const COOLDOWN_WITHOUT_RESET: Duration = Duration::minutes(15);
 
+/// The longest any cooldown holds, whatever reset the provider names.
+///
+/// A hub reports one credential's weekly reset, and the pool can serve again
+/// within hours: a longer cooldown keeps every Loop off a harness that serves.
+pub const MAX_COOLDOWN: Duration = Duration::hours(3);
+
 /// The cooldown rows, one per user and harness.
 pub struct HarnessCooldowns {
     db: DbPool,
@@ -45,7 +51,7 @@ impl HarnessCooldowns {
         harness: Harness,
         now: DateTime<Utc>,
     ) -> Result<Option<DateTime<Utc>>, sqlx::Error> {
-        cooldown_dao::active_until(&self.db, user_id, harness, now).await
+        cooldown_dao::active_until(&self.db, user_id, harness, now, MAX_COOLDOWN).await
     }
 }
 
@@ -54,6 +60,7 @@ fn cooldown_until(resets_at: Option<DateTime<Utc>>, now: DateTime<Utc>) -> DateT
     resets_at
         .filter(|at| *at > now)
         .unwrap_or(now + COOLDOWN_WITHOUT_RESET)
+        .min(now + MAX_COOLDOWN)
 }
 
 #[cfg(test)]
@@ -69,6 +76,10 @@ mod tests {
         assert_eq!(
             cooldown_until(Some(now - Duration::seconds(1)), now),
             now + COOLDOWN_WITHOUT_RESET
+        );
+        assert_eq!(
+            cooldown_until(Some(now + Duration::days(4)), now),
+            now + MAX_COOLDOWN
         );
     }
 }
