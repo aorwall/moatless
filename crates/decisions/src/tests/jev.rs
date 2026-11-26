@@ -22,15 +22,21 @@ fn options() -> Vec<DecisionOption> {
 }
 
 async fn ask(base_url: &str, within: Duration) -> Result<ProviderPick, ProviderError> {
+    ask_with(JevClient::new(&jev_config(base_url), timeouts()), within).await
+}
+
+async fn ask_with(client: JevClient, within: Duration) -> Result<ProviderPick, ProviderError> {
     let options = options();
     let question = Question {
         text: "Bug or feature?",
         options: &options,
         state: "The login button does nothing",
     };
-    JevClient::new(&jev_config(base_url), timeouts())
-        .pick(&question, Instant::now() + within)
-        .await
+    client.pick(&question, Instant::now() + within).await
+}
+
+fn impatient(stub: &JevStub) -> JevClient {
+    JevClient::new(&stub.config(), timeouts()).with_attempt_timeout(Duration::from_millis(200))
 }
 
 #[tokio::test]
@@ -185,6 +191,55 @@ async fn an_attempt_is_cut_off_at_the_deadline() {
 
     assert!(matches!(error, ProviderError::Transport(_)), "{error:?}");
     assert!(started.elapsed() < Duration::from_secs(2));
+}
+
+#[tokio::test]
+async fn a_timed_out_attempt_is_retried_then_answers() {
+    let stub = JevStub::start(vec![
+        Reply::answer("bug", 0.9, &[]).delayed(Duration::from_secs(3)),
+        Reply::answer("feature", 0.8, &[]),
+    ])
+    .await;
+
+    let pick = ask_with(impatient(&stub), Duration::from_secs(5))
+        .await
+        .expect("answer after a retry");
+
+    assert_eq!(pick.choice, "feature");
+    assert_eq!(pick.attempts, 2);
+    assert_eq!(stub.hits(), 2);
+}
+
+#[tokio::test]
+async fn a_body_that_stalls_after_the_headers_is_retried_then_answers() {
+    let stub = JevStub::start(vec![
+        Reply::answer("bug", 0.9, &[]).stalled_body(Duration::from_secs(3)),
+        Reply::answer("feature", 0.8, &[]),
+    ])
+    .await;
+
+    let pick = ask_with(impatient(&stub), Duration::from_secs(5))
+        .await
+        .expect("answer after a retry");
+
+    assert_eq!(pick.choice, "feature");
+    assert_eq!(pick.attempts, 2);
+    assert_eq!(stub.hits(), 2);
+}
+
+#[tokio::test]
+async fn persistent_timeouts_give_up_after_two_retries() {
+    let stub = JevStub::start(vec![
+        Reply::answer("bug", 0.9, &[]).delayed(Duration::from_secs(3)),
+    ])
+    .await;
+
+    let error = ask_with(impatient(&stub), Duration::from_secs(5))
+        .await
+        .expect_err("timed out");
+
+    assert!(matches!(error, ProviderError::Transport(_)), "{error:?}");
+    assert_eq!(stub.hits(), 3);
 }
 
 #[tokio::test]

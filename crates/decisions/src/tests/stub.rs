@@ -1,12 +1,15 @@
 //! A loopback stand-in for the Jev API.
 
+use std::convert::Infallible;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
+use axum::body::Body;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
+use futures::StreamExt;
 use moatless_core::config::{DEFAULT_JEV_MODEL, JevConfig};
 use serde_json::{Value, json};
 use tokio::task::JoinHandle;
@@ -21,6 +24,7 @@ pub(crate) struct Reply {
     retry_after: Option<u64>,
     body: String,
     delay: Duration,
+    body_stall: Duration,
 }
 
 impl Reply {
@@ -30,6 +34,7 @@ impl Reply {
             retry_after: None,
             body: json!({"error": "stub"}).to_string(),
             delay: Duration::ZERO,
+            body_stall: Duration::ZERO,
         }
     }
 
@@ -69,6 +74,15 @@ impl Reply {
 
     pub(crate) fn delayed(self, delay: Duration) -> Self {
         Self { delay, ..self }
+    }
+
+    /// Sends the headers and a first body chunk, then waits `stall` before
+    /// the rest of the body.
+    pub(crate) fn stalled_body(self, stall: Duration) -> Self {
+        Self {
+            body_stall: stall,
+            ..self
+        }
     }
 }
 
@@ -162,7 +176,19 @@ async fn serve(State(shared): State<Arc<Shared>>, headers: HeaderMap, body: Stri
     };
     tokio::time::sleep(reply.delay).await;
     let status = StatusCode::from_u16(reply.status).expect("valid stub status");
-    let mut response = (status, reply.body).into_response();
+    let mut response = if reply.body_stall.is_zero() {
+        (status, reply.body).into_response()
+    } else {
+        let (head, tail) = reply.body.split_at(1);
+        let (head, tail, stall) = (head.to_string(), tail.to_string(), reply.body_stall);
+        let chunks = futures::stream::once(async move { Ok::<_, Infallible>(head) }).chain(
+            futures::stream::once(async move {
+                tokio::time::sleep(stall).await;
+                Ok(tail)
+            }),
+        );
+        (status, Body::from_stream(chunks)).into_response()
+    };
     if let Some(seconds) = reply.retry_after {
         response
             .headers_mut()

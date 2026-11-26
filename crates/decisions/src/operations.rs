@@ -53,7 +53,7 @@ pub(crate) async fn pick(
         options = req.options.len(),
         state_chars = req.state.chars().count(),
         choice = %response.choice,
-        confidence = ?response.confidence,
+        confidence = response.confidence,
         band = response.band.as_str(),
         input_tokens = response.usage.input_tokens,
         output_tokens = response.usage.output_tokens,

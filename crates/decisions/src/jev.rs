@@ -34,6 +34,7 @@ pub(crate) struct JevClient {
     api_key: String,
     base_url: String,
     model: String,
+    attempt_timeout: Duration,
 }
 
 impl fmt::Debug for JevClient {
@@ -64,6 +65,15 @@ impl JevClient {
             api_key: config.api_key.clone(),
             base_url: config.base_url.clone(),
             model: config.model.clone(),
+            attempt_timeout: ATTEMPT_TIMEOUT,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_attempt_timeout(self, attempt_timeout: Duration) -> Self {
+        Self {
+            attempt_timeout,
+            ..self
         }
     }
 
@@ -71,8 +81,9 @@ impl JevClient {
         &self.model
     }
 
-    /// Retries only 429 and 529, and only while the backoff fits before
-    /// `deadline`; each attempt is also capped at [`ATTEMPT_TIMEOUT`].
+    /// Retries only 429, 529 and a timed-out attempt, and only while the
+    /// backoff fits before `deadline`; each attempt is also capped at
+    /// [`ATTEMPT_TIMEOUT`].
     pub(crate) async fn pick(
         &self,
         question: &Question<'_>,
@@ -94,21 +105,42 @@ impl JevClient {
         loop {
             attempts += 1;
             let remaining = deadline.saturating_duration_since(Instant::now());
-            let response = self
+            let request = self
                 .http
                 .post(&url)
                 .bearer_auth(&self.api_key)
-                .timeout(remaining.min(ATTEMPT_TIMEOUT))
-                .json(&body)
-                .send()
-                .await
-                .map_err(ProviderError::Transport)?;
-            let status = response.status();
-            if status.is_success() {
-                let bytes = response.bytes().await.map_err(ProviderError::Transport)?;
-                return parse_answer(&bytes, attempts);
+                .timeout(remaining.min(self.attempt_timeout))
+                .json(&body);
+            // The attempt timeout also covers reading the body, so a stall
+            // after the headers is retried the same way as one before them.
+            let exchange = async {
+                let response = request.send().await?;
+                let status = response.status();
+                let retry_after = retry_after(response.headers());
+                // The error body is never read: it may echo the state back.
+                let answer = if status.is_success() {
+                    Some(response.bytes().await?)
+                } else {
+                    None
+                };
+                Ok::<_, reqwest::Error>((status, retry_after, answer))
+            };
+            let (status, retry_after, answer) = match exchange.await {
+                Ok(exchange) => exchange,
+                Err(error) if error.is_timeout() => {
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    let Some(delay) = retry_delay(attempts, None, remaining) else {
+                        return Err(ProviderError::Transport(error));
+                    };
+                    crate::metrics::record_retry(PROVIDER, "timeout");
+                    tokio::time::sleep(delay).await;
+                    continue;
+                }
+                Err(error) => return Err(ProviderError::Transport(error)),
+            };
+            if let Some(answer) = answer {
+                return parse_answer(&answer, attempts);
             }
-            // The error body is never read: it may echo the state back.
             match status {
                 StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
                     return Err(ProviderError::Auth {
@@ -118,15 +150,13 @@ impl JevClient {
                 StatusCode::UNPROCESSABLE_ENTITY => return Err(ProviderError::Rejected),
                 _ if status == StatusCode::TOO_MANY_REQUESTS || status.as_u16() == OVERLOADED => {
                     let remaining = deadline.saturating_duration_since(Instant::now());
-                    let Some(delay) =
-                        retry_delay(attempts, retry_after(response.headers()), remaining)
-                    else {
+                    let Some(delay) = retry_delay(attempts, retry_after, remaining) else {
                         return Err(ProviderError::Overloaded {
                             status: status.as_u16(),
                             attempts,
                         });
                     };
-                    crate::metrics::record_retry(PROVIDER, status.as_u16());
+                    crate::metrics::record_retry(PROVIDER, status.as_str());
                     tokio::time::sleep(delay).await;
                 }
                 _ => {

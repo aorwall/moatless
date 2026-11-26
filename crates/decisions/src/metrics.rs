@@ -35,7 +35,7 @@ pub fn describe_decision_metrics() {
     );
     metrics::describe_counter!(
         PROVIDER_RETRIES_TOTAL,
-        "Decision provider calls retried, by the HTTP status that caused the retry"
+        "Decision provider calls retried, by the HTTP status or `timeout` that caused the retry"
     );
 }
 
@@ -55,7 +55,7 @@ pub(crate) fn record_answer(provider: &'static str, band: DecisionBand, usage: D
     metrics::counter!(OUTPUT_TOKENS_TOTAL, "provider" => provider).increment(usage.output_tokens);
 }
 
-pub(crate) fn record_retry(provider: &'static str, status: u16) {
+pub(crate) fn record_retry(provider: &'static str, status: &str) {
     metrics::counter!(PROVIDER_RETRIES_TOTAL, "provider" => provider, "status" => status.to_string())
         .increment(1);
 }
