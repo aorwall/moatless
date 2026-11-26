@@ -290,9 +290,6 @@ pub fn grpc_service(
         }
     });
 
-    // The single verification layer. `Some(secret)` → enforcing, `None` → the
-    // dev bypass (production refuses to boot without the secret; see
-    // `Config::validate`).
     let authorizer = crate::sandbox::grpc_server::SandboxAuthorizer::from_config(
         token_secret.clone(),
         config.sandbox.accept_claimless_tokens,

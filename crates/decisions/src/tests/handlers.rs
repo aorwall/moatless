@@ -53,7 +53,6 @@ async fn post(router: axum::Router, body: &Value, authenticated: bool) -> (Statu
             login: "alice".to_string(),
             role: UserRole::User,
             provider: "github".to_string(),
-            group_id: None,
         });
     }
     let response = router.oneshot(request).await.expect("response");

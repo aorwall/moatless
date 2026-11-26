@@ -133,7 +133,7 @@ Open `http://moatless.localhost`, sign in at `/login`, and you are in.
   # Log in once and reuse the session cookie, exactly as the browser does.
   COOKIE=$(curl -si -H 'Host: moatless.localhost' -H 'Content-Type: application/json' \
     localhost/api/v1/auth/password/login \
-    -d '{"username":"admin","password":"<your admin password>"}' \
+    -d '{"email":"<ADMIN_EMAIL>","password":"<your admin password>"}' \
     | grep -i '^set-cookie:' | sed 's/.*\(moatless_session=[^;]*\).*/\1/')
 
   curl -X POST -H 'Host: moatless.localhost' -H 'Content-Type: application/json' \

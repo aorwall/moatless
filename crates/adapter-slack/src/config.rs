@@ -58,12 +58,21 @@ impl SlackAdapterConfig {
     /// absent or unparseable.
     ///
     /// Also supports legacy untyped configs where `trigger` was a plain string.
+    /// The default's access policy is `Open`, so an unparseable config widens
+    /// a restricted channel: the warning is the only trace of that.
     pub fn from_config(config: &LoopContext) -> Self {
-        config
-            .adapter_config
-            .as_ref()
-            .and_then(|v| serde_json::from_value(v.clone()).ok())
-            .unwrap_or_default()
+        let Some(raw) = config.adapter_config.as_ref() else {
+            return Self::default();
+        };
+        serde_json::from_value(raw.clone()).unwrap_or_else(|error| {
+            tracing::warn!(
+                %error,
+                loop_context_id = %config.id,
+                source_id = %config.source_id,
+                "Unparseable Slack adapter_config; falling back to the default (open) policy"
+            );
+            Self::default()
+        })
     }
 }
 

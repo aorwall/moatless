@@ -21,7 +21,7 @@ pub struct SandboxDrivers {
     pub users: Arc<dyn CommitIdentity>,
     pub broadcast: Arc<dyn CredentialBroadcast>,
     pub task_events: Arc<TaskEvents>,
-    /// `None` in the dev bypass, which mints no tokens.
+    /// `None` only under an unvalidated config, which mints no tokens.
     pub task_token_secret: Option<String>,
     pub user_token_ttl_secs: u64,
 }

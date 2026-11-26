@@ -361,22 +361,20 @@ pub struct SandboxConfig {
     /// value bounds the blast radius of the one token left in etcd. Env
     /// `SANDBOX_BOOTSTRAP_TOKEN_TTL_SECS` (default 1800 = 30 min).
     pub bootstrap_token_ttl_secs: u64,
-    /// Whether to also emit the long-lived `USER_AUTH_TOKEN` env var on the pod
-    /// spec, for sandbox images still reading the token from env.
-    ///
-    /// Flip to `false` once every image reads the credential channel instead,
-    /// removing the long-lived secret from etcd. Env
-    /// `SANDBOX_EMIT_LEGACY_USER_TOKEN` (default `true`).
+    /// Whether a Kubernetes pod spec also carries the long-lived
+    /// `USER_AUTH_TOKEN` env var, for sandbox images that predate the
+    /// credential channel. Docker and local sandboxes always get it. Env
+    /// `SANDBOX_EMIT_LEGACY_USER_TOKEN` (default `false`).
     pub emit_legacy_user_token_env: bool,
     /// Whether a sandbox refuses a gRPC call without the backend's MAC, or
-    /// only logs it. Env `SANDBOX_GRPC_AUTH_ENFORCE` (default `false`).
+    /// only logs it. Env `SANDBOX_GRPC_AUTH_ENFORCE` (default `true`).
     pub grpc_auth_enforce: bool,
     /// Whether the sandbox gRPC verification layer accepts legacy claim-less
     /// tokens (minted before the per-task `taskId` binding existed).
     ///
     /// `true` falls back to the DB task-access check; `false` requires a
     /// matching `taskId` claim. Env `SANDBOX_ACCEPT_CLAIMLESS_TOKENS` (default
-    /// `true`).
+    /// `false`).
     pub accept_claimless_tokens: bool,
     /// Directory inside sandbox pods that attached uploads are written to (env
     /// `SANDBOX_FILE_MOUNT_PATH`, default `/opt/moatless/workspace/uploads`).
@@ -897,9 +895,9 @@ impl Config {
                 task_token_secret: env_opt("TASK_TOKEN_SECRET"),
                 user_token_ttl_secs: env_or("SANDBOX_USER_TOKEN_TTL_SECS", 7 * 24 * 3600),
                 bootstrap_token_ttl_secs: env_or("SANDBOX_BOOTSTRAP_TOKEN_TTL_SECS", 1800),
-                emit_legacy_user_token_env: env_bool("SANDBOX_EMIT_LEGACY_USER_TOKEN", true),
-                grpc_auth_enforce: env_bool("SANDBOX_GRPC_AUTH_ENFORCE", false),
-                accept_claimless_tokens: env_bool("SANDBOX_ACCEPT_CLAIMLESS_TOKENS", true),
+                emit_legacy_user_token_env: env_bool("SANDBOX_EMIT_LEGACY_USER_TOKEN", false),
+                grpc_auth_enforce: env_bool("SANDBOX_GRPC_AUTH_ENFORCE", true),
+                accept_claimless_tokens: env_bool("SANDBOX_ACCEPT_CLAIMLESS_TOKENS", false),
                 file_mount_path: env_str(
                     "SANDBOX_FILE_MOUNT_PATH",
                     "/opt/moatless/workspace/uploads",
@@ -1019,7 +1017,6 @@ impl Config {
                 auth0_client_secret: env_opt("AUTH0_CLIENT_SECRET"),
                 auth0_callback_url: env_opt("AUTH0_CALLBACK_URL"),
                 auth0_audience: env_opt("AUTH0_AUDIENCE"),
-                auth0_groups_claim: env_str("AUTH0_GROUPS_CLAIM", ""),
                 oidc: oidc_config_from_env(),
                 session_max_age_secs: env_or("SESSION_MAX_AGE", 604_800),
                 session_absolute_age_secs: env_or("SESSION_ABSOLUTE_MAX_AGE", 2_592_000),
@@ -1154,13 +1151,15 @@ impl Config {
             .check_github_policy()
             .map_err(|e| ConfigError::Invalid(format!("WORKSPACE_IDENTITY_GRANTS: {e}")))?;
 
-        // Production must authenticate sandbox gRPC calls: without the signing
-        // secret, verification falls back to its dev bypass (trusting every
-        // caller), so refuse to boot. Dev/local may omit it and run unauthenticated.
-        if self.auth.is_production && self.sandbox.task_token_secret.is_none() {
+        if self
+            .sandbox
+            .task_token_secret
+            .as_deref()
+            .is_none_or(str::is_empty)
+        {
             return Err(ConfigError::Invalid(
-                "TASK_TOKEN_SECRET required in production (APP_ENV=production) — sandbox gRPC \
-                 authentication cannot be enforced without it."
+                "TASK_TOKEN_SECRET required — it signs every backend↔sandbox token. \
+                 Generate one with `openssl rand -hex 32`."
                     .into(),
             ));
         }
@@ -1501,7 +1500,6 @@ impl Config {
                 auth0_client_secret: None,
                 auth0_callback_url: None,
                 auth0_audience: None,
-                auth0_groups_claim: String::new(),
                 oidc: None,
                 session_max_age_secs: 3600,
                 session_absolute_age_secs: 7200,

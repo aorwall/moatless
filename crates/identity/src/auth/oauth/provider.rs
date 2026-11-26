@@ -27,11 +27,6 @@ pub trait OAuthProvider: Send + Sync {
         Ok(true)
     }
 
-    /// Optional: extract user group from tokens (e.g., Auth0 JWT claims).
-    async fn extract_user_group(&self, _tokens: &OAuthTokens) -> Option<String> {
-        None
-    }
-
     /// Optional: generate logout URL (e.g., Auth0 requires server-side logout).
     fn generate_logout_url(&self, _return_to: &str) -> Option<String> {
         None

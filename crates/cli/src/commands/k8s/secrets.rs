@@ -147,7 +147,7 @@ const CORE_KEYS: &[KeySpec] = &[
     KeySpec {
         key: "TASK_TOKEN_SECRET",
         required: true,
-        hint: "HMAC for task-scoped JWTs — openssl rand -hex 32",
+        hint: "HMAC for task-scoped JWTs — generated when unset",
         secret: true,
     },
     KeySpec {
@@ -293,6 +293,12 @@ async fn bootstrap(args: BootstrapArgs, json_out: bool) -> Result<(), ClientErro
             }
         }
 
+        if let Some(generated) = generated_value(key) {
+            final_values.insert(key.to_string(), generated);
+            sources.insert(key.to_string(), "generated");
+            continue;
+        }
+
         // Interactive prompt — mask secrets, regular input for public values.
         if !std::io::stdin().is_terminal() {
             if spec.required {
@@ -371,6 +377,15 @@ async fn bootstrap(args: BootstrapArgs, json_out: bool) -> Result<(), ClientErro
     }
 
     Ok(())
+}
+
+/// A fresh value for a key the installer generates rather than prompts for.
+///
+/// Deliberately not `SECRETS_ENCRYPTION_KEY`: a new one against an existing
+/// database leaves every stored credential unreadable, rather than only
+/// invalidating tokens as a new `TASK_TOKEN_SECRET` does.
+fn generated_value(key: &str) -> Option<String> {
+    (key == "TASK_TOKEN_SECRET").then(crate::commands::generated_secret::hex_32)
 }
 
 fn prompt_value(spec: &KeySpec) -> Result<String, ClientError> {
@@ -671,6 +686,14 @@ mod tests {
             Some("postgres://a:b@h/c")
         );
         assert_eq!(map.get("EMPTY").map(String::as_str), Some(""));
+    }
+
+    #[test]
+    fn generates_only_the_task_token_secret() {
+        let secret = generated_value("TASK_TOKEN_SECRET").expect("generated");
+        assert_eq!(secret.len(), 64);
+        assert!(secret.chars().all(|c| c.is_ascii_hexdigit()));
+        assert!(generated_value("SECRETS_ENCRYPTION_KEY").is_none());
     }
 
     #[test]

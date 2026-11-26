@@ -14,7 +14,7 @@ cookie:
 
 ```bash
 curl -i -X POST -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"your-password"}' \
+  -d '{"email":"admin@example.com","password":"your-password"}' \
   "$BASE_URL/api/v1/auth/password/login"
 # → 200 + Set-Cookie: moatless_session=...
 ```

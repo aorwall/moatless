@@ -393,7 +393,6 @@ mod tests {
             login: "someone".to_string(),
             role: UserRole::User,
             provider: "password".to_string(),
-            group_id: None,
         }
     }
 

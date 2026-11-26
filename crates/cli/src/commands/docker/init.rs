@@ -102,13 +102,13 @@ pub(super) async fn run(args: InitArgs, json: bool) -> Result<(), ClientError> {
         if is_placeholder(key, &existing) {
             let new_value = match *key {
                 "TASK_TOKEN_SECRET" => {
-                    let v = generate_hex_secret();
+                    let v = crate::commands::generated_secret::hex_32();
                     keys_generated.push(key.to_string());
                     v
                 }
                 "SECRETS_ENCRYPTION_KEY" => {
                     // Backend expects base64 of 32 raw bytes (or 32 raw bytes).
-                    let v = generate_base64_32();
+                    let v = crate::commands::generated_secret::base64_32();
                     keys_generated.push(key.to_string());
                     v
                 }
@@ -155,24 +155,6 @@ fn prompt_claude_token() -> Result<String, ClientError> {
         .interact()
         .map_err(|e| ClientError::Other(format!("Prompt failed: {e}")))?;
     Ok(token)
-}
-
-fn generate_hex_secret() -> String {
-    use std::fmt::Write as _;
-    let mut bytes = [0u8; 32];
-    rand::fill(&mut bytes);
-    let mut s = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        let _ = write!(&mut s, "{b:02x}");
-    }
-    s
-}
-
-fn generate_base64_32() -> String {
-    use base64::Engine as _;
-    let mut bytes = [0u8; 32];
-    rand::fill(&mut bytes);
-    base64::engine::general_purpose::STANDARD.encode(bytes)
 }
 
 fn print_human(r: &InitReport, source: ComposeDirSource) {

@@ -41,19 +41,17 @@ type PairingCodeRow = (
     String,
     String,
     Option<String>,
-    Option<String>,
     DateTime<Utc>,
     DateTime<Utc>,
 );
 
 fn pairing_code_from_row(
-    (id, code_hash, user_id, group_id, label, created_at, expires_at): PairingCodeRow,
+    (id, code_hash, user_id, label, created_at, expires_at): PairingCodeRow,
 ) -> PairingCode {
     PairingCode {
         id,
         code_hash,
         user_id,
-        group_id,
         label,
         created_at,
         expires_at,
@@ -69,14 +67,13 @@ impl PairingCodeDao for PgPairingCodeDao {
         sqlx::query(
             r#"
             INSERT INTO device_pairing_codes
-                (id, code_hash, user_id, group_id, label, created_at, expires_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+                (id, code_hash, user_id, label, created_at, expires_at)
+            VALUES ($1, $2, $3, $4, $5, $6)
             "#,
         )
         .bind(&code.id)
         .bind(&code.code_hash)
         .bind(&code.user_id)
-        .bind(&code.group_id)
         .bind(&code.label)
         .bind(code.created_at)
         .bind(code.expires_at)
@@ -99,7 +96,7 @@ impl PairingCodeDao for PgPairingCodeDao {
              WHERE code_hash = $1
                AND consumed_at IS NULL
                AND expires_at > $2
-            RETURNING id, code_hash, user_id, group_id, label, created_at, expires_at
+            RETURNING id, code_hash, user_id, label, created_at, expires_at
             "#,
         )
         .bind(code_hash)
@@ -127,7 +124,7 @@ impl PairingCodeDao for PgPairingCodeDao {
     ) -> Result<Vec<PairingCode>, sqlx::Error> {
         sqlx::query_as::<_, PairingCodeRow>(
             r#"
-            SELECT id, code_hash, user_id, group_id, label, created_at, expires_at
+            SELECT id, code_hash, user_id, label, created_at, expires_at
               FROM device_pairing_codes
              WHERE user_id = $1
                AND consumed_at IS NULL
@@ -169,7 +166,6 @@ impl PairedDeviceKeys for PgPairedDeviceKeys {
         name: &str,
         scopes: Vec<String>,
         expires_at: DateTime<Utc>,
-        group_id: Option<&str>,
     ) -> Result<PairedDevice, PairingError> {
         let key = api_key::generate_key(
             self.0.as_ref(),
@@ -177,7 +173,6 @@ impl PairedDeviceKeys for PgPairedDeviceKeys {
             name,
             Some(scopes.clone()),
             Some(expires_at),
-            group_id,
             Some(PAIRED_DEVICE_KEY_TTL),
         )
         .await

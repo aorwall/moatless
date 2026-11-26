@@ -49,8 +49,6 @@ pub(in crate::auth) async fn complete_login(
         }
     }
 
-    let group_id = provider.extract_user_group(&tokens).await;
-
     // GitHub App login uses the stable `github` identity key shared with
     // repository credentials.
     let provider_str = provider_id.to_string();
@@ -82,7 +80,6 @@ pub(in crate::auth) async fn complete_login(
         &provider_str,
         &tokens,
         &user_info,
-        group_id.as_deref(),
         state.config.auth.session_max_age_secs,
         state.config.auth.session_absolute_age_secs,
     )
@@ -102,7 +99,6 @@ pub(in crate::auth) async fn complete_login(
                 state.api_keys.as_ref(),
                 &user_id.to_string(),
                 "moat-cli",
-                None,
                 None,
                 None,
                 None,

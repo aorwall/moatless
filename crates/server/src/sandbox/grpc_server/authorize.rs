@@ -30,9 +30,10 @@ pub(crate) struct TaskGrant {
 /// Token-level verdict from verifying a bearer token's signature, before the
 /// DB-backed task-grant resolution in [`SandboxAuthorizer::resolve_grant`].
 pub(super) enum VerifiedToken {
-    /// No `TASK_TOKEN_SECRET` configured: dev/test bypass. Constructed only via
+    /// Test-only bypass. Constructed only via
     /// [`SandboxAuthorizer::dev_unauthenticated`], so the bypass has one
     /// origin.
+    #[cfg(any(test, feature = "db-tests"))]
     DevBypass,
     /// A token carrying a `taskId` claim (the post-binding norm). The claim is
     /// authoritative; the request's `task_id` must equal it.
@@ -57,8 +58,7 @@ pub(super) enum VerifiedToken {
 /// [`authorize_bootstrap`](Self::authorize_bootstrap) for the one
 /// `GetCredentials` exception.
 pub struct SandboxAuthorizer {
-    /// JWT signing secret. Enforcing mode has one; the dev bypass has none.
-    secret: Option<String>,
+    key: TokenKey,
     /// Accept claim-less tokens via the DB fallback when the grace flag is set.
     accept_claimless: bool,
     /// Task DAO, for the claim-less fallback and the control gate.
@@ -68,6 +68,17 @@ pub struct SandboxAuthorizer {
     /// The generation a token must carry. `None` refuses every token; only a
     /// test harness builds the authorizer without one.
     generations: Option<Arc<dyn jwt::TokenGenerations>>,
+}
+
+/// What a bearer token is verified against.
+enum TokenKey {
+    Secret(String),
+    /// No `TASK_TOKEN_SECRET`: every token is refused. `Config::validate`
+    /// refuses to boot without one, so only an unvalidated config lands here.
+    Missing,
+    /// Every caller is trusted with a system-scope grant for the task it names.
+    #[cfg(any(test, feature = "db-tests"))]
+    DevBypass,
 }
 
 impl SandboxAuthorizer {
@@ -80,7 +91,7 @@ impl SandboxAuthorizer {
         generations: Option<Arc<dyn jwt::TokenGenerations>>,
     ) -> Self {
         Self {
-            secret: Some(secret),
+            key: TokenKey::Secret(secret),
             accept_claimless,
             tasks,
             users,
@@ -88,17 +99,15 @@ impl SandboxAuthorizer {
         }
     }
 
-    /// Dev/test constructor: no signing secret, so every request is trusted and
-    /// mapped to a system-scope grant for whatever task it names.
-    ///
-    /// The only place the bypass is constructed; production refuses to boot
-    /// without `TASK_TOKEN_SECRET` (see `Config::validate`).
+    /// Test constructor: every request is trusted and mapped to a system-scope
+    /// grant for whatever task it names. The only place the bypass is built.
+    #[cfg(any(test, feature = "db-tests"))]
     pub(crate) fn dev_unauthenticated(
         tasks: Option<Arc<TaskCommands>>,
         users: Option<Arc<dyn CommitIdentity>>,
     ) -> Self {
         Self {
-            secret: None,
+            key: TokenKey::DevBypass,
             accept_claimless: true,
             tasks,
             users,
@@ -106,8 +115,8 @@ impl SandboxAuthorizer {
         }
     }
 
-    /// Select the mode from config: `Some(secret)` → enforcing, `None` → the
-    /// dev bypass. The single branch that decides authenticated-vs-bypass.
+    /// Select the mode from config: `Some(secret)` → enforcing, `None` →
+    /// refuse every token.
     pub fn from_config(
         secret: Option<String>,
         accept_claimless: bool,
@@ -117,7 +126,13 @@ impl SandboxAuthorizer {
     ) -> Self {
         match secret {
             Some(secret) => Self::enforcing(secret, accept_claimless, tasks, users, generations),
-            None => Self::dev_unauthenticated(tasks, users),
+            None => Self {
+                key: TokenKey::Missing,
+                accept_claimless: false,
+                tasks,
+                users,
+                generations,
+            },
         }
     }
 
@@ -132,8 +147,15 @@ impl SandboxAuthorizer {
         request: &Request<T>,
         allow_bootstrap: bool,
     ) -> Result<VerifiedToken, Status> {
-        let Some(secret) = self.secret.as_deref() else {
-            return Ok(VerifiedToken::DevBypass);
+        let secret = match &self.key {
+            TokenKey::Secret(secret) => secret.as_str(),
+            TokenKey::Missing => {
+                return Err(Status::unauthenticated(
+                    "Sandbox authentication is not configured (no TASK_TOKEN_SECRET)",
+                ));
+            }
+            #[cfg(any(test, feature = "db-tests"))]
+            TokenKey::DevBypass => return Ok(VerifiedToken::DevBypass),
         };
 
         let auth_header = request
@@ -174,6 +196,7 @@ impl SandboxAuthorizer {
         request_task_id: &str,
     ) -> Result<TaskGrant, Status> {
         let generation = match &verified {
+            #[cfg(any(test, feature = "db-tests"))]
             VerifiedToken::DevBypass => None,
             VerifiedToken::TaskBound { claims, .. }
             | VerifiedToken::SandboxBound { claims, .. }
@@ -252,9 +275,10 @@ impl SandboxAuthorizer {
         request_task_id: &str,
     ) -> Result<TaskGrant, Status> {
         match verified {
+            #[cfg(any(test, feature = "db-tests"))]
             VerifiedToken::DevBypass => {
-                // reason: dev bypass grant — no TASK_TOKEN_SECRET configured, caller is
-                // trusted (only reachable via SandboxAuthorizer::dev_unauthenticated).
+                // reason: test bypass grant, only reachable via
+                // SandboxAuthorizer::dev_unauthenticated.
                 #[allow(clippy::disallowed_methods)]
                 let ctx = ScopeContext::system();
                 Ok(TaskGrant {
@@ -571,6 +595,21 @@ mod tests {
             .await
             .expect("matching binding + owner must be granted");
         assert_eq!(grant.sandbox_id, "task-1");
+    }
+
+    #[test]
+    fn without_a_secret_every_caller_is_refused() {
+        let authorizer = SandboxAuthorizer::from_config(None, true, None, None, None);
+        let mut request = Request::new(());
+        request
+            .metadata_mut()
+            .insert("authorization", "Bearer anything".parse().unwrap());
+
+        let err = authorizer
+            .verify_token(&request, true)
+            .err()
+            .expect("no secret must not trust the caller");
+        assert_eq!(err.code(), tonic::Code::Unauthenticated);
     }
 
     /// An enforcing authorizer over `owner`'s `task-1`, its own Sandbox at

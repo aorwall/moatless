@@ -37,7 +37,6 @@ pub struct UiRpcAuthIdentity {
     pub login: String,
     pub role: UserRole,
     pub provider: String,
-    pub group_id: Option<String>,
 }
 
 /// How the caller proved who they are. The RPC layer reads it to decide whether

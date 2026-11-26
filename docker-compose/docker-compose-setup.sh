@@ -32,13 +32,16 @@ echo ""
 if [ ! -f ../.env ]; then
     echo "📝 Creating .env from template..."
     cp ../.env.example ../.env
+    # `|` as the delimiter: a hex secret never contains it.
+    sed -i.bak "s|^TASK_TOKEN_SECRET=your_task_token_secret_here$|TASK_TOKEN_SECRET=$(openssl rand -hex 32)|" ../.env
+    rm -f ../.env.bak
+    echo "🔑 Generated TASK_TOKEN_SECRET"
 
     echo ""
     echo "⚠️  IMPORTANT: You must edit .env and set the following required values:"
     echo ""
     echo "   1. CLAUDE_CODE_OAUTH_TOKEN - Get from https://claude.ai/settings/code"
-    echo "   2. TASK_TOKEN_SECRET - Generate with: openssl rand -hex 32"
-    echo "   3. POSTGRES_PASSWORD - Change from default password"
+    echo "   2. POSTGRES_PASSWORD - Change from default password"
     echo ""
     read -p "Press Enter to open .env in your editor..."
     ${EDITOR:-nano} ../.env

@@ -6,8 +6,8 @@ use serde::Deserialize;
 /// Whether a proxy acts on a request outside its policy or only logs it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ProxyPolicyMode {
-    #[default]
     Log,
+    #[default]
     Enforce,
 }
 

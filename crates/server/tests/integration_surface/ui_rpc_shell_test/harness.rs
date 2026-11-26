@@ -51,7 +51,6 @@ pub(super) fn ui_rpc_authed_request(
         login: user_id.to_string(),
         role: UserRole::User,
         provider: "test".to_string(),
-        group_id: None,
     });
     req
 }

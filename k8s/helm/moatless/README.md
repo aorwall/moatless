@@ -388,7 +388,7 @@ fronts the deployment.
 |-----------|-------------|---------|
 | `kubernetes.enabled` | Enable Kubernetes execution mode | `true` |
 | `kubernetes.namespace` | Namespace for sandbox pods | Release namespace |
-| `kubernetes.sandboxGrpcAuthEnforce` | Sandboxes refuse gRPC calls without the backend's per-sandbox MAC; `false` only logs them | `false` |
+| `kubernetes.sandboxGrpcAuthEnforce` | Sandboxes refuse gRPC calls without the backend's per-sandbox MAC; `false` only logs them | `true` |
 | `kubernetes.allowedSandboxServiceAccounts` | Service accounts a workspace may name, plus the chart-created ones; empty restricts nothing (see [Sandbox access](#sandbox-access-using-the-cluster-from-a-sandbox)) | `[]` |
 | `kubernetes.extraNetworkProfiles` | Network profiles selected by policies outside the chart, accepted beside the chart's own | `[]` |
 | `kubernetes.sandboxStorage.enabled` | Global kill switch for per-task PVCs | `true` |

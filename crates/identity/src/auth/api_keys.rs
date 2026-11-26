@@ -10,7 +10,6 @@ pub struct ApiKey {
     pub key_hash: String,
     pub key_prefix: String,
     pub scopes: Option<String>,
-    pub group_id: Option<String>,
     pub last_used_at: Option<DateTime<Utc>>,
     pub expires_at: Option<DateTime<Utc>>,
     /// When set, each use moves `expires_at` to this many seconds past it.

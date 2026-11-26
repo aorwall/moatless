@@ -88,8 +88,6 @@ pub struct AuthUser {
     pub login: String,
     pub role: Option<String>,
     pub provider: Option<String>,
-    /// See [`crate::auth::jwt::SessionClaims::group_id`].
-    pub group_id: Option<String>,
     pub task_id: Option<String>,
     /// True when this request was authenticated via the sandbox-issued
     /// `X-User-Token` JWT (i.e. came from inside a sandbox pod, on behalf of
@@ -145,7 +143,6 @@ where
                 login: identity.login.clone(),
                 role: Some(identity.role.as_str().to_string()),
                 provider: Some(identity.provider.clone()),
-                group_id: identity.group_id.clone(),
                 task_id,
                 is_agent_context,
             });
@@ -180,7 +177,6 @@ where
                 login: verified.login,
                 role: None,
                 provider: Some("user-token".to_string()),
-                group_id: None,
                 task_id,
                 is_agent_context: true,
             });
@@ -312,7 +308,6 @@ mod tests {
             login: "alice".to_string(),
             role: UserRole::User,
             provider: "user-token".to_string(),
-            group_id: None,
         });
         parts.extensions.insert(method);
         parts

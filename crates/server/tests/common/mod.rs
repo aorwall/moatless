@@ -454,7 +454,6 @@ pub fn authed_request(
             login: user_id.to_string(),
             role: moatless_types::user::UserRole::User,
             provider: "test".to_string(),
-            group_id: None,
         });
     req
 }
@@ -480,7 +479,6 @@ pub fn authed_json_request(
             login: user_id.to_string(),
             role: moatless_types::user::UserRole::User,
             provider: "test".to_string(),
-            group_id: None,
         });
     req
 }

@@ -56,7 +56,6 @@ pub(in crate::auth) async fn exchange_api_key_handler(
     let issued = session::create_session_from_user(
         state.sessions.as_ref(),
         &user,
-        payload.group_id.as_deref(),
         state.config.auth.session_max_age_secs,
         state.config.auth.session_absolute_age_secs,
     )
@@ -133,7 +132,6 @@ pub(in crate::auth) async fn exchange_token_handler(
     let issued = session::create_session_from_user_with_provider(
         state.sessions.as_ref(),
         &user,
-        None, // sandbox tokens don't carry group_id
         state.config.auth.session_max_age_secs,
         state.config.auth.session_absolute_age_secs,
         SANDBOX_TOKEN_SESSION_PROVIDER,

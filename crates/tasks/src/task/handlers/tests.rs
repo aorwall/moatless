@@ -296,7 +296,6 @@ async fn delete_closes_task_before_lifecycle_remove() {
             login: "user-1".to_string(),
             role: None,
             provider: None,
-            group_id: None,
             task_id: None,
             is_agent_context: false,
         },

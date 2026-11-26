@@ -20,7 +20,6 @@ pub struct ApiKeyPayload {
     pub user_id: String,
     pub user_name: Option<String>,
     pub role: UserRole,
-    pub group_id: Option<String>,
     pub expires_at: Option<DateTime<Utc>>,
 }
 
@@ -45,7 +44,6 @@ pub(crate) async fn generate_key(
     name: &str,
     scopes: Option<Vec<String>>,
     expires_at: Option<DateTime<Utc>>,
-    group_id: Option<&str>,
     idle_ttl: Option<chrono::Duration>,
 ) -> Result<ApiKeyCreateResult, crate::auth::error::AuthError> {
     let key_bytes: [u8; KEY_BYTES] = rand::rng().random();
@@ -69,7 +67,6 @@ pub(crate) async fn generate_key(
         scopes: scopes
             .as_ref()
             .map(|s| serde_json::to_string(s).unwrap_or_default()),
-        group_id: group_id.map(String::from),
         last_used_at: None,
         expires_at,
         idle_ttl_secs: idle_ttl.map(|ttl| ttl.num_seconds()),
@@ -148,7 +145,6 @@ pub(crate) async fn validate_key(
         user_id: row.user_id,
         user_name,
         role,
-        group_id: row.group_id,
         // The renewed instant, so a cached entry does not expire on the old one.
         expires_at: renewed_expires_at.or(row.expires_at),
     }))
@@ -204,7 +200,6 @@ pub(crate) async fn validate_key_cached(
         user_login: payload.user_name.unwrap_or_default(),
         role: payload.role,
         provider: "api-key".to_string(),
-        group_id: payload.group_id,
         expires_at,
     };
 
@@ -265,7 +260,6 @@ mod tests {
             key_hash: "h".to_string(),
             key_prefix: "mvk_00000000".to_string(),
             scopes: None,
-            group_id: None,
             last_used_at: None,
             expires_at,
             idle_ttl_secs,

@@ -192,7 +192,6 @@ fn insert_auth_extensions(req: &mut Request<Body>, identity: AuthIdentity, metho
         login: identity.login.clone(),
         role: ui_rpc_role,
         provider: identity.provider.clone(),
-        group_id: identity.group_id.clone(),
     });
     req.extensions_mut().insert(match method {
         AuthMethod::SessionCookie => UiRpcAuthMethod::SessionCookie,
@@ -247,7 +246,6 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
                             login: claims.login,
                             role,
                             provider: claims.provider,
-                            group_id: claims.group_id,
                         },
                         AuthMethod::WebSocketTicket,
                     );
@@ -292,7 +290,6 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
                             login: payload.user_login,
                             role: payload.role,
                             provider: payload.provider,
-                            group_id: payload.group_id,
                         },
                         AuthMethod::ApiKey,
                     );
@@ -346,7 +343,6 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
                                 login: user.login,
                                 role,
                                 provider: "user-token".to_string(),
-                                group_id: None,
                             },
                             AuthMethod::UserToken,
                         );
@@ -406,7 +402,6 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
                         login: auth_session.login,
                         role: auth_session.role,
                         provider: auth_session.authenticated_via,
-                        group_id: auth_session.group_id,
                     },
                     AuthMethod::SessionCookie,
                 );

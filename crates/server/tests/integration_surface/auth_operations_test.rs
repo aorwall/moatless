@@ -551,7 +551,6 @@ async fn reads_a_sandbox_token_reaches_answer_from_the_admitted_identity(pool: P
         login: "alice".to_string(),
         role: UserRole::User,
         provider: "user-token".to_string(),
-        group_id: None,
     };
     let app = router(&pool).layer(axum::Extension(admitted));
 

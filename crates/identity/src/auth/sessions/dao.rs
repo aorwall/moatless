@@ -16,7 +16,6 @@ pub(in crate::auth) struct NewAuthSession {
     pub token_hash: Vec<u8>,
     pub csrf_token_hash: Vec<u8>,
     pub authenticated_via: String,
-    pub group_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub last_seen_at: DateTime<Utc>,
     pub idle_expires_at: DateTime<Utc>,
@@ -33,7 +32,6 @@ pub(in crate::auth) struct AuthenticatedSession {
     pub role: UserRole,
     pub authenticated_via: String,
     pub csrf_token_hash: Vec<u8>,
-    pub group_id: Option<String>,
     pub last_seen_at: DateTime<Utc>,
     pub idle_expires_at: DateTime<Utc>,
     pub absolute_expires_at: DateTime<Utc>,
@@ -74,10 +72,9 @@ impl SessionDao for PgSessionDao {
             WITH inserted AS (
                 INSERT INTO auth_sessions (
                     id, user_id, token_hash, csrf_token_hash, authenticated_via,
-                    group_id, created_at, last_seen_at, idle_expires_at,
-                    absolute_expires_at
+                    created_at, last_seen_at, idle_expires_at, absolute_expires_at
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                 RETURNING id, user_id, authenticated_via
             )
             INSERT INTO auth_audit_events
@@ -91,7 +88,6 @@ impl SessionDao for PgSessionDao {
         .bind(&session.token_hash)
         .bind(&session.csrf_token_hash)
         .bind(&session.authenticated_via)
-        .bind(&session.group_id)
         .bind(session.created_at)
         .bind(session.last_seen_at)
         .bind(session.idle_expires_at)
@@ -111,7 +107,7 @@ impl SessionDao for PgSessionDao {
         sqlx::query_as::<_, AuthenticatedSession>(
             r#"
             SELECT s.id, s.user_id, u.login, u.role, s.authenticated_via,
-                   s.csrf_token_hash, s.group_id, s.last_seen_at, s.idle_expires_at,
+                   s.csrf_token_hash, s.last_seen_at, s.idle_expires_at,
                    s.absolute_expires_at
             FROM auth_sessions s
             JOIN users u ON u.id = s.user_id
@@ -222,7 +218,6 @@ mod tests {
             token_hash: b"closed".to_vec(),
             csrf_token_hash: b"csrf-hash".to_vec(),
             authenticated_via: "token".to_string(),
-            group_id: None,
             created_at: now,
             last_seen_at: now,
             idle_expires_at: now + Duration::hours(1),

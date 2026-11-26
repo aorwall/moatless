@@ -83,7 +83,6 @@ pub(super) async fn login(
     let issued = session::create_session_from_user_with_provider(
         state.sessions.as_ref(),
         &user,
-        None,
         state.config.auth.session_max_age_secs,
         state.config.auth.session_absolute_age_secs,
         "local",

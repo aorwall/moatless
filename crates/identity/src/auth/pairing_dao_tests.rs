@@ -67,7 +67,7 @@ async fn a_redeemed_code_leaves_the_device_holding_a_working_key(pool: PgPool) {
     let pairing = crate::compose::device_pairing(pool.clone());
 
     let issued = pairing
-        .issue_code(&user_id.to_string(), None, Some("Bedside phone"))
+        .issue_code(&user_id.to_string(), Some("Bedside phone"))
         .await
         .unwrap();
     assert!(
@@ -108,7 +108,7 @@ async fn a_code_is_worth_exactly_one_device(pool: PgPool) {
     let user_id = seed_user(&pool).await;
     let pairing = crate::compose::device_pairing(pool.clone());
     let issued = pairing
-        .issue_code(&user_id.to_string(), None, None)
+        .issue_code(&user_id.to_string(), None)
         .await
         .unwrap();
 
@@ -147,7 +147,6 @@ async fn a_code_that_ran_out_of_time_is_refused(pool: PgPool) {
             id: "expired".into(),
             code_hash: crate::auth::pairing::hash_key(code),
             user_id: user_id.to_string(),
-            group_id: None,
             label: None,
             created_at: Utc::now() - Duration::hours(1),
             expires_at: Utc::now() - Duration::minutes(55),
@@ -166,7 +165,7 @@ async fn a_lower_case_code_is_the_same_code(pool: PgPool) {
     let user_id = seed_user(&pool).await;
     let pairing = crate::compose::device_pairing(pool.clone());
     let issued = pairing
-        .issue_code(&user_id.to_string(), None, None)
+        .issue_code(&user_id.to_string(), None)
         .await
         .unwrap();
 
@@ -198,7 +197,6 @@ async fn pruning_clears_finished_codes_and_leaves_live_ones(pool: PgPool) {
                 id: id.into(),
                 code_hash: format!("hash-{id}"),
                 user_id: user_id.to_string(),
-                group_id: None,
                 label: None,
                 created_at: Utc::now() - Duration::days(2),
                 expires_at,
@@ -226,7 +224,7 @@ async fn a_paired_key_slides_its_expiry_and_a_bare_stamp_does_not(pool: PgPool) 
     let user_id = seed_user(&pool).await;
     let pairing = crate::compose::device_pairing(pool.clone());
     let issued = pairing
-        .issue_code(&user_id.to_string(), None, None)
+        .issue_code(&user_id.to_string(), None)
         .await
         .unwrap();
     let device = pairing
@@ -278,15 +276,12 @@ async fn a_paired_key_slides_its_expiry_and_a_bare_stamp_does_not(pool: PgPool) 
 async fn only_unredeemed_codes_are_listed_and_only_their_owner_revokes_one(pool: PgPool) {
     let user_id = seed_user(&pool).await.to_string();
     let pairing = crate::compose::device_pairing(pool.clone());
-    let redeemed = pairing.issue_code(&user_id, None, None).await.unwrap();
+    let redeemed = pairing.issue_code(&user_id, None).await.unwrap();
     pairing
         .redeem_code(&redeemed.code, &phone(), scopes())
         .await
         .unwrap();
-    let pending = pairing
-        .issue_code(&user_id, None, Some("Tablet"))
-        .await
-        .unwrap();
+    let pending = pairing.issue_code(&user_id, Some("Tablet")).await.unwrap();
 
     let listed = pairing.pending_codes(&user_id).await.unwrap();
     assert_eq!(listed.len(), 1, "a redeemed code is no longer a link");
@@ -317,13 +312,12 @@ async fn unpairing_deletes_paired_keys_and_leaves_ordinary_ones(pool: PgPool) {
         None,
         Some(Utc::now() + Duration::days(30)),
         None,
-        None,
     )
     .await
     .unwrap();
     let mut paired = Vec::new();
     for _ in 0..2 {
-        let issued = pairing.issue_code(&user_id, None, None).await.unwrap();
+        let issued = pairing.issue_code(&user_id, None).await.unwrap();
         let device = pairing
             .redeem_code(&issued.code, &phone(), scopes())
             .await

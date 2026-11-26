@@ -434,11 +434,11 @@ Gaps left by the first scoped-collection change, each reached from `crates/tasks
 
 ## GitHub proxy policy
 
-`crates/server/src/github_policy` decides which writes the GitHub API proxy and the git proxy's `receive-pack` forward. It ships under `GITHUB_PROXY_POLICY_MODE=log`.
+`crates/server/src/github_policy` decides which writes the GitHub API proxy and the git proxy's `receive-pack` forward. It defaults to `GITHUB_PROXY_POLICY_MODE=enforce`; the Soap nonprod deployment pins `log`.
 
 | Deferred | Anchor | Entry condition |
 |---|---|---|
-| The policy is logged, not enforced | `moatless_core::proxy_rules::ProxyPolicyMode` defaults to `Log`; every refusal logs `Proxy request outside its policy` with `proxy` `github` or `git` | When a week of those lines shows only callers that a grant now covers. The review loops need `githubPolicy.capabilities: [approve]`, and `soap-platform-ci` dispatches need `extraRepos`. Then set Helm `githubProxyPolicyMode: enforce` |
+| The Soap deployment only logs the policy | soap-platform-gitops `apps/nonprod/moatless-vibe/values.yaml` pins `workspaceSync.githubProxyPolicyMode: log`; every refusal logs `Proxy request outside its policy` with `proxy` `github` or `git` | When a week of those lines shows only callers that a grant now covers. The review loops need `githubPolicy.capabilities: [approve]`, and `soap-platform-ci` dispatches need `extraRepos`. Then drop the pin |
 | A node-id mutation is not checked against the Workspace's repositories | `github_policy/graphql.rs::ALLOWED_MUTATIONS` names `addComment`, `resolveReviewThread` and `createPullRequest`, which carry a node id rather than `owner`/`repo` | When audit events show a sandbox writing through one to a repository it does not place. Then resolve the node to its repository before forwarding |
 | The `moat gh` routes do not check placements | `crates/adapter-github-pr/src/mutations.rs::create_pr`, `post_comment` and `reply_to_review_comment` reach any repository the Task's identity can, outside the proxy's policy | When the GitHub policy is enforced. The adapter then needs the same placement and `extraRepos` check behind a port it can call |
 | A Workspace cannot tighten its own GitHub policy from git | Every relaxation comes from `WorkspaceIdentityGrant::github_policy`; `.moatless/workspaces.json` carries no `githubPolicy` | When a Workspace owner asks to refuse a write that the default allows |
@@ -670,10 +670,20 @@ of its own.
 
 | Deferred | Anchor | Entry condition |
 |---|---|---|
-| Sandboxes only log an unsigned gRPC call | `crates/core/src/config.rs::SandboxConfig::grpc_auth_enforce` defaults to `false`; Helm `kubernetes.sandboxGrpcAuthEnforce` | When a deployment's sandbox logs carry no "Unauthenticated sandbox gRPC call" warning for a release cycle. Flip the default to `true` |
+| Claim-less and env-carried sandbox tokens are still accepted (stage 2 of the secure defaults) | `crates/core/src/config.rs::SandboxConfig::accept_claimless_tokens` and `emit_legacy_user_token_env` default to `false`, but the Soap deployment pins both `true` through `extraEnv`; `crates/server/src/sandbox/grpc_server/authorize.rs::VerifiedToken::Claimless` and the legacy branch of `crates/sandbox-k8s/src/pod_builder/tokens.rs` still exist | One release after stage 1 ships, once the 7-day `SANDBOX_USER_TOKEN_TTL_SECS` has passed and every Kubernetes sandbox Deployment has been recreated on a credential-channel image (check per-Workspace image overrides). Drop the two pins, then delete both toggles, the `Claimless` path and the k8s legacy env branch. Docker and local keep `USER_AUTH_TOKEN`: they have no bootstrap exchange |
+| A pod with no MAC key passes every gRPC call | `crates/sandbox-proto/src/auth.rs::VerifyCalls` admits every call when the pod was given no `SANDBOX_GRPC_KEY` | With stage 2, once every pod has been recreated by a backend that requires `TASK_TOKEN_SECRET`. Then refuse a keyless non-loopback call |
 | The MAC key is in the pod spec | `crates/sandbox-k8s/src/pod_builder/containers.rs` sets `SANDBOX_GRPC_KEY` beside the bootstrap token, so anyone who can read the Deployment can sign calls to that one sandbox | When the bootstrap token moves off the pod spec. Deliver the key over the same channel |
 | A signature binds a time, not a call | `crates/sandbox-proto/src/auth.rs::verify` accepts any call with a MAC under `MAX_SKEW_SECS` old; a tonic `Interceptor` cannot see the method path | When a captured backend→sandbox request is a credible threat. Sign the path in a tower layer |
 | Local sandboxes are unauthenticated | `crates/sandbox-proto/src/auth.rs::VerifyCalls` admits loopback peers, and `crates/sandbox-local` connects without a key | When a local sandbox shares a host with untrusted processes |
+
+## Auth compatibility shims
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| Password login still accepts `username` for `email` | `crates/api-schemas/src/auth.rs::PasswordLoginRequest` keeps `#[serde(alias = "username")]` because soaplabs/t3code `apps/web/src/environments/primary/auth.ts::submitMoatlessPasswordLogin` posts `{username, password}` | When the T3 image every deployment runs posts `email`. Then drop the alias |
+| `group_id` columns outlive the field | `api_keys.group_id`, `auth_sessions.group_id` and `device_pairing_codes.group_id` are still in the schema; no code reads or writes them | One release after the field's removal ships, so no rolling-deploy pod still binds them. Then drop them in a migration |
+| An unparseable Slack `adapter_config` opens the channel | `crates/adapter-slack/src/config.rs::SlackAdapterConfig::from_config` warns and falls back to the `Open` default | After a scan of stored Slack `loop_contexts.adapter_config` rows finds none that fail to parse. Then return a disabled policy on a parse error |
+| `AUTH_PROVIDER=""` still means `local` | `crates/types/src/auth.rs` maps `""`, `disabled` and `none` to `Local`; `docker-compose/docker-compose.yml` passes `AUTH_PROVIDER: ${AUTH_PROVIDER:-}` | When env parsing treats a blank value as unset. Then reject all three spellings |
 
 ## Loop firing refusals
 

@@ -176,7 +176,9 @@ fn env_bool_default_true_recognises_false_values() {
 
 /// Helper to build a minimal valid Config for testing.
 fn minimal_config() -> Config {
-    Config::test_minimal()
+    let mut config = Config::test_minimal();
+    config.sandbox.task_token_secret = Some("task-secret".into());
+    config
 }
 
 #[test]
@@ -216,7 +218,6 @@ fn auth_provider_rejects_unknown_value() {
 fn opaque_browser_sessions_do_not_require_a_signing_secret() {
     let mut config = minimal_config();
     config.auth.session_jwt_secret = None;
-    config.sandbox.task_token_secret = None;
     assert!(config.validate().is_ok());
 }
 
@@ -264,18 +265,13 @@ fn validate_production_with_auth_provider_passes() {
 }
 
 #[test]
-fn validate_production_without_task_token_secret_fails() {
-    // Production must be able to authenticate sandbox gRPC calls; without the
-    // signing secret the verification layer would fall back to its dev bypass.
-    let mut config = minimal_config();
-    config.auth.is_production = true;
-    config.auth.provider = AuthProvider::GitHubApp;
-    config.auth.github_app_client_id = Some("id".into());
-    config.auth.github_app_client_secret = Some("secret".into());
-    config.auth.github_app_callback_url = Some("https://example.com/callback".into());
-    config.sandbox.task_token_secret = None;
-    let err = config.validate().unwrap_err();
-    assert!(err.to_string().contains("TASK_TOKEN_SECRET"));
+fn validate_without_task_token_secret_fails_outside_production_too() {
+    for secret in [None, Some(String::new())] {
+        let mut config = minimal_config();
+        config.sandbox.task_token_secret = secret;
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("TASK_TOKEN_SECRET"));
+    }
 }
 
 #[test]

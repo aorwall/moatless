@@ -104,9 +104,6 @@ pub struct AuthConfig {
     pub auth0_callback_url: Option<String>,
     /// Auth0 audience
     pub auth0_audience: Option<String>,
-    /// Auth0 JWT claim key for groups, env `AUTH0_GROUPS_CLAIM`; empty reads no
-    /// groups.
-    pub auth0_groups_claim: String,
     /// Standards-based OpenID Connect provider. Auth0 settings above remain a
     /// compatibility input and are translated into this representation.
     pub oidc: Option<OidcConfig>,
@@ -487,7 +484,6 @@ pub struct AuthIdentity {
     pub login: String,
     pub role: UserRole,
     pub provider: String,
-    pub group_id: Option<String>,
 }
 
 /// Which credential the middleware accepted, injected alongside

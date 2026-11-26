@@ -233,11 +233,7 @@ pub(crate) async fn create_pairing_credential(
         .filter(|l| !l.is_empty());
     match state
         .pairing
-        .issue_code(
-            &identity.user_id.to_string(),
-            identity.group_id.as_deref(),
-            label,
-        )
+        .issue_code(&identity.user_id.to_string(), label)
         .await
     {
         Ok(issued) => {

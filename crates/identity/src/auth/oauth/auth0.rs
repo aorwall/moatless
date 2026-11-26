@@ -1,7 +1,6 @@
 //! Auth0 OAuth provider implementation.
 
 use async_trait::async_trait;
-use tracing::{debug, info, warn};
 
 use super::provider::OAuthProvider;
 use crate::auth::error::AuthError;
@@ -14,7 +13,6 @@ pub struct Auth0OAuthProvider {
     client_secret: String,
     callback_url: String,
     audience: Option<String>,
-    groups_claim: String,
     http: reqwest::Client,
 }
 
@@ -40,7 +38,6 @@ impl Auth0OAuthProvider {
             client_secret,
             callback_url,
             audience: config.auth.auth0_audience.clone(),
-            groups_claim: config.auth.auth0_groups_claim.clone(),
             http,
         })
     }
@@ -164,50 +161,6 @@ impl OAuthProvider for Auth0OAuthProvider {
             name: user.name,
             avatar_url: user.picture,
         })
-    }
-
-    async fn extract_user_group(&self, tokens: &OAuthTokens) -> Option<String> {
-        let id_token = tokens.id_token.as_ref()?;
-
-        // Decode JWT payload without verification (we trust Auth0's signature)
-        let parts: Vec<&str> = id_token.split('.').collect();
-        if parts.len() != 3 {
-            warn!("Invalid JWT format for group extraction");
-            return None;
-        }
-
-        use base64::Engine;
-        use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-        let payload_bytes = URL_SAFE_NO_PAD.decode(parts[1]).ok()?;
-        let payload: serde_json::Value = serde_json::from_slice(&payload_bytes).ok()?;
-
-        let groups_claim = payload.get(&self.groups_claim)?;
-
-        let groups: Vec<String> = if let Some(arr) = groups_claim.as_array() {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect()
-        } else if let Some(s) = groups_claim.as_str() {
-            vec![s.to_string()]
-        } else {
-            debug!(claim = %self.groups_claim, "No groups claim found");
-            return None;
-        };
-
-        if groups.is_empty() {
-            return None;
-        }
-
-        let primary = groups[0].clone();
-        if groups.len() > 1 {
-            info!(
-                count = groups.len(),
-                primary = %primary,
-                "User has multiple groups, using first as primary"
-            );
-        }
-
-        Some(primary)
     }
 
     fn generate_logout_url(&self, return_to: &str) -> Option<String> {

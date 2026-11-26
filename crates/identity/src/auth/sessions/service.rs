@@ -45,7 +45,6 @@ fn reject_disabled(user: &User) -> Result<(), crate::auth::error::AuthError> {
 async fn issue_auth_session(
     sessions: &dyn SessionDao,
     user_id: Uuid,
-    group_id: Option<&str>,
     authenticated_via: &str,
     idle_timeout_secs: u64,
     absolute_lifetime_secs: u64,
@@ -62,7 +61,6 @@ async fn issue_auth_session(
             token_hash: hash_token(&token),
             csrf_token_hash: hash_token(&csrf_token),
             authenticated_via: authenticated_via.to_string(),
-            group_id: group_id.map(String::from),
             created_at: now,
             last_seen_at: now,
             idle_expires_at: idle_expires_at.min(absolute_expires_at),
@@ -86,7 +84,6 @@ pub(in crate::auth) async fn create_session(
     provider_id: &str,
     tokens: &OAuthTokens,
     user_info: &ProviderUserInfo,
-    group_id: Option<&str>,
     idle_timeout_secs: u64,
     absolute_lifetime_secs: u64,
 ) -> Result<IssuedAuthSession, crate::auth::error::AuthError> {
@@ -181,7 +178,6 @@ pub(in crate::auth) async fn create_session(
     let token = issue_auth_session(
         sessions,
         user_id,
-        group_id,
         provider_id,
         idle_timeout_secs,
         absolute_lifetime_secs,
@@ -191,7 +187,6 @@ pub(in crate::auth) async fn create_session(
     info!(
         user_login = %user_info.login,
         provider = %provider_id,
-        group_id = ?group_id,
         "Created session"
     );
 
@@ -206,14 +201,12 @@ pub(in crate::auth) async fn create_session(
 pub(in crate::auth) async fn create_session_from_user(
     sessions: &dyn SessionDao,
     user: &User,
-    group_id: Option<&str>,
     idle_timeout_secs: u64,
     absolute_lifetime_secs: u64,
 ) -> Result<IssuedAuthSession, crate::auth::error::AuthError> {
     create_session_from_user_with_provider(
         sessions,
         user,
-        group_id,
         idle_timeout_secs,
         absolute_lifetime_secs,
         "api-key",
@@ -228,7 +221,6 @@ pub(in crate::auth) async fn create_session_from_user(
 pub(in crate::auth) async fn create_session_from_user_with_provider(
     sessions: &dyn SessionDao,
     user: &User,
-    group_id: Option<&str>,
     idle_timeout_secs: u64,
     absolute_lifetime_secs: u64,
     provider: &str,
@@ -237,7 +229,6 @@ pub(in crate::auth) async fn create_session_from_user_with_provider(
     let token = issue_auth_session(
         sessions,
         user.id,
-        group_id,
         provider,
         idle_timeout_secs,
         absolute_lifetime_secs,
@@ -306,7 +297,6 @@ mod tests {
             role: UserRole::User,
             authenticated_via: "local".into(),
             csrf_token_hash: hash_token("csrf"),
-            group_id: None,
             last_seen_at,
             idle_expires_at: Utc::now() + Duration::minutes(1),
             absolute_expires_at: Utc::now() + Duration::minutes(2),
@@ -349,7 +339,6 @@ mod tests {
             .once()
             .returning(move |row| {
                 assert_eq!(row.user_id, user_id);
-                assert_eq!(row.group_id.as_deref(), Some("group"));
                 assert_eq!(row.authenticated_via, "local");
                 assert_eq!(row.idle_expires_at, row.absolute_expires_at);
                 assert_eq!(
@@ -360,7 +349,7 @@ mod tests {
                     Some((row.token_hash.clone(), row.csrf_token_hash.clone()));
                 Ok(())
             });
-        let issued = issue_auth_session(&sessions, user_id, Some("group"), "local", 3600, 60)
+        let issued = issue_auth_session(&sessions, user_id, "local", 3600, 60)
             .await
             .unwrap();
         assert_eq!(issued.token.len(), 64);
@@ -443,7 +432,7 @@ mod tests {
             .once()
             .returning(|_, _| Err(sqlx::Error::PoolClosed));
         assert!(matches!(
-            issue_auth_session(&sessions, Uuid::new_v4(), None, "local", 60, 60).await,
+            issue_auth_session(&sessions, Uuid::new_v4(), "local", 60, 60).await,
             Err(AuthError::Database(sqlx::Error::PoolClosed))
         ));
         assert!(matches!(
@@ -499,7 +488,6 @@ mod tests {
                         role: UserRole::User,
                         authenticated_via: "oidc:company".into(),
                         csrf_token_hash: hash_token("csrf"),
-                        group_id: None,
                         last_seen_at: now,
                         idle_expires_at: now + Duration::hours(1),
                         absolute_expires_at: now + Duration::days(1),

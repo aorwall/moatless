@@ -44,12 +44,6 @@ pub struct SessionClaims {
     pub role: String,
     /// Auth provider: "github", "auth0", or "api-key".
     pub provider: String,
-    /// Legacy grouping id, threaded through `AuthIdentity` into
-    /// [`crate::extractors::AuthUser`] and `t3code::auth::AuthContext`. No code
-    /// branches on its value; kept only so already-issued session cookies
-    /// deserialize.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub group_id: Option<String>,
     /// Issued at, Unix seconds.
     pub iat: u64,
     /// Expiration, Unix seconds.
@@ -74,7 +68,6 @@ pub fn generate_session_jwt(
     login: &str,
     role: UserRole,
     provider: &str,
-    group_id: Option<&str>,
     secret: &str,
     max_age_secs: u64,
 ) -> Result<String, jsonwebtoken::errors::Error> {
@@ -85,7 +78,6 @@ pub fn generate_session_jwt(
         login: login.to_string(),
         role: role.as_str().to_string(),
         provider: provider.to_string(),
-        group_id: group_id.map(String::from),
         iat: now,
         exp: now + max_age_secs,
         iss: SESSION_JWT_ISSUER.to_string(),
@@ -135,7 +127,6 @@ pub fn generate_ws_ticket_jwt(
         login: identity.login.clone(),
         role: identity.role.as_str().to_string(),
         provider: identity.provider.clone(),
-        group_id: identity.group_id.clone(),
         iat: now,
         exp: now + WS_TICKET_TTL_SECS,
         iss: WS_TICKET_JWT_ISSUER.to_string(),
@@ -199,16 +190,9 @@ mod tests {
     #[test]
     fn round_trip() {
         let uid = test_user_id();
-        let token = generate_session_jwt(
-            uid,
-            "alice",
-            UserRole::Admin,
-            "github",
-            Some("group-1"),
-            "test-secret",
-            3600,
-        )
-        .unwrap();
+        let token =
+            generate_session_jwt(uid, "alice", UserRole::Admin, "github", "test-secret", 3600)
+                .unwrap();
 
         assert_eq!(token.split('.').count(), 3);
 
@@ -217,7 +201,6 @@ mod tests {
         assert_eq!(claims.login, "alice");
         assert_eq!(claims.role, "admin");
         assert_eq!(claims.provider, "github");
-        assert_eq!(claims.group_id.as_deref(), Some("group-1"));
         assert_eq!(claims.iss, SESSION_JWT_ISSUER);
         assert_eq!(claims.user_role(), UserRole::Admin);
     }
@@ -229,7 +212,6 @@ mod tests {
             "alice",
             UserRole::User,
             "github",
-            None,
             "test-secret",
             3600,
         )
@@ -248,7 +230,6 @@ mod tests {
             login: "alice".to_string(),
             role: "user".to_string(),
             provider: "github".to_string(),
-            group_id: None,
             iat: now - 7200,
             exp: now - 3600, // expired 1 hour ago (well past default 60s leeway)
             iss: SESSION_JWT_ISSUER.to_string(),
@@ -265,20 +246,27 @@ mod tests {
     }
 
     #[test]
-    fn no_group_id_omitted_in_json() {
-        let token = generate_session_jwt(
-            test_user_id(),
-            "alice",
-            UserRole::User,
-            "github",
-            None,
-            "test-secret",
-            3600,
+    fn a_cookie_issued_with_a_group_id_still_verifies() {
+        let now = now_secs();
+        let claims = serde_json::json!({
+            "sub": test_user_id(),
+            "login": "alice",
+            "role": "user",
+            "provider": "github",
+            "group_id": "group-1",
+            "iat": now,
+            "exp": now + 3600,
+            "iss": SESSION_JWT_ISSUER,
+        });
+        let token = jsonwebtoken::encode(
+            &jsonwebtoken::Header::default(),
+            &claims,
+            &jsonwebtoken::EncodingKey::from_secret(b"test-secret"),
         )
         .unwrap();
 
         let claims = verify_session_jwt(&token, "test-secret").unwrap();
-        assert!(claims.group_id.is_none());
+        assert_eq!(claims.login, "alice");
     }
 
     fn test_identity() -> AuthIdentity {
@@ -287,7 +275,6 @@ mod tests {
             login: "alice".to_string(),
             role: UserRole::Admin,
             provider: "api-key".to_string(),
-            group_id: Some("group-1".to_string()),
         }
     }
 
@@ -300,7 +287,6 @@ mod tests {
         assert_eq!(claims.login, "alice");
         assert_eq!(claims.user_role(), UserRole::Admin);
         assert_eq!(claims.provider, "api-key");
-        assert_eq!(claims.group_id.as_deref(), Some("group-1"));
         assert_eq!(claims.exp - claims.iat, WS_TICKET_TTL_SECS);
     }
 
@@ -316,7 +302,6 @@ mod tests {
             "alice",
             UserRole::Admin,
             "github",
-            None,
             "test-secret",
             3600,
         )

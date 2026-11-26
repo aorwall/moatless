@@ -31,8 +31,8 @@ impl ApiKeyDao for PgApiKeyDao {
     async fn insert_api_key(&self, key: &ApiKey) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
-            INSERT INTO api_keys (id, user_id, name, key_hash, key_prefix, scopes, group_id, last_used_at, expires_at, idle_ttl_secs, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            INSERT INTO api_keys (id, user_id, name, key_hash, key_prefix, scopes, last_used_at, expires_at, idle_ttl_secs, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             "#,
         )
         .bind(&key.id)
@@ -41,7 +41,6 @@ impl ApiKeyDao for PgApiKeyDao {
         .bind(&key.key_hash)
         .bind(&key.key_prefix)
         .bind(&key.scopes)
-        .bind(&key.group_id)
         .bind(key.last_used_at)
         .bind(key.expires_at)
         .bind(key.idle_ttl_secs)

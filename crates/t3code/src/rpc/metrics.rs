@@ -464,7 +464,6 @@ mod tests {
             login: "viewer".into(),
             role: UserRole::User,
             provider: "test".into(),
-            group_id: None,
         }
     }
 

@@ -255,7 +255,6 @@ pub(in crate::auth) async fn oidc_callback_handler(
             None,
             None,
             None,
-            None,
         )
         .await?;
         let key = urlencoding::encode(&key.key);
@@ -268,7 +267,6 @@ pub(in crate::auth) async fn oidc_callback_handler(
     let issued = session::create_session_from_user_with_provider(
         state.sessions.as_ref(),
         &result.user,
-        None,
         state.config.auth.session_max_age_secs,
         state.config.auth.session_absolute_age_secs,
         &format!("oidc:{}", oidc.provider_id()),

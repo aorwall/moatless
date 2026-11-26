@@ -837,7 +837,6 @@ mod tests {
             login: "caller".to_string(),
             provider: Some("local".to_string()),
             role: Some(role.to_string()),
-            group_id: None,
             task_id: None,
             is_agent_context: false,
         }

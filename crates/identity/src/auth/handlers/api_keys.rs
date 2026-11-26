@@ -41,7 +41,6 @@ pub(in crate::auth) async fn create_api_key_handler(
         &body.name,
         body.scopes,
         expires_at,
-        claims.group_id.as_deref(),
         None,
     )
     .await?;
@@ -87,11 +86,7 @@ pub(in crate::auth) async fn create_pairing_code_handler(
 
     let issued = state
         .pairing
-        .issue_code(
-            &claims.sub.to_string(),
-            claims.group_id.as_deref(),
-            body.label.as_deref(),
-        )
+        .issue_code(&claims.sub.to_string(), body.label.as_deref())
         .await
         .map_err(|error| AuthError::Internal(error.to_string()))?;
 

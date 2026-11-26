@@ -62,7 +62,6 @@ pub(super) struct CookieSession {
     pub(super) sub: uuid::Uuid,
     pub(super) role: UserRole,
     pub(super) provider: String,
-    pub(super) group_id: Option<String>,
     pub(super) expires_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -89,7 +88,6 @@ pub(super) async fn authenticate_from_cookie(
         sub: resolved.user_id,
         role: resolved.role,
         provider: resolved.authenticated_via,
-        group_id: resolved.group_id,
         expires_at: resolved.absolute_expires_at,
     })
 }
@@ -124,7 +122,6 @@ pub(super) async fn authenticate_request(
                     login: payload.user_login,
                     role: payload.role,
                     provider: payload.provider,
-                    group_id: payload.group_id,
                 });
             }
             return Err(AuthError::InvalidApiKey);
@@ -149,7 +146,6 @@ pub(super) async fn authenticate_request(
                 login: auth_session.login,
                 role: auth_session.role,
                 provider: auth_session.authenticated_via,
-                group_id: auth_session.group_id,
             });
         }
     }

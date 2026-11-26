@@ -79,7 +79,6 @@ pub(crate) async fn ensure_test_user(users: &dyn UserDao, api_keys: &dyn ApiKeyD
         key_hash,
         key_prefix: key_prefix.clone(),
         scopes: None,
-        group_id: None,
         last_used_at: None,
         expires_at: None,
         idle_ttl_secs: None,

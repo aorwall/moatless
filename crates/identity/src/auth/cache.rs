@@ -18,7 +18,6 @@ pub struct VerifyPayload {
     pub user_login: String,
     pub role: UserRole,
     pub provider: String,
-    pub group_id: Option<String>,
     pub expires_at: DateTime<Utc>,
 }
 

@@ -139,7 +139,6 @@ impl PairedDeviceKeys for TestApiKeyIssuer {
         name: &str,
         scopes: Vec<String>,
         expires_at: DateTime<Utc>,
-        _group_id: Option<&str>,
     ) -> Result<PairedDevice, PairingError> {
         assert_eq!(name, "T3 Code Mobile (iOS)");
         Ok(PairedDevice {
@@ -178,7 +177,6 @@ pub(super) fn pairing_code(code: &str) -> PairingCode {
         id: "pairing-1".into(),
         code_hash: hash_key(code),
         user_id: Uuid::nil().to_string(),
-        group_id: None,
         label: None,
         created_at: Utc::now(),
         expires_at: Utc::now() + chrono::Duration::minutes(5),
@@ -1101,7 +1099,6 @@ pub(crate) fn viewer() -> UiRpcAuthIdentity {
         login: "viewer".into(),
         role: UserRole::User,
         provider: "test".into(),
-        group_id: None,
     }
 }
 

@@ -75,7 +75,8 @@ spec:
             - name: SANDBOX_GRPC_PORT
               value: {{ .Values.kubernetes.sandboxGrpcPort | default 50052 | quote }}
             - name: SANDBOX_GRPC_AUTH_ENFORCE
-              value: {{ .Values.kubernetes.sandboxGrpcAuthEnforce | default false | quote }}
+              {{- /* `default true` would turn an explicit `false` into true. */}}
+              value: {{ ne (toString .Values.kubernetes.sandboxGrpcAuthEnforce) "false" | quote }}
             - name: K8S_COMPUTE_MODE
               value: {{ .Values.kubernetes.computeMode | default "standard" | quote }}
             - name: SANDBOX_NAMESPACE

@@ -282,7 +282,6 @@ fn new_session(user_id: Uuid, token_hash: &[u8]) -> NewAuthSession {
         token_hash: token_hash.to_vec(),
         csrf_token_hash: b"csrf-hash".to_vec(),
         authenticated_via: "token".to_string(),
-        group_id: None,
         created_at: now,
         last_seen_at: now,
         idle_expires_at: now + Duration::hours(1),

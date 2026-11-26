@@ -9,6 +9,7 @@ pub mod docker;
 pub mod events;
 mod exit;
 pub mod feedback;
+mod generated_secret;
 pub mod gh;
 pub mod github_apps;
 pub mod info;

@@ -14,7 +14,6 @@ pub fn generate_ws_ticket_jwt(
             UserRole::User => moatless_types::user::UserRole::User,
         },
         provider: identity.provider.clone(),
-        group_id: identity.group_id.clone(),
     };
     moatless_identity::auth::jwt::generate_ws_ticket_jwt(&identity, secret)
 }

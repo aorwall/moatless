@@ -25,7 +25,6 @@ pub struct PairingCode {
     pub id: String,
     pub code_hash: String,
     pub user_id: String,
-    pub group_id: Option<String>,
     pub label: Option<String>,
     pub created_at: DateTime<Utc>,
     pub expires_at: DateTime<Utc>,
@@ -89,7 +88,6 @@ pub trait PairedDeviceKeys: Send + Sync {
         name: &str,
         scopes: Vec<String>,
         expires_at: DateTime<Utc>,
-        group_id: Option<&str>,
     ) -> Result<PairedDevice, PairingError>;
 
     /// `user_id`'s paired keys that have not expired at `now`.
@@ -119,7 +117,6 @@ impl DevicePairing {
     pub async fn issue_code(
         &self,
         user_id: &str,
-        group_id: Option<&str>,
         label: Option<&str>,
     ) -> Result<IssuedPairingCode, PairingError> {
         let now = Utc::now();
@@ -140,7 +137,6 @@ impl DevicePairing {
                 id: id.clone(),
                 code_hash: hash_key(&code),
                 user_id: user_id.to_string(),
-                group_id: group_id.map(String::from),
                 label: label.map(String::from),
                 created_at: now,
                 expires_at,
@@ -173,13 +169,7 @@ impl DevicePairing {
         let expires_at = now + PAIRED_DEVICE_KEY_TTL;
         let device = self
             .api_keys
-            .issue_api_key(
-                &claimed.user_id,
-                &name,
-                scopes,
-                expires_at,
-                claimed.group_id.as_deref(),
-            )
+            .issue_api_key(&claimed.user_id, &name, scopes, expires_at)
             .await?;
 
         info!(
