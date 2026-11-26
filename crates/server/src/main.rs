@@ -43,5 +43,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await;
     }
 
+    if std::env::args().nth(1).as_deref() == Some("migrate") {
+        return moatless_backend::app::migrate().await;
+    }
+
     Box::pin(moatless_backend::app::run()).await
 }

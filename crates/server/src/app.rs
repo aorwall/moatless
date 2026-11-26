@@ -656,6 +656,25 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Apply pending migrations from `DATABASE_URL` and exit, for the chart's
+/// `migrate` init container. No startup probe runs until it exits, so a long
+/// backfill finishes rather than being killed and rolled back.
+pub async fn migrate() -> Result<(), Box<dyn std::error::Error>> {
+    #[allow(clippy::expect_used)]
+    // fail-fast: TLS provider must be installed before any networking
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
+    let otel_provider = startup::init_tracing(&moatless_core::config::OtelConfig::from_env());
+    let url = Config::database_url_from_env();
+    let result = crate::compose::infrastructure::init_database(url.as_deref(), 2, true).await;
+    if let Some(provider) = otel_provider {
+        shutdown_otel_provider(provider).await;
+    }
+    result?.close().await;
+    Ok(())
+}
+
 /// How long shutdown waits for the OTel batch span processor to flush before
 /// giving up. Best effort: a slow collector loses buffered spans, not the
 /// process shutdown.

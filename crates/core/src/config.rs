@@ -818,13 +818,19 @@ pub enum ConfigError {
 }
 
 impl Config {
+    /// `DATABASE_URL` alone, for `moatless-backend migrate`, which runs
+    /// without the rest of the configuration [`Config::from_env`] validates.
+    pub fn database_url_from_env() -> Option<String> {
+        env_opt("DATABASE_URL")
+    }
+
     /// Load configuration from environment variables.
     pub fn from_env() -> Result<Self, ConfigError> {
         // Load .env file if present (ignored in production)
         let _ = dotenvy::dotenv();
 
         let sandbox_namespace = env_str("SANDBOX_NAMESPACE", "workspaces");
-        let database_url = env_opt("DATABASE_URL");
+        let database_url = Self::database_url_from_env();
 
         let sandbox_provider = env_opt("SANDBOX_PROVIDER")
             .and_then(|v| v.parse().ok())

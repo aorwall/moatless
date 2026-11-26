@@ -355,9 +355,10 @@ backend:
     capabilities:
       drop:
         - ALL
-  # -- Startup probe: gates liveness/readiness until the backend is up.
-  # Sized to cover slow one-off migrations on cold Aurora (failureThreshold *
-  # periodSeconds = max startup time before the kubelet kills the pod).
+  # -- Startup probe: gates liveness/readiness until the backend is up
+  # (failureThreshold * periodSeconds = max startup time before the kubelet
+  # kills the pod). Migrations do not count against it: the `migrate` init
+  # container runs them before this container starts.
   # Default: 60 * 10s = 10 minutes.
   startupProbe:
     periodSeconds: 10

@@ -791,6 +791,12 @@ of its own.
 | A Claude run through Antigravity prices its cache writes at the input rate | `crates/sandbox/src/agent/harness/acp/process.rs::on_response` reads agy's usage, which carries no cache-write count on the OpenAI wire, so the creation tokens arrive inside `inputTokens` | When Claude-through-Antigravity costs are compared against Claude Code's to the cent. Read the hub's Anthropic usage instead |
 | Mini-SWE runs are missing from T3's usage page | `crates/t3code/src/providers.rs::presentation` gives `Harness::MiniSwe` no `usage_kind`, since T3's `UsageProviderKind` has none for it, so its turns are left out | When Mini-SWE runs often enough for their cost to matter. Add a kind to T3's contract first, then set it here |
 
+## Startup migrations
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| A killed pod's migration keeps running on Postgres | `crates/core/src/db/migrations.rs::run_migrations` holds sqlx's advisory lock on one connection. When the pod is killed, the server keeps running the statement until it notices the dead socket, and the next pod waits on the lock (7–35s on 26 Nov). The chart's `migrate` init container is never killed by a probe, so this no longer loops | When something other than a probe kills a migration often enough to stall rollouts. Set TCP keepalives or `statement_timeout` on the migration connection |
+
 ## Generated API client
 
 | Deferred | Anchor | Entry condition |
