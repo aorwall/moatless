@@ -172,7 +172,8 @@ enforce!(
     session_line_parsing,
     sqlx_test_migrations,
     migration_contract,
-    agent_id_literal
+    agent_id_literal,
+    deployment_identifiers
 );
 
 #[test]

@@ -19,6 +19,7 @@ pub mod composition_root;
 pub mod conversation_writer;
 pub mod declaration_only_roots;
 pub mod dependency_privacy;
+pub mod deployment_identifiers;
 pub mod duplicate_comment_prose;
 pub mod duplicate_constant_value;
 pub mod duplicate_names;

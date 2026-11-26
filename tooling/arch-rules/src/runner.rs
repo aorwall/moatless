@@ -2,12 +2,13 @@ use crate::workspace::Workspace;
 use crate::{
     Violation, adapter_boundaries, agent_id_literal, agents_md_budget, agents_symlink, annotations,
     band_order, base_surface, clippy_fence, closed_dependency_list, composition_root,
-    conversation_writer, declaration_only_roots, dependency_privacy, duplicate_comment_prose,
-    duplicate_constant_value, duplicate_names, env_read_owner, file_size, floor_type_admission,
-    manifest_inheritance, migration_contract, module_names, persistence_export,
-    persistence_sql_location, port_admission, process_exit, reqwest_default, route_registration,
-    row_stays_with_query, session_line_parsing, single_implementation_trait, sqlx_test_migrations,
-    store_privacy, table_ownership, transport_direction, vendor_crate_owner, vendor_type_export,
+    conversation_writer, declaration_only_roots, dependency_privacy, deployment_identifiers,
+    duplicate_comment_prose, duplicate_constant_value, duplicate_names, env_read_owner, file_size,
+    floor_type_admission, manifest_inheritance, migration_contract, module_names,
+    persistence_export, persistence_sql_location, port_admission, process_exit, reqwest_default,
+    route_registration, row_stays_with_query, session_line_parsing, single_implementation_trait,
+    sqlx_test_migrations, store_privacy, table_ownership, transport_direction, vendor_crate_owner,
+    vendor_type_export,
 };
 use anyhow::{Context, Result};
 
@@ -71,6 +72,7 @@ rules!(
     duplicate_constant_value => "A literal constant value is defined in more than one production crate.",
     sqlx_test_migrations => "Database tests reach the shared migrations through each crate's symlink.",
     agent_id_literal => "Production code names an agent profile through `AgentProfile`, not its wire id.",
+    deployment_identifiers => "No tracked file names a private deployment's hosts or ids.",
     migration_contract => "A migration dropping or renaming a table or column names the release that stopped reading it.",
 );
 
