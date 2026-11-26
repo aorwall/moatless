@@ -57,7 +57,9 @@ fn breaches(patterns: &[(Regex, &'static str)], text: &str) -> Vec<&'static str>
 
 pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
     let out = Command::new("git")
-        .args(["ls-files", "-z"])
+        // CI's container owns the checkout as another user; without this, git
+        // refuses it as dubious ownership and every rule test fails with it.
+        .args(["-c", "safe.directory=*", "ls-files", "-z"])
         .current_dir(&ws.root)
         .output()
         .context("listing tracked files")?;
