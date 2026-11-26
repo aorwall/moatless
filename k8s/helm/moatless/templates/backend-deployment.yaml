@@ -168,7 +168,7 @@ spec:
             - name: SERVER_RESOURCES_MEMORY_REQUEST
               value: {{ .Values.kubernetes.serverResources.requests.memory | quote }}
             - name: K8S_SANDBOX_RUN_AS_NON_ROOT
-              value: {{ .Values.kubernetes.sandboxRunAsNonRoot | default false | quote }}
+              value: {{ .Values.kubernetes.sandboxRunAsNonRoot | quote }}
             - name: K8S_SANDBOX_SHARED_DATA_SIZE
               value: {{ .Values.kubernetes.sandboxSharedDataSize | default "2Gi" | quote }}
             {{- with .Values.kubernetes.sandboxEphemeralStorage }}

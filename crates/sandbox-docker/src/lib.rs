@@ -13,6 +13,7 @@ pub mod client;
 mod container_builder;
 pub mod container_watcher;
 pub mod fleet_observer;
+mod host_dirs;
 mod naming;
 pub mod provider;
 mod status_resolver;

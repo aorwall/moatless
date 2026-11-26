@@ -648,6 +648,9 @@ pub struct DockerConfig {
     pub socket_path: String,
     /// Additional Docker networks to connect sandbox containers to
     pub extra_networks: Vec<String>,
+    /// Run sandbox containers as `moatless` (UID/GID 1000) with capabilities
+    /// dropped (env `DOCKER_SANDBOX_RUN_AS_NON_ROOT`, default `true`).
+    pub run_as_non_root: bool,
 }
 
 /// `SANDBOX_PROVIDER=local` configuration: each sandbox is a child process of
@@ -990,6 +993,7 @@ impl Config {
                         .filter(|n| !n.is_empty())
                         .collect()
                 }),
+                run_as_non_root: env_bool("DOCKER_SANDBOX_RUN_AS_NON_ROOT", true),
             },
 
             local_sandbox: LocalSandboxConfig {
@@ -1482,6 +1486,7 @@ impl Config {
                 enable_socket_mount: false,
                 socket_path: "/var/run/docker.sock".into(),
                 extra_networks: vec![],
+                run_as_non_root: true,
             },
             local_sandbox: LocalSandboxConfig {
                 root: "/tmp/moatless-local".into(),

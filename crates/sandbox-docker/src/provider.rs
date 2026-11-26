@@ -19,6 +19,7 @@ use tracing::{debug, info, warn};
 
 use super::client::DockerClient;
 use super::container_builder;
+use super::host_dirs;
 use super::naming::{generate_container_name, generate_task_host_path};
 use super::status_resolver::DockerStatusResolver;
 use moatless_core::config::Config;
@@ -240,14 +241,38 @@ impl DockerSandboxAdapter {
                     code: "host_directory_unavailable".to_string(),
                     message: format!("Failed to prepare {dir}: {e}"),
                 });
+                continue;
+            }
+            if !self.config.docker.run_as_non_root {
+                continue;
+            }
+            let path = std::path::PathBuf::from(dir);
+            let chowned =
+                tokio::task::spawn_blocking(move || host_dirs::chown_to_sandbox_user(&path)).await;
+            if let Err(e) = chowned
+                .map_err(std::io::Error::other)
+                .and_then(|result| result)
+            {
+                warn!(task_id = %task_id, path = %dir, error = %e, "Failed to give directory to the sandbox user");
+                diagnostics.degradations.push(DegradationWarning {
+                    code: "host_directory_not_writable".to_string(),
+                    message: format!("Failed to chown {dir} to the sandbox user: {e}"),
+                });
             }
         }
+        let docker_socket_gid = self
+            .config
+            .docker
+            .run_as_non_root
+            .then(|| host_dirs::socket_gid(&self.config.docker.socket_path))
+            .flatten();
 
         let mut container_config = container_builder::build_container_config(
             &self.config,
             task_id,
             plan,
             Some(&user_auth_token),
+            docker_socket_gid,
         );
         container_builder::stamp_operation_generation(&mut container_config, ctx);
 

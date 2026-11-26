@@ -263,6 +263,7 @@ working default; `crates/core/src/config.rs` is where they are read.
 | `DOCKER_ENABLE_SOCKET_MOUNT` | `false` | Docker | Mount the host Docker socket into sandbox containers. |
 | `DOCKER_SOCKET_PATH` | `/var/run/docker.sock` | Docker | Host path of that socket. |
 | `DOCKER_EXTRA_NETWORKS` | unset | Docker | Comma-separated extra networks to attach sandbox containers to. |
+| `DOCKER_SANDBOX_RUN_AS_NON_ROOT` | `true` | Docker | Run sandbox containers as UID/GID 1000 with every capability but `NET_BIND_SERVICE` dropped. `false` runs them as root. |
 | `GITHUB_CHANNEL_WEBHOOK_SECRET` | unset | GitHub PR adapter | Webhook signing secret used when the org connection has none of its own. |
 | `K8S_SANDBOX_DOCKER_DIND_CPU_REQUEST` | `500m` | Kubernetes | CPU request of the `dind` sidecar. |
 | `K8S_SANDBOX_DOCKER_DIND_CPU_LIMIT` | `2` | Kubernetes | CPU limit of the `dind` sidecar. |

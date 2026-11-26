@@ -25,6 +25,10 @@ pub(crate) const CREATED_BY_VALUE: &str = "moatless";
 pub(crate) const SERVICE_LABEL: &str = "moatless.service";
 pub(crate) const SANDBOX_SERVICE: &str = "sandbox";
 
+/// UID and GID of the image's `moatless` user (`Dockerfile.sandbox-base`), and
+/// the owner the backend gives each task's bind-mount directories.
+pub const SANDBOX_UID: u32 = 1000;
+
 /// Resolve the sandbox image for a plan: per-repo override → default docker
 /// image.
 ///
@@ -39,11 +43,16 @@ pub fn resolve_sandbox_image(config: &Config, plan: &ProvisionPlan) -> String {
         .unwrap_or_else(|| config.docker.image.clone())
 }
 
+/// Build the sandbox container's create body.
+///
+/// `docker_socket_gid` is the group owning the Docker socket, added to the
+/// non-root user's groups when the socket is mounted.
 pub fn build_container_config(
     config: &Config,
     task_id: &str,
     plan: &ProvisionPlan,
     user_auth_token: Option<&str>,
+    docker_socket_gid: Option<u32>,
 ) -> ContainerConfig {
     let container_name = generate_container_name(task_id);
 
@@ -201,7 +210,7 @@ pub fn build_container_config(
     // requests/eviction concept, so only the limits map onto the container
     // cgroup; unset limits leave the container unconstrained.
     let (memory_limit, nano_cpus) = sandbox_resource_limits(plan);
-    let host_config = HostConfig {
+    let mut host_config = HostConfig {
         network_mode: Some(config.docker.network.clone()),
         mounts: Some(mounts),
         port_bindings: Some(port_bindings),
@@ -213,8 +222,13 @@ pub fn build_container_config(
         nano_cpus,
         ..Default::default()
     };
+    let user = config.docker.run_as_non_root.then(|| {
+        apply_non_root(&mut host_config, docker_access, docker_socket_gid);
+        format!("{SANDBOX_UID}:{SANDBOX_UID}")
+    });
 
     ContainerConfig {
+        user,
         image: Some(image),
         hostname: Some(container_name),
         env: Some(env),
@@ -223,6 +237,17 @@ pub fn build_container_config(
         host_config: Some(host_config),
         cmd: Some(vec!["/usr/local/bin/sandbox".to_string()]),
         ..Default::default()
+    }
+}
+
+/// Match the Kubernetes non-root sandbox container: every capability dropped
+/// but `NET_BIND_SERVICE`, so a dev server can still bind a port below 1024.
+fn apply_non_root(host_config: &mut HostConfig, docker_access: bool, socket_gid: Option<u32>) {
+    host_config.cap_drop = Some(vec!["ALL".to_string()]);
+    host_config.cap_add = Some(vec!["NET_BIND_SERVICE".to_string()]);
+    host_config.security_opt = Some(vec!["no-new-privileges:true".to_string()]);
+    if docker_access {
+        host_config.group_add = socket_gid.map(|gid| vec![gid.to_string()]);
     }
 }
 
@@ -301,7 +326,7 @@ mod tests {
     fn container_config_uses_default_image() {
         let config = test_config();
         let plan = test_plan();
-        let cc = build_container_config(&config, "task-1", &plan, None);
+        let cc = build_container_config(&config, "task-1", &plan, None, None);
         assert_eq!(cc.image.unwrap(), "sandbox:latest");
     }
 
@@ -310,7 +335,7 @@ mod tests {
         let config = test_config();
         let mut plan = test_plan();
         plan.repo_config.docker_image = Some("custom:v1".into());
-        let cc = build_container_config(&config, "task-1", &plan, None);
+        let cc = build_container_config(&config, "task-1", &plan, None, None);
         assert_eq!(cc.image.unwrap(), "custom:v1");
     }
 
@@ -319,7 +344,7 @@ mod tests {
         let config = test_config();
         let mut plan = test_plan();
         plan.repo_config.docker_image = Some(String::new());
-        let cc = build_container_config(&config, "task-1", &plan, None);
+        let cc = build_container_config(&config, "task-1", &plan, None, None);
         assert_eq!(cc.image.unwrap(), "sandbox:latest");
     }
 
@@ -332,7 +357,7 @@ mod tests {
         config.sandbox.file_mount_path = "/opt/moatless/workspace/uploads".into();
         let plan = test_plan();
 
-        let cc = build_container_config(&config, "task-1", &plan, None);
+        let cc = build_container_config(&config, "task-1", &plan, None, None);
 
         let env = cc.env.unwrap();
         assert!(
@@ -346,7 +371,7 @@ mod tests {
     fn container_config_includes_required_env_vars() {
         let config = test_config();
         let plan = test_plan();
-        let cc = build_container_config(&config, "task-1", &plan, Some("jwt-token"));
+        let cc = build_container_config(&config, "task-1", &plan, Some("jwt-token"), None);
         let env = cc.env.unwrap();
         assert!(env.iter().any(|e| e == "TASK_ID=task-1"));
         assert!(env.iter().any(|e| e.starts_with("GIT_CLONE_URL=")));
@@ -382,7 +407,7 @@ mod tests {
             },
         ];
 
-        let cc = build_container_config(&config, "task-1", &plan, None);
+        let cc = build_container_config(&config, "task-1", &plan, None, None);
         let env = cc.env.unwrap();
         let raw = env
             .iter()
@@ -394,7 +419,7 @@ mod tests {
         assert_eq!(parsed[1].mount_name, "shared");
 
         plan.repos.clear();
-        let cc = build_container_config(&config, "task-1", &plan, None);
+        let cc = build_container_config(&config, "task-1", &plan, None, None);
         assert!(
             cc.env
                 .unwrap()
@@ -414,7 +439,7 @@ mod tests {
             },
             ..Default::default()
         });
-        let cc = build_container_config(&config, "task-1", &plan, None);
+        let cc = build_container_config(&config, "task-1", &plan, None, None);
         let hc = cc.host_config.unwrap();
         assert_eq!(hc.memory, Some(8 * 1024 * 1024 * 1024));
         assert_eq!(hc.nano_cpus, Some(4_000_000_000));
@@ -424,7 +449,7 @@ mod tests {
     fn container_config_without_resources_leaves_limits_unset() {
         let config = test_config();
         let plan = test_plan();
-        let cc = build_container_config(&config, "task-1", &plan, None);
+        let cc = build_container_config(&config, "task-1", &plan, None, None);
         let hc = cc.host_config.unwrap();
         assert_eq!(hc.memory, None);
         assert_eq!(hc.nano_cpus, None);
@@ -434,7 +459,7 @@ mod tests {
     fn container_config_has_moatless_labels() {
         let config = test_config();
         let plan = test_plan();
-        let cc = build_container_config(&config, "task-1", &plan, None);
+        let cc = build_container_config(&config, "task-1", &plan, None, None);
         let labels = cc.labels.unwrap();
         assert_eq!(labels.get("created-by").unwrap(), "moatless");
         assert_eq!(labels.get("moatless.io/task-id").unwrap(), "task-1");
@@ -444,7 +469,7 @@ mod tests {
     fn sandbox_container_carries_operation_generation() {
         let config = test_config();
         let plan = test_plan();
-        let mut cc = build_container_config(&config, "task-1", &plan, None);
+        let mut cc = build_container_config(&config, "task-1", &plan, None, None);
         stamp_operation_generation(
             &mut cc,
             RuntimeOperationContext::new(moatless_sandbox_runtime::operation::OperationGeneration(
@@ -464,7 +489,7 @@ mod tests {
     fn container_config_exposes_ports() {
         let config = test_config();
         let plan = test_plan();
-        let cc = build_container_config(&config, "task-1", &plan, None);
+        let cc = build_container_config(&config, "task-1", &plan, None, None);
         let ports = cc.exposed_ports.unwrap();
         assert!(ports.iter().any(|p| p == "8001/tcp"));
         assert!(ports.iter().any(|p| p == "50052/tcp"));
@@ -474,7 +499,7 @@ mod tests {
     fn container_config_has_bind_mounts() {
         let config = test_config();
         let plan = test_plan();
-        let cc = build_container_config(&config, "task-1", &plan, None);
+        let cc = build_container_config(&config, "task-1", &plan, None, None);
         let host_config = cc.host_config.unwrap();
         let mounts = host_config.mounts.unwrap();
         assert_eq!(mounts.len(), 3);
@@ -490,10 +515,50 @@ mod tests {
     }
 
     #[test]
+    fn non_root_runs_as_sandbox_user_with_capabilities_dropped() {
+        let config = test_config();
+        let cc = build_container_config(&config, "task-1", &test_plan(), None, Some(999));
+        assert_eq!(cc.user.as_deref(), Some("1000:1000"));
+        let hc = cc.host_config.unwrap();
+        assert_eq!(hc.cap_drop, Some(vec!["ALL".to_string()]));
+        assert_eq!(hc.cap_add, Some(vec!["NET_BIND_SERVICE".to_string()]));
+        assert_eq!(
+            hc.security_opt,
+            Some(vec!["no-new-privileges:true".to_string()])
+        );
+        assert_eq!(hc.group_add, None, "no socket mounted, no socket group");
+    }
+
+    #[test]
+    fn non_root_with_docker_access_joins_the_socket_group() {
+        let config = test_config();
+        let mut plan = test_plan();
+        plan.repo_config.docker_access = Some(true);
+        let cc = build_container_config(&config, "task-1", &plan, None, Some(999));
+        assert_eq!(
+            cc.host_config.unwrap().group_add,
+            Some(vec!["999".to_string()])
+        );
+    }
+
+    #[test]
+    fn run_as_non_root_off_keeps_root() {
+        let mut config = test_config();
+        config.docker.run_as_non_root = false;
+        let mut plan = test_plan();
+        plan.repo_config.docker_access = Some(true);
+        let cc = build_container_config(&config, "task-1", &plan, None, Some(999));
+        assert_eq!(cc.user, None);
+        let hc = cc.host_config.unwrap();
+        assert_eq!(hc.cap_drop, None);
+        assert_eq!(hc.group_add, None);
+    }
+
+    #[test]
     fn container_config_uses_correct_network() {
         let config = test_config();
         let plan = test_plan();
-        let cc = build_container_config(&config, "task-1", &plan, None);
+        let cc = build_container_config(&config, "task-1", &plan, None, None);
         let host_config = cc.host_config.unwrap();
         assert_eq!(host_config.network_mode.unwrap(), "moatless");
     }
@@ -504,7 +569,7 @@ mod tests {
     fn no_docker_socket_by_default() {
         let config = test_config();
         let plan = test_plan();
-        let cc = build_container_config(&config, "task-1", &plan, None);
+        let cc = build_container_config(&config, "task-1", &plan, None, None);
         let mounts = cc.host_config.unwrap().mounts.unwrap();
         assert_eq!(mounts.len(), 3);
         assert!(
@@ -519,7 +584,7 @@ mod tests {
         let config = test_config();
         let mut plan = test_plan();
         plan.repo_config.docker_access = Some(true);
-        let cc = build_container_config(&config, "task-1", &plan, None);
+        let cc = build_container_config(&config, "task-1", &plan, None, None);
         let mounts = cc.host_config.unwrap().mounts.unwrap();
         assert_eq!(mounts.len(), 4);
         let socket_mount = mounts
@@ -537,7 +602,7 @@ mod tests {
         let mut config = test_config();
         config.docker.enable_socket_mount = true;
         let plan = test_plan();
-        let cc = build_container_config(&config, "task-1", &plan, None);
+        let cc = build_container_config(&config, "task-1", &plan, None, None);
         let mounts = cc.host_config.unwrap().mounts.unwrap();
         assert_eq!(mounts.len(), 4);
         assert!(
@@ -553,7 +618,7 @@ mod tests {
         config.docker.enable_socket_mount = true;
         let mut plan = test_plan();
         plan.repo_config.docker_access = Some(false);
-        let cc = build_container_config(&config, "task-1", &plan, None);
+        let cc = build_container_config(&config, "task-1", &plan, None, None);
         let mounts = cc.host_config.unwrap().mounts.unwrap();
         assert_eq!(mounts.len(), 3);
         assert!(
@@ -569,7 +634,7 @@ mod tests {
         config.docker.enable_socket_mount = true;
         config.docker.socket_path = "/custom/docker.sock".into();
         let plan = test_plan();
-        let cc = build_container_config(&config, "task-1", &plan, None);
+        let cc = build_container_config(&config, "task-1", &plan, None, None);
         let mounts = cc.host_config.unwrap().mounts.unwrap();
         let socket_mount = mounts
             .iter()

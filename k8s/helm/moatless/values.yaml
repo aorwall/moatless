@@ -802,11 +802,9 @@ kubernetes:
   # -- Run the sandbox container as the non-root `moatless` user
   #    (UID/GID 1000) via a pod-level securityContext (runAsNonRoot, fsGroup: 1000,
   #    seccompProfile: RuntimeDefault). The privileged `dind` sidecar keeps running
-  #    as root. Defaults to false so the hardening can be rolled out
-  #    per-environment — flip to true once the sandbox
-  #    images (which chown all runtime paths to UID 1000) are deployed and user
-  #    workloads are verified to work without root. Maps to K8S_SANDBOX_RUN_AS_NON_ROOT.
-  sandboxRunAsNonRoot: false
+  #    as root. Set false only for images whose workloads need root, which also
+  #    adds back DAC_OVERRIDE. Maps to K8S_SANDBOX_RUN_AS_NON_ROOT.
+  sandboxRunAsNonRoot: true
   # -- Size cap for the shared `/opt/moatless/data` emptyDir (events, screenshots,
   #    and other runtime artifacts) mounted into the sandbox container. Bounds
   #    node-disk usage so a runaway process can't fill the node. Maps to
@@ -976,9 +974,9 @@ kubernetes:
   # SCCACHE_S3_BUCKET does nothing here: its bootstrap lives in
   # docker-entrypoint-sandbox.sh, which Kubernetes sandboxes never run (see
   # docs/deferred-changes.md).
-  # IS_SANDBOX=1 lets the Claude CLI accept bypassPermissions while sandbox pods
-  # run as root (the default — sandboxRunAsNonRoot is false). Harmless when
-  # running non-root. Deployments that set sandboxExtraEnv override this list.
+  # IS_SANDBOX=1 lets the Claude CLI accept bypassPermissions in a sandbox pod
+  # that runs as root (sandboxRunAsNonRoot: false); it does nothing for the
+  # non-root default. Deployments that set sandboxExtraEnv override this list.
   sandboxExtraEnv:
     - name: IS_SANDBOX
       value: "1"
