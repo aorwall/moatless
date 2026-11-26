@@ -405,8 +405,9 @@ fn build_resource_limits_note(memory: Option<u64>, workspace: Option<String>) ->
         lines.push(format!(
             "- Disk is capped at {limit} across the workspace volume, which \
              backs your working directory and `/tmp`, plus \
-             `/opt/cargo/registry` and `/opt/cargo/git` when the cargo cache \
-             is persisted — separate mount points charged to one limit, so \
+             `/opt/cargo/registry`, `/opt/cargo/git` and `~/.m2` \
+             when the toolchain caches are persisted — separate mount points \
+             charged to one limit, so \
              `du -sx` stops at each boundary and you add the figures up \
              (`/opt/cargo` is not one of them and measures nothing). \
              `df` reports the node's filesystem and its free space \

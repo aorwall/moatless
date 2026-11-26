@@ -413,12 +413,13 @@ overrides the deployment `K8S_RESOURCE_*` default on its own, so a block that
 sets only `storage` still leaves the container bounded rather than BestEffort.
 
 Setting `K8S_SANDBOX_PERSIST_TOOLCHAIN=true` on the backend (default off)
-keeps cargo's registry and git caches across pod replacement, as
-`workspace-data` subPath mounts at `/opt/cargo/registry` and `/opt/cargo/git`.
+keeps cargo's registry and git caches and the Maven repo across pod
+replacement, as `workspace-data` subPath mounts at `/opt/cargo/registry`,
+`/opt/cargo/git` and `/home/moatless/.m2`.
 Only those cache directories ride the volume: a mount over all of `/opt/cargo`
 or `/opt/rust` would hide the toolchain baked into the image, because a subPath
-mount is not seeded from image content. A warm registry is several Gi, so raise
-`storage` when you enable it.
+mount is not seeded from image content. A warm registry or Maven repo is
+several Gi, so raise `storage` when you enable it.
 
 #### Claude transcript persistence on S3
 

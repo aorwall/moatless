@@ -283,7 +283,7 @@ fn agent_profile_env_reaches_the_sandbox_container() {
     );
 }
 
-/// The toolchain-persistence flag is off by default — no cargo subPath mounts.
+/// The toolchain-persistence flag is off by default — no cache subPath mounts.
 #[test]
 fn toolchain_persistence_flags_default_off() {
     let config = test_config();
@@ -294,13 +294,13 @@ fn toolchain_persistence_flags_default_off() {
     assert!(
         !mounts
             .iter()
-            .any(|m| m.mount_path.starts_with("/opt/cargo")),
-        "no cargo mounts without the persist flag"
+            .any(|m| m.mount_path.starts_with("/opt/cargo") || m.mount_path.contains("/.m2")),
+        "no cache mounts without the persist flag"
     );
 }
 
-/// With the flag on: cargo registry/git ride `workspace-data` subPaths — never
-/// all of /opt/cargo, which would shadow the baked toolchain.
+/// With the flag on: cargo registry/git and the Maven repo ride `workspace-data`
+/// subPaths — never all of /opt/cargo, which would shadow the baked toolchain.
 #[test]
 fn toolchain_persistence_flags_enabled() {
     let mut config = test_config();
@@ -312,6 +312,7 @@ fn toolchain_persistence_flags_enabled() {
     for (mount_path, sub_path) in [
         ("/opt/cargo/registry", "cargo-registry"),
         ("/opt/cargo/git", "cargo-git"),
+        ("/home/moatless/.m2", "m2"),
     ] {
         let m = mounts
             .iter()

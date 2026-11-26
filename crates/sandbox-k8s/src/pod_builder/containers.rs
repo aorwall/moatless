@@ -452,7 +452,10 @@ pub(super) fn build_sandbox_container(
     // Opt-in (`K8S_SANDBOX_PERSIST_TOOLCHAIN`). Only cache dirs ride the
     // volume: subPath mounts don't seed from image content, so mounting an
     // empty subPath over all of `/opt/cargo` would shadow the baked-in
-    // toolchain. Without a PVC these subPaths land in emptyDir (no-op).
+    // toolchain. Without a PVC they still outlive a container restart. All of
+    // `~/.m2`, rather than `~/.m2/repository`: an image without `~/.m2` gets
+    // it root-owned as the mount's parent, and `/etc/mavenrc` then cannot
+    // write `~/.m2/settings.xml`.
     if config.sandbox.persist_toolchain {
         volume_mounts.push(VolumeMount {
             name: "workspace-data".to_string(),
@@ -464,6 +467,12 @@ pub(super) fn build_sandbox_container(
             name: "workspace-data".to_string(),
             mount_path: "/opt/cargo/git".to_string(),
             sub_path: Some("cargo-git".to_string()),
+            ..Default::default()
+        });
+        volume_mounts.push(VolumeMount {
+            name: "workspace-data".to_string(),
+            mount_path: "/home/moatless/.m2".to_string(),
+            sub_path: Some("m2".to_string()),
             ..Default::default()
         });
     }

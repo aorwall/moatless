@@ -288,8 +288,9 @@ pub struct SandboxConfig {
     ///
     /// Env `K8S_SANDBOX_SHARED_DATA_SIZE` (default `2Gi`).
     pub shared_data_size: String,
-    /// Persists cargo's downloaded state across pod replacement via
-    /// `workspace-data` subPaths. Env `K8S_SANDBOX_PERSIST_TOOLCHAIN` (default
+    /// Persists cargo's downloaded state and the Maven repo
+    /// (`~/.m2`) across pod replacement via `workspace-data`
+    /// subPaths. Env `K8S_SANDBOX_PERSIST_TOOLCHAIN` (default
     /// `false`).
     ///
     /// Costs PVC space — bump the repo's storage size when enabling.
