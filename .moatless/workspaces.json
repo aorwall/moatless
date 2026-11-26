@@ -14,8 +14,7 @@
       "envVars": {
         "CARGO_BUILD_JOBS": "2",
         "CARGO_PROFILE_DEV_DEBUG": "0",
-        "CARGO_PROFILE_TEST_DEBUG": "0",
-        "SCCACHE_S3_BUCKET": "soap-platform-ci-sccache"
+        "CARGO_PROFILE_TEST_DEBUG": "0"
       },
       "resources": {
         "requests": { "cpu": "250m", "memory": "4Gi" },
@@ -34,8 +33,7 @@
       "dockerAccess": true,
       "envVars": {
         "CARGO_PROFILE_DEV_DEBUG": "0",
-        "CARGO_PROFILE_TEST_DEBUG": "0",
-        "SCCACHE_S3_BUCKET": "soap-platform-ci-sccache"
+        "CARGO_PROFILE_TEST_DEBUG": "0"
       },
       "languageServers": ["typescript"],
       "resources": {
@@ -45,7 +43,7 @@
       },
       "sandboxServiceAccount": "moatless-admin",
       "networkProfile": "moatless-admin",
-      "systemPrompt": "After a PR you opened on soaplabs/moatless merges, deploy it once the post-merge pipeline passes, and verify it:\n\n1. Skip the deploy when the run's `Build & push backend image` job was skipped: no new image was published.\n2. `kubectl rollout restart deployment/moatless-vibe-backend -n moatless` and wait for `rollout status`. It runs `aorwall/moatless-backend:latest` with `imagePullPolicy: Always`.\n3. Check the new pods' `imageID` against `curl -s https://hub.docker.com/v2/repositories/aorwall/moatless-backend/tags/latest | jq -r .digest` (this image has no `docker buildx`), then exercise the change on https://moatless.xyz.\n4. Roll back only with the user's agreement: `:latest` has no previous tag to return to."
+      "systemPrompt": "After a PR you opened on this deployment's moatless repository merges, deploy it once the post-merge pipeline passes and verify it, following the deployment skill your plugins provide (`agentops:moatless-deployment` here). Roll back only with the user's agreement."
     },
     {
       "key": "moatless-feedback",

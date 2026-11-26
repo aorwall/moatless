@@ -360,10 +360,11 @@ lives on the task that published it, so reading its decisions later takes
 ## 11. Post to Slack
 
 After a full run, post a short summary and the page link to the triage
-channel, `C0000000004`:
+channel the deployment names in `FEEDBACK_TRIAGE_SLACK_CHANNEL`. When it is
+unset, skip the post and say so in the run's result:
 
 ```bash
-channel=C0000000004
+channel=$FEEDBACK_TRIAGE_SLACK_CHANNEL
 url=$(moat artifact list --json | jq -r --arg s "$slug" '.items[] | select(.slug == $s) | .latestUrl')
 moat send --to "channel:$channel" --via slack --text "$(cat slack.txt)"
 ```
