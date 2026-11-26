@@ -843,3 +843,9 @@ comes back zero. The count is in the entry condition.
 | Linear deliveries still fall back to `delivered_at` | `crates/adapter-linear/src/delivery.rs::transition_id`, read by `sessions.rs` and `issues.rs`. `issue_update_request` always sets `transition_id`, so only a delivery queued before it can lack one | When no durable Linear delivery row predating `transition_id` is left in the queue |
 | Sandbox restores still accept pre-prefix transcript archives and snapshots with no primary `.git` | `crates/sandbox/src/transcript_sync.rs::has_combined_archive_prefixes` and the no-`.git` branch of `crates/sandbox/src/workspace_sync/sync.rs`. Both read archives in object storage | When a minimum supported pod version is set and the stored archives older than it are rewritten or expired |
 | `--dump-openapi` lists every ApiDoc a second time | `crates/server/src/compose/infrastructure.rs::build_merged_openapi` beside `crates/server/src/compose/http.rs::domain_routes`, which needs a live `AppState` | When a router's ApiDoc is next missed from the spec. Give each module a stateless `api_doc()` that both sites iterate, then delete the pinning tests |
+
+## Local image builds on arm64
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| The zig cross-compile fails to link, and `Dockerfile.backend` is behind the toolchain pin | `Taskfile.yml` `build:backend` and `docker/build-sandbox.sh` run `cargo zigbuild`, which rejects rustc 1.100's `--fix-cortex-a53-843419`; `docker/Dockerfile.backend` uses `rust:1.97`. `.agents/skills/k8s-install/scripts/build-local-images.sh` works around both | When a zig and `cargo-zigbuild` pair accepts the argument, or when anything besides the local runbook needs these builds on arm64 |

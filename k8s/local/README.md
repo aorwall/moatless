@@ -10,38 +10,31 @@ supported local path — no Docker Hub pull, no private registry mirror, no clou
 ## Prerequisites
 
 - **Docker Desktop 4.74+ with Kubernetes enabled in kubeadm mode.** kubeadm mode
-  shares the local Docker image store, so pods can run images you built locally
-  with no registry push and no `kind load`. kind mode does not share the store —
-  do not use it here.
-- **Apple Silicon (arm64).** The build scripts detect the host arch and build
-  native arm64 images.
-- Give the Docker Desktop VM enough headroom — **~16GB memory**, and keep
-  **~20GB free host disk**: the sandbox image is 5-8GB and Docker.raw grows
-  against the host filesystem.
-- Rust cross-compile toolchain: `cargo-zigbuild` and `zig` on PATH, plus the
-  Linux target's std library — **`rustup target add aarch64-unknown-linux-gnu`**
-  (zig provides the linker; rustup must provide the target std).
-- `kubectl` and `helm` 3.x pointed at the Docker Desktop context
-  (`kubectl config use-context docker-desktop`).
+  shares the local Docker image store, so pods run locally built images with no
+  registry push and no `kind load`. kind mode does not share the store.
+- **Apple Silicon (arm64).**
+- About **16GB memory** for the Docker Desktop VM and at least **40GB free host
+  disk**. A full disk stops the Docker daemon in the middle of a build.
+- A checkout of `soaplabs/t3code` beside this repository, or `T3CODE_DIR` set to
+  its path.
+- `kubectl`, `helm` and `jq`.
 
-## 1. Build the images (native arm64, tagged `:dev`)
+**Pass the context explicitly.** Your current context may be a remote cluster.
+Every command below names `docker-desktop`.
+
+## 1. Build the images (arm64, tagged `:dev`)
 
 ```bash
-task build:backend TAG=dev                                    # backend
-./docker/build-sandbox.sh --local --tag dev                   # sandbox (base + tools + runtime)
+.agents/skills/k8s-install/scripts/build-local-images.sh            # all
+.agents/skills/k8s-install/scripts/build-local-images.sh backend    # or one: backend, sandbox, t3
 ```
 
-Use `docker/build-*.sh --local` (single-arch, loads into the local store), **not**
-`task build:sandbox` — it builds multi-arch and *pushes*, which never lands the
-image locally. `build-sandbox.sh --local` builds the base,
-the sandbox-tools image, and the runtime image in one pass, all tagged `:dev`.
+The script compiles Rust inside Linux containers, on the `rust-toolchain.toml`
+version. `task build:backend` and `docker/build-sandbox.sh` cross-compile with
+zig, which rejects the `--fix-cortex-a53-843419` linker argument of rustc 1.100
+(seen with zig 0.15.2 and 0.16.0).
 
-Docker Desktop's kubeadm mode shares the image store, so nothing needs pushing.
-
-> The images `values-local.yaml` expects: `aorwall/moatless-backend:dev` and
-> `aorwall/moatless-sandbox:dev`. `pullPolicy` is `IfNotPresent` for both, so
-> Kubernetes uses the local build. The T3 Code UI image, `aorwall/moatless-t3`,
-> comes from Docker Hub.
+`docker image prune -a` deletes any of these images that no container uses.
 
 ## 2. Traefik + namespace
 
@@ -49,16 +42,16 @@ Traefik provides the `IngressRoute` CRDs the app routing (and the backend's
 per-sandbox preview routes) depend on.
 
 ```bash
-kubectl create namespace moatless
+kubectl --context docker-desktop create namespace moatless
 helm repo add traefik https://traefik.github.io/charts && helm repo update
-helm install traefik traefik/traefik -n moatless \
+helm --kube-context docker-desktop install traefik traefik/traefik -n moatless \
   --set service.type=LoadBalancer --set ports.web.exposedPort=80
 ```
 
 ## 3. Secrets (never in a committed values file)
 
 ```bash
-kubectl -n moatless create secret generic moatless-secrets \
+kubectl --context docker-desktop -n moatless create secret generic moatless-secrets \
   --from-literal=DATABASE_URL='postgres://moatless:moatless@postgres:5432/moatless' \
   --from-literal=SECRETS_ENCRYPTION_KEY="$(openssl rand -base64 32)" \
   --from-literal=TASK_TOKEN_SECRET="$(openssl rand -hex 32)" \
@@ -86,118 +79,110 @@ WARN on first boot.
 ## 4. Install
 
 ```bash
-helm install moatless ./k8s/helm/moatless -n moatless -f k8s/local/values-local.yaml
+helm --kube-context docker-desktop install moatless ./k8s/helm/moatless -n moatless -f k8s/local/values-local.yaml
 ```
 
 ## 5. Verify boot
 
 ```bash
-# The real boot check — a bad DATABASE_URL does NOT crash the pod (the backend
-# logs and continues, /health still returns 200), so a green pod is not proof.
-# On a cold start the backend retries the DB connection for ~30s to ride out a
-# Postgres that is still initializing.
-kubectl -n moatless logs deploy/moatless-backend | grep "Database migrations complete"
+# A bad DATABASE_URL does not crash the pod and /health still returns 200, so
+# check for the migration line.
+kubectl --context docker-desktop -n moatless logs deploy/moatless-backend | grep "Database migrations complete"
 
-# App reachable through Traefik. Anonymous /auth/me is 401 — that is correct.
-curl -H 'Host: moatless.localhost' localhost/api/v1/auth/me      # 401
+# Anonymous /auth/me is 401, which is correct.
+curl -H 'Host: moatless.localhost' localhost/api/v1/auth/me
 ```
 
-Open `http://moatless.localhost`, sign in at `/login`, and you are in.
+Open `http://moatless.localhost` in a browser and sign in. The app must not stay
+on "Still connecting": `curl` cannot show whether the UI connects.
 
-## 6. First run — credential, repo, task
+## 6. First run
 
-- **Login needs no OAuth.** `auth.provider` is empty (the default), so the
-  backend runs local username/password auth. An `admin` account is seeded at
-  boot from `ADMIN_PASSWORD` in the `moatless-secrets` Secret; when that key is
-  absent a random password is generated and logged **once** at WARN:
-
-  ```bash
-  kubectl -n moatless logs deploy/moatless-backend | grep "generated a bootstrap admin password"
-  ```
-
-  Sign in at `http://moatless.localhost/login`, then change the password under
-  Settings → Password.
-- **Add the agent credential in the UI:** Settings → Secrets →
-  `CLAUDE_CODE_OAUTH_TOKEN`. It is read only from the encrypted DB (never from
-  chart values), so it needs a working `SECRETS_ENCRYPTION_KEY`.
-- **Create a repository without a provider.** A repository with
-  `provider: Github` trips the GitHub-token preflight and errors the task before
-  any pod is created — even for a public, anonymously clonable repo. Create one
-  omitting `provider`:
+- **Sign in with the email `admin@example.com`** (`auth.local.adminEmail`), not
+  `admin`. The password is `ADMIN_PASSWORD` from the Secret. Without that key a
+  random password is logged once at WARN:
 
   ```bash
-  # Log in once and reuse the session cookie, exactly as the browser does.
-  COOKIE=$(curl -si -H 'Host: moatless.localhost' -H 'Content-Type: application/json' \
-    localhost/api/v1/auth/password/login \
-    -d '{"email":"<ADMIN_EMAIL>","password":"<your admin password>"}' \
-    | grep -i '^set-cookie:' | sed 's/.*\(moatless_session=[^;]*\).*/\1/')
-
-  curl -X POST -H 'Host: moatless.localhost' -H 'Content-Type: application/json' \
-    -H "Cookie: $COOKIE" \
-    localhost/api/v1/repositories \
-    -d '{"name":"local-smoke","remoteUrl":"https://github.com/<owner>/<public-repo>","defaultBranch":"main","kind":"remote"}'
+  kubectl --context docker-desktop -n moatless logs deploy/moatless-backend | grep "generated a bootstrap admin password"
   ```
 
-  The clone URL field is `remoteUrl` (not `git_url`), and `kind` is required. Omit
-  `provider` so the GitHub-token preflight is skipped. `moat repos create` cannot
-  do this — its `--provider` flag defaults to `github` — and by default `moat`
-  targets the hosted instance, not this local cluster.
+- **Claude:** run `claude setup-token`, then save the token under Settings →
+  Providers → Claude.
+- **Private repositories:** save a GitHub token under Settings → Version control.
+  A fine-grained token limited to the repositories you need, with read and write
+  on Contents and Pull requests, is enough.
+- **Add a repository with `"provider": "github"`.** It gets a workspace of the
+  same name, and a task needs a workspace. A repository without a `provider`
+  gets none. Save the GitHub token first: without it a task is refused, for a
+  public repository too.
 
-- **Create the task** (starts the sandbox; add a message to also run the agent —
-  which needs `CLAUDE_CODE_OAUTH_TOKEN` from the step above):
+### Through the API
 
-  ```bash
-  RID=<repository id from the create response>
-  curl -X POST -H 'Host: moatless.localhost' -H 'Content-Type: application/json' \
-    -H "Cookie: $COOKIE" \
-    localhost/api/v1/tasks -d "{\"name\":\"smoke\",\"repositoryId\":\"$RID\"}"
-
-  kubectl -n moatless get pods    # moatless-ws-<task-id> reaches 1/1 Running
-  curl -H 'Host: moatless.localhost' -H "Cookie: $COOKIE" \
-    localhost/api/v1/tasks/<task-id>   # environmentStatus: ready
-  ```
-
-  A ready sandbox has cloned the repo into `/opt/moatless/workspace/<repo>` and
-  connected back to the backend over gRPC.
-
-## 7. Dev loop — rebuild and redeploy
+`moat` targets the hosted instance, so call the local API directly. Writes need
+the session cookies, an `Origin` header, and `X-CSRF-Token` set to the
+`moatless_csrf` cookie.
 
 ```bash
-task dev:backend
+H=(-H 'Host: moatless.localhost' -H 'Origin: http://moatless.localhost' -H 'Content-Type: application/json')
+read -rs PW   # the admin password
+COOKIES=$(jq -n --arg p "$PW" '{username:"admin@example.com",password:$p}' \
+  | curl -si "${H[@]}" localhost/api/v1/auth/password/login -d @- \
+  | grep -i '^set-cookie:' | sed -E 's/^[^:]+: *([^;]+).*/\1/' | paste -sd';' -)
+CSRF=$(echo "$COOKIES" | tr ';' '\n' | sed -n 's/^moatless_csrf=//p')
+H+=(-H "Cookie: $COOKIES" -H "X-CSRF-Token: $CSRF")
+
+curl "${H[@]}" localhost/api/v1/repositories \
+  -d '{"name":"local-smoke","remoteUrl":"https://github.com/<owner>/<public-repo>","defaultBranch":"main","kind":"remote","provider":"github"}'
+curl "${H[@]}" localhost/api/v1/workspaces        # note the new workspace id
+
+curl "${H[@]}" localhost/api/v1/tasks \
+  -d '{"name":"smoke","repositoryId":"<repository id>","workspaceId":"<workspace id>","agentProfile":"claude-code"}'
+
+# The response carries `taskId`. The sandbox pod reaches 1/1 Running.
+kubectl --context docker-desktop -n moatless get pods
 ```
 
-Cross-compiles the backend, bakes it into the thin runtime image
-(`Dockerfile.backend-cross` — one `COPY` onto distroless), rolls the Deployment,
-and asserts the running image is the one just built. No registry push: kubeadm
-mode shares the local Docker image store.
+A ready sandbox has cloned the repository into
+`/opt/moatless/workspace/<repo>` and connected to the backend over gRPC.
 
-Measured on Apple Silicon, one-line change in `crates/`:
+## 7. Rebuild and redeploy
 
-| Change | Time |
+```bash
+.agents/skills/k8s-install/scripts/build-local-images.sh backend
+kubectl --context docker-desktop -n moatless rollout restart deploy/moatless-backend
+kubectl --context docker-desktop -n moatless rollout status deploy/moatless-backend
+```
+
+For `t3`, restart `deploy/moatless-t3`. A new sandbox pod picks up a new
+sandbox image. `pullPolicy: IfNotPresent` with a reused `:dev` tag keeps the old
+image running until the restart.
+
+After a chart or values change:
+
+```bash
+helm --kube-context docker-desktop upgrade moatless ./k8s/helm/moatless -n moatless -f k8s/local/values-local.yaml
+```
+
+## Upgrading an old release
+
+Postgres here has no persistent volume: replacing its pod empties the database.
+Dump it first:
+
+```bash
+kubectl --context docker-desktop -n moatless exec deploy/postgres -- pg_dump -U moatless moatless > moatless.sql
+```
+
+| Symptom | Fix |
 |---|---|
-| No source change | ~15s |
-| One-line backend change | ~1m20s |
-
-The build uses the `ci` cargo profile (inherits `release`, drops thin LTO),
-which is what keeps the relink cheap — thin LTO costs ~20s and ~200s of CPU per
-iteration. Pass `DEV_PROFILE=release` to build what actually ships; the first
-run after switching profiles rebuilds every dependency, so expect one slow pass.
-
-`KUBECONFIG` and the context are pinned to `docker-desktop` inside the task,
-not inherited: direnv points `KUBECONFIG` at a kubeconfig whose current context
-is a remote EKS cluster, so an unpinned `kubectl` would roll out to the wrong
-cluster.
-
-The digest assertion at the end is not ceremony — `pullPolicy: IfNotPresent`
-with a re-used `:dev` tag fails *silently*, leaving the previous image running.
-It compares against pods in the newest ReplicaSet only, since `rollout status`
-returns before the previous revision's pods finish terminating.
+| Migration fails with `every human user must have an email` | Set an email on each human row in `users`, or empty the database by deleting the Postgres pod, then restart the backend |
+| Install fails because Service `postgres` belongs to release `moatless-vibe` | Dump the database, uninstall that release, and install `moatless`. Create `moatless-secrets` with the old `SECRETS_ENCRYPTION_KEY`, or restored secrets cannot be decrypted |
+| Upgrade fails because Middleware `preview-auth` is not owned by Helm | Delete the Middleware and run the upgrade again |
 
 ## Why these settings (gotchas)
 
 | Setting | Why |
 |---|---|
-| `image.pullPolicy` / `backend.image.pullPolicy: IfNotPresent`, tag `dev` | Chart defaults both to `Always` + `latest`, which forces a Docker Hub pull and silently ignores locally built images. |
+| `backend.image`, `sandboxImage`, `t3.image`: `pullPolicy: IfNotPresent`, tag `dev` | The chart defaults to `latest`, mostly with `Always`, which forces a Docker Hub pull and silently ignores locally built images. |
 | `kubernetes.imagePrepull.enabled: false` | Pre-pulls the full 5-8GB sandbox image with `pullPolicy: Always`. |
 | `kubernetes.sandboxStorage.defaultPvc: true`, `defaultS3: false` | The S3 snapshot needs a real bucket a local install does not have, so the per-task PVC alone carries the workspace. Docker Desktop's built-in hostpath provisioner backs it, so workspaces survive pod replacement and retained close/reopen without any cloud storage. |
 | `kubernetes.sandboxSysctls` — drop `tcp_keepalive_*` | Some kubelets reject them as unsafe → block sandbox pod admission. |
@@ -212,6 +197,8 @@ returns before the previous revision's pods finish terminating.
 
 ## Notes
 
+- **`task dev:backend` builds with zig** and fails the same way as
+  `task build:backend`; use step 7.
 - **`task deploy` passes no values file** (`helm upgrade` with only
   `--set backend.image.tag=...`), so it renders chart defaults. It is not the local path —
   use the `helm install ... -f k8s/local/values-local.yaml` above.

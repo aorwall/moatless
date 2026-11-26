@@ -20,6 +20,13 @@ sandboxImage:
   pullPolicy: IfNotPresent
   tag: "dev"
 
+# --- T3 Code UI ----------------------------------------------------------------
+# Built locally: the published image is amd64 only.
+t3:
+  image:
+    pullPolicy: IfNotPresent
+    tag: "dev"
+
 # --- Bundled data stores (first-party templates) -------------------------------
 postgres:
   enabled: true

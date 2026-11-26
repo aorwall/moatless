@@ -1,0 +1,8 @@
+# The CLI embeds docker-compose/ files, which the root .dockerignore excludes.
+**/target
+**/node_modules
+.git
+**/.env
+**/.env.*
+**/*.local*
+!docker-compose/.env.example
