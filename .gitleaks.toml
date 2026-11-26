@@ -1,0 +1,31 @@
+# Read by gitleaks from the scanned directory when no --config is given.
+title = "moatless"
+
+[extend]
+useDefault = true
+
+# The default rules miss Claude Code OAuth tokens.
+[[rules]]
+id = "anthropic-oauth-token"
+description = "Claude Code OAuth token"
+regex = '''sk-ant-oat01-[A-Za-z0-9_\-]{20,}'''
+keywords = ["sk-ant-oat01-"]
+
+[allowlist]
+description = "Published or throwaway test fixtures"
+paths = [
+  # Throwaway key never held by a GitHub App; see the README beside it.
+  '''crates/identity/src/auth/github/testdata/github_app_test_key\.pem''',
+  '''(^|/)Cargo\.lock$''',
+]
+regexes = [
+  # Slack's documented signing-secret example (crates/adapter-slack/src/signature.rs).
+  '''8f742231b10e8888abcd99yez67676hg''',
+  # Truncated fake token in the redaction test (crates/sandbox/src/command_redact.rs).
+  '''eyJ2ZXIiOjEs\.abc''',
+  # RFC 6455's sample `Sec-WebSocket-Key`.
+  '''dGhlIHNhbXBsZSBub25jZQ==''',
+  # Placeholders in docs and `.env.example`.
+  '''mvk_your_api_key''',
+  '''replace-with-at-least-12-characters''',
+]
