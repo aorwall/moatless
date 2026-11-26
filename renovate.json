@@ -50,6 +50,16 @@
       "rangeStrategy": "pin"
     },
     {
+      "description": "rustic_core is pre-1.0 and pinned exactly, so a minor release can change snapshot behaviour: 0.14 re-read every restored file as changed. It moves in its own PR.",
+      "matchManagers": [
+        "cargo"
+      ],
+      "matchPackageNames": [
+        "rustic_core"
+      ],
+      "groupName": "rustic_core"
+    },
+    {
       "description": "kube 3 requires k8s-openapi 0.27; upgrade them together to preserve shared Kubernetes types.",
       "matchManagers": [
         "cargo"
