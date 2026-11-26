@@ -55,7 +55,6 @@ Call these with `moat api <METHOD> <path> --body '<json>'` and read the
 | `PUT /api/v1/users/{login}/password` | Resets a password, local sign-in only |
 | `POST`, `DELETE /api/v1/admin/settings/codex/config` | Sets or clears the deployment-wide Codex auth |
 | `POST /api/v1/admin/users/{id}/provider-tokens/codex` | Seeds a Codex token for another user |
-| `GET /api/v1/admin/settings/adapter-apps` | Lists the configured adapter apps |
 | `DELETE /api/v1/adapters/connections/{id}` | Removes an adapter connection |
 
 ## Git-synced config

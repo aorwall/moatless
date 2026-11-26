@@ -79,7 +79,7 @@ fi
 if [ -n "$SERVICE" ]; then
   COMPOSE_CMD="$COMPOSE_CMD $SERVICE"
 else
-  # Default: skip frontend (nginx access logs are noise)
+  # Default: skip dozzle, whose own logs are noise
   COMPOSE_CMD="$COMPOSE_CMD backend postgres"
 fi
 

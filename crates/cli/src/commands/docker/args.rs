@@ -86,8 +86,8 @@ pub struct InitArgs {
     pub compose_dir: Option<PathBuf>,
 
     /// Optional override: seed the work dir from this directory instead of the
-    /// binary's embedded copies of `docker-compose.yml`, `.env.example`, and
-    /// `nginx.conf` (an alternate asset bundle)
+    /// binary's embedded copies of `docker-compose.yml` and `.env.example` (an
+    /// alternate asset bundle)
     #[arg(long)]
     pub assets_from: Option<PathBuf>,
 
@@ -128,7 +128,7 @@ pub struct LogsArgs {
     #[arg(long)]
     pub compose_dir: Option<PathBuf>,
 
-    /// Limit to one service (backend, frontend, postgres, dozzle)
+    /// Limit to one service (backend, postgres, dozzle)
     #[arg(long)]
     pub service: Option<String>,
 

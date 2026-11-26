@@ -476,10 +476,6 @@ mod openapi_dump_tests {
                 "device_pairing",
                 "forgejo_enabled",
                 "gitlab_enabled",
-                "netlify_publish",
-                "show_claude_settings",
-                "show_codex_settings",
-                "show_model_selector",
                 "workspace_settings",
             ]
         );

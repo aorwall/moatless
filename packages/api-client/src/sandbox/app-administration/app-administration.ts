@@ -25,7 +25,6 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
-  AdapterAppsResponse,
   ErrorBody,
   GitHubAppRegistrationResponse,
   GitHubAppsResponse,
@@ -64,98 +63,7 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
   return result;
 };
 
-export type adminListAdapterAppsResponse200 = {
-  data: AdapterAppsResponse
-  status: 200
-}
-
-export type adminListAdapterAppsResponse401 = {
-  data: ErrorBody
-  status: 401
-}
-
-export type adminListAdapterAppsResponse403 = {
-  data: ErrorBody
-  status: 403
-}
-
-export type adminListAdapterAppsResponseSuccess = (adminListAdapterAppsResponse200) & {
-  headers: Headers;
-};
-export type adminListAdapterAppsResponseError = (adminListAdapterAppsResponse401 | adminListAdapterAppsResponse403) & {
-  headers: Headers;
-};
-
-export type adminListAdapterAppsResponse = (adminListAdapterAppsResponseSuccess | adminListAdapterAppsResponseError)
-
-export const getAdminListAdapterAppsUrl = () => {
-
-
-
-
-  return `/api/v1/admin/settings/adapter-apps`
-}
-
-export const adminListAdapterApps = async ( options?: Parameters<typeof customInstance>[1]): Promise<adminListAdapterAppsResponse> => {
-
-  return customInstance<adminListAdapterAppsResponse>(getAdminListAdapterAppsUrl(),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-
-
-export const getAdminListAdapterAppsMutationKey = () => ['adminListAdapterApps'] as const;
-
-export const getAdminListAdapterAppsMutationOptions = <TError = ErrorType<ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminListAdapterApps>>, TError,void, TContext>, request?: SecondParameter<typeof customInstance>}
-): UseMutationOptions<Awaited<ReturnType<typeof adminListAdapterApps>>, TError,void, TContext> => {
-
-const mutationKey = getAdminListAdapterAppsMutationKey();
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminListAdapterApps>>, void> = () => {
-
-
-          return  adminListAdapterApps(requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type AdminListAdapterAppsMutationResult = NonNullable<Awaited<ReturnType<typeof adminListAdapterApps>>>
-
-    export type AdminListAdapterAppsMutationError = ErrorType<ErrorBody>
-
-
-    export const useAdminListAdapterApps = <TError = ErrorType<ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminListAdapterApps>>, TError,void, TContext>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof adminListAdapterApps>>,
-        TError,
-        void,
-        TContext
-      > => {
-      return useMutation(getAdminListAdapterAppsMutationOptions(options), queryClient);
-    }
-    export type adminListProviderAppsResponse200 = {
+export type adminListProviderAppsResponse200 = {
   data: ProviderAppsResponse
   status: 200
 }

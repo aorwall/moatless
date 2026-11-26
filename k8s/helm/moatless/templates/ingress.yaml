@@ -89,21 +89,7 @@ spec:
                 name: {{ $fullname }}-backend
                 port:
                   number: 8080
-          - path: /api/v1/channels/providers
-            pathType: Exact
-            backend:
-              service:
-                name: {{ $fullname }}-backend
-                port:
-                  number: 8080
           - path: /api/v1/channels/slack/webhook
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ $fullname }}-backend
-                port:
-                  number: 8080
-          - path: /api/v1/channels/slack/slash
             pathType: Prefix
             backend:
               service:
@@ -246,47 +232,15 @@ spec:
                 port:
                   number: 8080
     {{- end }}
+{{- if .Values.t3.enabled }}
 ---
-# Frontend/SPA catch-all — NO ForwardAuth (public assets, SPA handles auth
-# redirects). One host only, unlike the backend rules above: a catch-all is the
-# one rule that cannot be shared, because it is what decides which front end a
-# host serves.
+# T3 SPA catch-all — NO ForwardAuth (public assets, the SPA handles auth
+# redirects). One host only, unlike the backend rules above: the T3 host, which
+# is the app host unless t3.host names another. With T3 off, `/` has no rule.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: {{ $fullname }}
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "moatless.labels" . | nindent 4 }}
-  annotations:
-    {{- with .Values.ingress.annotations }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
-    alb.ingress.kubernetes.io/group.order: "100"
-spec:
-  {{- if .Values.ingress.className }}
-  ingressClassName: {{ .Values.ingress.className }}
-  {{- end }}
-  rules:
-    - host: {{ $host | quote }}
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                # Moatless SPA, or T3 when it has no host of its own — see the
-                # spaServiceName helper.
-                name: {{ include "moatless.spaServiceName" . }}
-                port:
-                  number: 80
-{{- if (and .Values.t3.enabled .Values.t3.host) }}
----
-# T3 SPA catch-all on the T3 host.
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: {{ $fullname }}-t3
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "moatless.labels" . | nindent 4 }}

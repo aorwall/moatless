@@ -47,10 +47,6 @@ pub(crate) fn domain_routes(app_state: &AppState) -> (Router, utoipa::openapi::O
         router = router.merge(mod_router);
         api.merge(mod_api);
     }
-    // Historical task-events replay. Authorizes the caller against the task
-    // (AuthUser), so it lives on the AppState router rather than the SSE
-    // firehose router.
-    router = router.merge(crate::sse::routes::task_events_router(app_state.clone()));
     (router, api)
 }
 

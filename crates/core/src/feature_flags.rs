@@ -3,10 +3,6 @@
 /// Immutable snapshot of the deployment's reusable feature flags.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FeatureFlags {
-    pub netlify_publish: bool,
-    pub show_claude_settings: bool,
-    pub show_codex_settings: bool,
-    pub show_model_selector: bool,
     pub gitlab_enabled: bool,
     pub forgejo_enabled: bool,
     pub workspace_settings: bool,
@@ -16,10 +12,6 @@ impl FeatureFlags {
     /// Read every feature flag once through `lookup`.
     pub(crate) fn from_lookup(mut lookup: impl FnMut(&str) -> Option<String>) -> Self {
         Self {
-            netlify_publish: flag_value(lookup("FF_NETLIFY_PUBLISH").as_deref(), false),
-            show_claude_settings: flag_value(lookup("FF_SHOW_CLAUDE_SETTINGS").as_deref(), true),
-            show_codex_settings: flag_value(lookup("FF_SHOW_CODEX_SETTINGS").as_deref(), true),
-            show_model_selector: flag_value(lookup("FF_SHOW_MODEL_SELECTOR").as_deref(), true),
             gitlab_enabled: flag_value(lookup("FF_GITLAB_ENABLED").as_deref(), false),
             forgejo_enabled: flag_value(lookup("FF_FORGEJO_ENABLED").as_deref(), false),
             workspace_settings: flag_value(lookup("FF_WORKSPACE_SETTINGS").as_deref(), true),
@@ -30,10 +22,6 @@ impl FeatureFlags {
 impl Default for FeatureFlags {
     fn default() -> Self {
         Self {
-            netlify_publish: false,
-            show_claude_settings: true,
-            show_codex_settings: true,
-            show_model_selector: true,
             gitlab_enabled: false,
             forgejo_enabled: false,
             workspace_settings: true,
@@ -56,10 +44,6 @@ mod tests {
         assert_eq!(
             FeatureFlags::default(),
             FeatureFlags {
-                netlify_publish: false,
-                show_claude_settings: true,
-                show_codex_settings: true,
-                show_model_selector: true,
                 gitlab_enabled: false,
                 forgejo_enabled: false,
                 workspace_settings: true,
@@ -70,10 +54,8 @@ mod tests {
     #[test]
     fn parses_configured_values_without_changing_the_process_environment() {
         let values = HashMap::from([
-            ("FF_NETLIFY_PUBLISH", "true"),
-            ("FF_SHOW_CLAUDE_SETTINGS", "1"),
-            ("FF_SHOW_CODEX_SETTINGS", "false"),
-            ("FF_SHOW_MODEL_SELECTOR", "TRUE"),
+            ("FF_FORGEJO_ENABLED", "1"),
+            ("FF_GITLAB_ENABLED", "TRUE"),
             ("FF_WORKSPACE_SETTINGS", "false"),
         ]);
 
@@ -82,12 +64,8 @@ mod tests {
         assert_eq!(
             flags,
             FeatureFlags {
-                netlify_publish: true,
-                show_claude_settings: true,
-                show_codex_settings: false,
-                show_model_selector: false,
                 gitlab_enabled: false,
-                forgejo_enabled: false,
+                forgejo_enabled: true,
                 workspace_settings: false,
             }
         );

@@ -300,7 +300,7 @@ tasks:
   # ── Docker Compose (local development) ──────────────────────────
 
   compose:up:
-    desc: Start Docker Compose services (postgres, backend, frontend)
+    desc: Start Docker Compose services (postgres, backend, dozzle)
     cmds:
       - mkdir -p data
       - >-

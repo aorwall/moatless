@@ -9,11 +9,6 @@ Access your application at:
 Get the application URL by running:
   export KUBE_CONTEXT="<target-context>"
 
-  # Frontend (nginx)
-  export POD_NAME=$(kubectl --context "$KUBE_CONTEXT" get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "moatless.name" . }},app.kubernetes.io/instance={{ .Release.Name }},app.kubernetes.io/component=app" -o jsonpath="{.items[0].metadata.name}")
-  kubectl --context "$KUBE_CONTEXT" --namespace {{ .Release.Namespace }} port-forward "$POD_NAME" 8080:80
-  echo "Visit http://localhost:8080"
-
   # Backend API
   export BACKEND_POD=$(kubectl --context "$KUBE_CONTEXT" get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "moatless.name" . }},app.kubernetes.io/instance={{ .Release.Name }},app.kubernetes.io/component=backend" -o jsonpath="{.items[0].metadata.name}")
   kubectl --context "$KUBE_CONTEXT" --namespace {{ .Release.Namespace }} port-forward "$BACKEND_POD" 8080:8080

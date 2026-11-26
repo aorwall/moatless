@@ -27,7 +27,7 @@ For Google, use:
 issuer:         https://accounts.google.com
 provider ID:    google
 name:           Google
-local callback: http://localhost:<frontend-port>/api/v1/auth/oidc/google/callback
+local callback: http://localhost:<backend-port>/api/v1/auth/oidc/google/callback
 ```
 
 Google's `hd` authorization parameter is only an account-picker hint. When a domain allowlist is set, Moatless validates the signed `hd` ID-token claim.

@@ -134,12 +134,10 @@ helm install moatless ./k8s/helm/moatless -n moatless -f k8s/local/values-local.
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `replicaCount` | Number of legacy Moatless frontend replicas when that UI is deployed | `1` |
-| `image.repository` | Legacy Moatless frontend image repository | `aorwall/moatless-frontend` |
-| `image.tag` | Legacy frontend and sandbox fallback image tag | `latest` |
 | `backend.image.repository` | Backend image repository | `aorwall/moatless-backend` |
 | `backend.image.tag` | Backend image tag | `latest` |
 | `sandboxImage.repository` | Sandbox image repository | `aorwall/moatless-sandbox` |
+| `sandboxImage.tag` | Sandbox image tag | `latest` |
 | `sandboxImage.pullPolicy` | Sandbox image pull policy | `Always` |
 | `plugins.repositories` | Plugins (`{name, gitUrl}`) reconciled on every backend start: created, updated, or disabled (keeping their activations) when removed. Read-only to the admin API while declared; activations are not set | `[]` |
 
@@ -200,8 +198,7 @@ trusted repositories.
 
 The default front end for the backend, built from
 [soaplabs/t3code](https://github.com/soaplabs/t3code) and published as
-`aorwall/moatless-t3`. With the default empty `t3.host`, T3 owns the app host
-and the chart omits the unused Moatless frontend Deployment and Service.
+`aorwall/moatless-t3`. With the default empty `t3.host`, T3 owns the app host.
 
 ```bash
 helm upgrade --install moatless ./k8s/helm/moatless \
@@ -214,24 +211,18 @@ to answer, and switches on the backend's T3 compatibility router
 Enabling the UI without the backend router would leave a shell that cannot
 bootstrap, so they are not separate switches.
 
-**`t3.host` decides whether the two front ends coexist.** Each owns `/` and
-everything under it that is not a backend route, so they cannot share one
-origin:
+**`t3.host` decides where T3 is served.**
 
-- **`t3.host` set** — T3 gets that hostname, the Moatless SPA keeps the app
-  host, and both are reachable. Every backend route is served on both hosts, so
-  the T3 client — which derives its HTTP and WebSocket origins from
-  `window.location` — needs nothing beyond the hostname resolving here.
-- **`t3.host` empty** — T3 replaces the Moatless SPA on the app host.
+- **`t3.host` empty** — T3 owns `/` on the app host.
+- **`t3.host` set** — T3 gets that hostname, and the app host serves the
+  backend routes only. Every backend route is served on both hosts, so the T3
+  client — which derives its HTTP and WebSocket origins from `window.location`
+  — needs nothing beyond the hostname resolving here.
 
-Setting it to the app host itself is rejected at render time rather than taken
-as either meaning: it reads as "give T3 its own origin", so the chart would
-leave the Moatless SPA on the app host and add a second catch-all for the same
-host at the same priority, and which front end answers `/` would be the
-controller's decision rather than the chart's.
+Setting it to the app host itself is rejected at render time: every backend
+route would be rendered twice for that host. Leave it empty instead.
 
-Setting `t3.enabled=false` puts the Moatless SPA back; nothing about it is
-one-way.
+Setting `t3.enabled=false` serves the backend alone, with no UI.
 
 The hostname itself is not the chart's to arrange: it has to resolve to this
 deployment's load balancer, and that load balancer's certificate has to cover
@@ -242,8 +233,8 @@ and fails its CSRF check without it.
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `t3.enabled` | Serve the T3 UI; `false` restores the Moatless frontend | `true` |
-| `t3.host` | Hostname for the T3 UI; empty replaces the Moatless SPA on the app host | `""` |
+| `t3.enabled` | Serve the T3 UI; `false` serves the backend alone | `true` |
+| `t3.host` | Hostname for the T3 UI; empty serves it on the app host | `""` |
 | `t3.image.repository` | T3 SPA image repository | `aorwall/moatless-t3` |
 | `t3.image.tag` | Image tag | `latest` |
 | `t3.replicaCount` | Number of T3 SPA replicas | `1` |
@@ -570,7 +561,7 @@ PATCH /api/.../repositories/<repo-id>   { "resources": { "pvcEnabled": true, "s3
 ### Shadow-Dev (running the app inside a sandbox)
 
 Opt-in identity for developing moatless **inside a sandbox** ("shadow mode"):
-run the backend + frontend in a sandbox pod and use it like the real backend,
+run the backend + T3 client in a sandbox pod and use it like the real backend,
 without building images. Since a sandbox is already a pod in the cluster, the only
 thing it lacks is the backend's Kubernetes RBAC. Enabling `shadowDev` creates a
 `moatless-dev` ServiceAccount bound to the same Roles the backend uses
@@ -812,8 +803,26 @@ does **not** crash the pod but leaves every API call failing.
 ```bash
 helm upgrade moatless ./k8s/helm/moatless \
   --reuse-values \
-  --set image.tag=v0.2.0
+  --set backend.image.tag=v0.2.0 \
+  --set sandboxImage.tag=v0.2.0 \
+  --set t3.image.tag=v0.2.0
 ```
+
+### Upgrading to chart 0.2.0
+
+0.2.0 drops the retired Moatless frontend: its Deployment, Service, HPA and
+PDB, and the top-level `image`, `replicaCount`, `resources`, `livenessProbe`,
+`readinessProbe`, `autoscaling`, `podDisruptionBudget`,
+`frontendPodSecurityContext`, `frontendContainerSecurityContext` and
+`cspFrameSrc` values, which are now ignored. The upgrade deletes the frontend
+pods.
+
+- **`t3.host` set:** the app host loses its `/` catch-all and serves the
+  backend routes only; T3 stays on `t3.host`. To keep a UI on the app host,
+  leave `t3.host` empty.
+- **`t3.enabled=false`:** no host serves a UI.
+- **`image.tag`:** set `sandboxImage.tag` instead if you relied on it for the
+  sandbox image.
 
 ## Uninstalling
 

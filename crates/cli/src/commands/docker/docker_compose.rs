@@ -14,7 +14,6 @@ use crate::commands::subprocess::{CmdOutput, run, run_streaming};
 
 pub(super) const COMPOSE_FILE: &str = "docker-compose.yml";
 pub(super) const ENV_EXAMPLE_FILE: &str = ".env.example";
-pub(super) const NGINX_CONF_FILE: &str = "nginx.conf";
 
 /// Files required in the compose work dir for `docker compose up`, embedded via
 /// `include_str!` at compile time.
@@ -30,10 +29,6 @@ pub(super) const INSTALL_ASSETS: &[(&str, &str)] = &[
     (
         ENV_EXAMPLE_FILE,
         include_str!("../../../../../docker-compose/.env.example"),
-    ),
-    (
-        NGINX_CONF_FILE,
-        include_str!("../../../../../docker-compose/nginx.conf"),
     ),
 ];
 pub(super) const ENV_FILE: &str = ".env";

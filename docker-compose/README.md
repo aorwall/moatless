@@ -22,7 +22,7 @@ unchanged.
 
 - Docker 20.10+ and Docker Compose v2+ installed
 - At least 4GB RAM available
-- Ports 3000, 5432, 6379, and 8080 available
+- Ports 5432, 8080 and 9999 available
 
 ### Setup
 
@@ -43,7 +43,7 @@ unchanged.
    - Create `.env` from template
    - Prompt you to configure required values
    - Pull Docker images
-   - Start all services (including frontend)
+   - Start all services
 
 3. **Configure required values in `.env`**
    - `CLAUDE_CODE_OAUTH_TOKEN` - Get from https://claude.ai/settings/code
@@ -56,7 +56,6 @@ unchanged.
    ```
 
 5. **Access the application**
-   - Frontend: http://localhost:3000
    - Backend API: http://localhost:8080
    - API Health: http://localhost:8080/health
 
@@ -65,15 +64,6 @@ unchanged.
 ### System Overview
 
 ```
-┌─────────────────┐
-│  Frontend       │
-│  (nginx)        │
-│  :3000          │
-│                 │
-│  / → SPA files  │
-│  /api/ → proxy ─┼──┐
-└─────────────────┘  │
-                     ▼
               ┌─────────────┐
               │   Backend   │
               │ (Rust/Axum) │
@@ -95,12 +85,6 @@ unchanged.
 ```
 
 ### Services
-
-#### Frontend
-- **Image**: `aorwall/moatless-frontend:latest` (nginx serving React SPA)
-- **Purpose**: Serves the React application and proxies `/api/` requests to the backend
-- **Port**: 3000 (configurable via `FRONTEND_PORT`)
-- **Config**: Custom `nginx.conf` mounted to handle SPA routing + API proxy
 
 #### Backend
 - **Image**: `aorwall/moatless-backend:latest` (Rust/Axum)
@@ -125,11 +109,10 @@ unchanged.
 
 ### Network Flow
 
-1. **Browser → Frontend (nginx)**: HTTP requests to `localhost:3000`
-2. **Frontend → Backend**: nginx proxies `/api/*` to `backend:8080`
-3. **Backend → PostgreSQL**: Database queries via service name `postgres:5432`
-4. **Backend → Docker Socket**: Creates sibling sandbox containers via `/var/run/docker.sock`
-5. **Sandbox → Backend**: gRPC calls via `moatless-backend:50051`
+1. **Client → Backend**: HTTP requests to `localhost:8080`
+2. **Backend → PostgreSQL**: Database queries via service name `postgres:5432`
+3. **Backend → Docker Socket**: Creates sibling sandbox containers via `/var/run/docker.sock`
+4. **Sandbox → Backend**: gRPC calls via `moatless-backend:50051`
 
 ### Volume Mounts
 
@@ -138,7 +121,6 @@ unchanged.
 | `postgres_data` | `/var/lib/postgresql/data` | PostgreSQL database files |
 | `../data` | `/data` | Shared data for backend and sandboxes |
 | Docker socket | `/var/run/docker.sock` | Container management (read-only) |
-| `nginx.conf` | `/etc/nginx/conf.d/default.conf` | Frontend nginx configuration |
 
 ### Sandbox Workspace Provisioning
 
@@ -256,7 +238,6 @@ SANDBOX_IMAGE=aorwall/moatless-sandbox:latest
 
 Customize ports to avoid conflicts:
 ```bash
-FRONTEND_PORT=3000
 BACKEND_PORT=8080
 POSTGRES_PORT=5432
 ```
@@ -313,7 +294,6 @@ docker compose -f docker-compose/docker-compose.yml logs -f
 Specific service:
 ```bash
 docker compose -f docker-compose/docker-compose.yml logs -f backend
-docker compose -f docker-compose/docker-compose.yml logs -f frontend
 ```
 
 Or use the log viewer script:
@@ -386,12 +366,6 @@ cat backup.sql | docker compose -f docker-compose/docker-compose.yml \
 
 ## Building Images Locally
 
-### Frontend Image
-Build it from the `moatless-legacy-frontend` repository:
-```bash
-docker/build-app.sh --local
-```
-
 ### Sandbox Images
 ```bash
 docker/build-sandbox.sh --local
@@ -429,22 +403,6 @@ curl http://localhost:8080/health
 1. Check backend service has `extra_hosts: - "host.docker.internal:host-gateway"`
 2. Verify backend is accessible: `curl http://localhost:8080/health`
 
-### Frontend Not Loading
-
-**Symptom**: Frontend shows blank page or connection errors
-
-**Diagnosis**:
-```bash
-curl http://localhost:3000
-curl http://localhost:3000/api/v1/health  # Should proxy to backend
-```
-
-**Solution**:
-1. Check frontend container is running (`docker compose ps`)
-2. Check `nginx.conf` is mounted correctly
-3. Check backend is healthy (frontend proxies `/api/` to backend)
-4. Clear browser cache and reload
-
 ### Database Connection Errors
 
 **Symptom**: "Connection refused" or "could not connect to server" errors
@@ -467,7 +425,6 @@ docker compose -f docker-compose/docker-compose.yml logs postgres
 
 **Solution**: Change ports in `.env`:
 ```bash
-FRONTEND_PORT=3001
 BACKEND_PORT=8081
 ```
 
@@ -478,7 +435,7 @@ Run comprehensive health check:
 docker-compose/docker-compose-verify.sh
 ```
 
-This checks PostgreSQL, backend API, frontend, Docker socket access, and database schema.
+This checks PostgreSQL, backend API, Docker socket access, and database schema.
 
 ## Production Deployment
 

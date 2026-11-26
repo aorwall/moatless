@@ -28,7 +28,6 @@ if [ -f ../.env ]; then
 fi
 
 BACKEND_PORT=${BACKEND_PORT:-8080}
-FRONTEND_PORT=${FRONTEND_PORT:-3000}
 
 # Check if services are running
 echo "📋 Checking service status..."
@@ -62,18 +61,6 @@ if [ -n "$BACKEND_RESPONSE" ]; then
 else
     echo "   ❌ Backend is not responding"
     echo "   Troubleshooting: $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file ../.env logs backend"
-fi
-
-# Check Frontend
-echo ""
-echo "🎨 Frontend health..."
-TOTAL_COUNT=$((TOTAL_COUNT + 1))
-if curl -s http://localhost:${FRONTEND_PORT} > /dev/null 2>&1; then
-    echo "   ✅ Frontend is healthy"
-    HEALTHY_COUNT=$((HEALTHY_COUNT + 1))
-else
-    echo "   ❌ Frontend is not responding"
-    echo "   Troubleshooting: $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file ../.env logs frontend"
 fi
 
 # Check Docker socket access

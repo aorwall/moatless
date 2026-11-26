@@ -1,18 +1,18 @@
 # @moatless/inspector
 
-Runtime instrumentation library for AI-assisted UI development. Injects a client script into preview iframes that enables bidirectional communication with the parent frame: element inspection, console forwarding, route tracking, and chat panel control.
+Runtime instrumentation library for AI-assisted UI development. Injects a client script into a previewed page that talks to the frame hosting it over `postMessage`: route tracking and navigation, a heartbeat, console and error forwarding, and element inspection. T3 Code's preview pane is the host this repository ships for.
 
 ## How it works
 
 The package has three sides:
 
 - **Build-time (tagger)** — Babel/AST transformer that annotates every JSX element with `data-component-id` and `data-component-name` attributes so the runtime can identify components from DOM clicks.
-- **Runtime (client)** — A browser IIFE (`dist/client.js`) injected into the preview iframe. Communicates with the parent via `postMessage`.
+- **Runtime (client)** — A browser IIFE (`dist/client.js`) injected into the previewed page. Communicates with the parent via `postMessage`.
 - **Annotation runtime** — A second client (`dist/annotation-client.js`) for picking, drawing on and commenting about elements, also usable as ESM by a host that supplies its own transport. See [Element annotation](#element-annotation).
 
-## Server-side injection (primary use)
+## Server-side injection
 
-The preview-server proxy injects the client script into HTML responses before they reach the iframe. Use the two utilities exported from the package root:
+A server that proxies the previewed app can inject the client script into HTML responses before they reach the iframe. Nothing in this repository does: the sandbox image bakes the package for the Vite plugin below (`docker/Dockerfile.sandbox-base`). The two utilities are exported from the package root:
 
 ```ts
 import { getInspectorScript, injectScriptIntoHtml } from '@moatless/inspector'
@@ -64,7 +64,7 @@ const { code, map } = transformComponentTags(source, filePath, rootDir)
 
 ## Vite dev-server injection
 
-For injecting the client directly via the Vite dev server (instead of a proxy), use the HTML plugin:
+The supported way in: the project adds the HTML plugin to its Vite config, and the dev server injects both clients:
 
 ```ts
 import inspectorPlugin from '@moatless/inspector/vite'
@@ -83,7 +83,7 @@ walking React fibers at runtime.
 
 The Vite plugin injects it alongside the inspector client, so a project already
 calling `inspectorPlugin()` gets it with no config change. It is roughly 80 kB
-of inlined script; a project that only needs the Moatless UI element selector
+of inlined script; a project that only needs the basic client
 can leave it out with `inspectorPlugin({ annotation: false })`.
 
 The two clients do not know about each other. Each talks to whatever framed the
@@ -169,7 +169,7 @@ if (window.__moatless?.isAvailable()) {
 
 ### `window.__moatless.isSelectorActive()`
 
-Returns `true` if the element selector (click-to-inspect) mode is currently active in the parent frame.
+Returns `true` if the parent has switched the element selector (click-to-inspect) on with `TOGGLE_SELECTOR`. T3 Code never sends it, so under T3 Code this stays `false`.
 
 ```ts
 if (window.__moatless?.isSelectorActive()) {
@@ -179,13 +179,11 @@ if (window.__moatless?.isSelectorActive()) {
 
 ### `window.__moatless.toggleChat()`
 
-Collapses or expands the chat panel in the parent (kiosk mode). Useful for embedding a "show/hide assistant" button inside the preview app itself.
+Sends `TOGGLE_CHAT` to the parent, asking it to collapse or expand its chat panel. T3 Code does not act on it.
 
 ```ts
 window.__moatless?.toggleChat()
 ```
-
-The parent listens for the `TOGGLE_CHAT` postMessage and drives the resizable chat panel accordingly.
 
 ### Combined usage example
 
@@ -204,7 +202,7 @@ All of the following run automatically once the client script is injected — no
 
 | Feature | Description |
 |---|---|
-| **Console forwarding** | `console.log/warn/error/info/debug` are intercepted and forwarded to the parent as `console` messages, shown in the Console tab. |
+| **Console forwarding** | `console.log/warn/error/info/debug` are intercepted and forwarded to the parent as `console` messages. |
 | **Error forwarding** | Uncaught `error` and `unhandledrejection` events are forwarded to the parent. |
 | **Element inspector** | Clicking an element (when the inspector is active) walks the DOM to find the nearest `data-component-id` and sends `ELEMENT_CLICKED` with source location and element bounds. |
 | **Route tracking** | Patches `history.pushState/replaceState` and listens to `popstate`/`hashchange` to send `ROUTE_CHANGE` on every navigation. |
@@ -213,6 +211,8 @@ All of the following run automatically once the client script is injected — no
 ## postMessage protocol
 
 All messages carry `source: 'preview-iframe'`. The parent filters by this field.
+
+T3 Code reads `INSPECTOR_SCRIPT_LOADED` and `HEARTBEAT`, which mark the inspector ready, and `ROUTE_CHANGE`, and it sends `NAVIGATE`. No host it ships reads or sends the other types; a host of your own can.
 
 **Iframe → parent (outbound):**
 

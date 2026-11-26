@@ -608,30 +608,6 @@ pub async fn admin_remove_provider_app(
 
 #[utoipa::path(
     get,
-    path = "/api/v1/admin/settings/adapter-apps",
-    tag = "app-administration",
-    responses(
-        (status = 200, description = "Configured Adapter apps", body = AdapterAppsResponse),
-        (status = 401, description = "Not authenticated", body = moatless_api_schemas::error::ErrorBody),
-        (status = 403, description = "Admin only", body = moatless_api_schemas::error::ErrorBody)
-    )
-)]
-pub async fn admin_list_adapter_apps(
-    State(administration): State<Arc<AppAdministration>>,
-    auth: AuthUser,
-) -> Result<Json<AdapterAppsResponse>, AccessSettingsError> {
-    Ok(Json(AdapterAppsResponse {
-        apps: administration
-            .list_adapter_apps(&auth.scope_context())
-            .await?
-            .into_iter()
-            .map(adapter_app_summary)
-            .collect(),
-    }))
-}
-
-#[utoipa::path(
-    get,
     path = "/api/v1/admin/settings/github/apps",
     tag = "app-administration",
     responses(
@@ -778,20 +754,6 @@ fn agent_harness_status(
         email: status.email,
         plan_type: status.plan_type,
         needs_reconnect: status.needs_reconnect,
-    }
-}
-
-fn adapter_app_summary(
-    app: moatless_identity::adapter_apps::StoredAdapterApp,
-) -> AdapterAppSummary {
-    AdapterAppSummary {
-        adapter_kind: app.adapter_kind,
-        app_key: app.app_key,
-        display_name: app.display_name,
-        config: app.config_json,
-        secret_fingerprints: app.secret_fingerprints,
-        revision: app.revision,
-        updated_at: app.updated_at.to_rfc3339(),
     }
 }
 

@@ -64,13 +64,10 @@ spec:
             initialDelaySeconds: 2
             periodSeconds: 5
           {{- if (and .Values.t3.containerSecurityContext .Values.t3.containerSecurityContext.readOnlyRootFilesystem) }}
-          # Only the paths nginx writes to at runtime. Note the difference from
-          # the Moatless frontend, which also mounts an emptyDir over
-          # /etc/nginx/conf.d because its entrypoint renders a config template
-          # there at startup. The T3 image has no template — its config is
-          # baked in and validated with `nginx -t` at build time — so mounting
-          # that path here would hide the config and leave nginx serving
-          # nothing.
+          # Only the paths nginx writes to at runtime, not /etc/nginx/conf.d:
+          # the T3 image's config is baked in and validated with `nginx -t` at
+          # build time, so mounting that path would hide it and leave nginx
+          # serving nothing.
           volumeMounts:
             - name: nginx-cache
               mountPath: /var/cache/nginx

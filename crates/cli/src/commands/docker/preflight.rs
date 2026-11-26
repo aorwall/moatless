@@ -30,7 +30,6 @@ pub(super) struct Check {
 }
 
 const REQUIRED_PORTS: &[(u16, &str)] = &[
-    (3000, "frontend (Nginx)"),
     (8080, "backend (Axum)"),
     (5432, "postgres"),
     (9999, "dozzle"),

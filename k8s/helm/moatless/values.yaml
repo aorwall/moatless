@@ -1,18 +1,6 @@
 # Default values for moatless
 # This is a YAML-formatted file.
 
-# -- Number of API replicas
-replicaCount: 1
-
-# Static frontend nginx image
-image:
-  # -- Docker image repository
-  repository: aorwall/moatless-frontend
-  # -- Image pull policy
-  pullPolicy: Always
-  # -- Overrides the image tag (default: chart appVersion)
-  tag: "latest"
-
 # Sandbox image (full dev environment, ~5-8GB)
 sandboxImage:
   # -- Docker image repository for sandbox pods
@@ -20,8 +8,8 @@ sandboxImage:
   # -- Image pull policy for sandbox pods. The default tag is mutable, so each
   # new pod checks the registry for the current image.
   pullPolicy: Always
-  # -- Overrides the sandbox image tag (default: same as main image tag)
-  tag: ""
+  # -- Sandbox image tag (default: chart appVersion when empty)
+  tag: "latest"
 
 # -- Image pull secrets for private registries
 imagePullSecrets: []
@@ -52,61 +40,24 @@ podSecurityContext:
 # Override if using custom images with different UIDs
 securityContext: {}
 
-# -- Pod-level security context for the frontend (nginx) deployment.
-# Hardened defaults: non-root, fsGroup set so nginx can write to emptyDir mounts.
-# Set to {} to disable hardening.
-frontendPodSecurityContext:
-  runAsNonRoot: true
-  runAsUser: 101          # nginx image UID
-  runAsGroup: 101
-  fsGroup: 101
-  seccompProfile:
-    type: RuntimeDefault
-  sysctls:
-    - name: net.ipv4.ip_unprivileged_port_start
-      value: "80"
-
-# -- Container-level security context for the frontend (nginx).
-# readOnlyRootFilesystem=true triggers emptyDir mounts for /var/cache/nginx,
-# /var/run and /tmp (managed by the deployment template).
-frontendContainerSecurityContext:
-  allowPrivilegeEscalation: false
-  readOnlyRootFilesystem: true
-  capabilities:
-    drop:
-      - ALL
-    add:
-      - NET_BIND_SERVICE
-
-# -- CSP frame-src directive for the frontend nginx. The preview feature frames
-# per-task sandbox servers; `https:` covers the external https preview URLs.
-# Local http clusters override this to also allow their preview host, e.g.
-# "https: http://*.preview.moatless.localhost".
-cspFrameSrc: "https:"
-
-# T3 Code UI — the default front end for this backend, built from
-# soaplabs/t3code and published as aorwall/moatless-t3.
+# T3 Code UI — the front end for this backend, built from soaplabs/t3code and
+# published as aorwall/moatless-t3. It owns `/` and every path on the app host
+# that is not a backend route.
 #
-# The two front ends cannot share an origin: each owns `/` and every path under
-# it that is not a backend route. `host` decides which way that is resolved.
+# `host` serves it on a second hostname as well. The backend answers its routes
+# on both hosts, so the T3 client — which derives its HTTP and WebSocket
+# origins from window.location — needs nothing beyond the hostname resolving to
+# this deployment.
 #
-#   host set    T3 gets its own hostname and the Moatless SPA keeps the app
-#               host. Both are reachable. The backend answers its routes on
-#               both hosts, so the T3 client — which derives its HTTP and
-#               WebSocket origins from window.location — needs nothing beyond
-#               the hostname resolving to this deployment.
-#   host empty  T3 REPLACES the Moatless SPA on the app host.
-#
-# Set enabled=false to get the Moatless SPA back; nothing about the switch is
-# one-way.
+# Set enabled=false to serve the backend alone, with no UI.
 #
 # This also switches on the backend's T3 compatibility router
 # (T3_UI_RPC_ENABLED) and allow-lists the T3 origin for its WebSocket.
 t3:
   # -- Serve the T3 Code UI.
   enabled: true
-  # -- Hostname to serve the T3 UI on, e.g. t3.example.com. Empty serves
-  # it on the app host instead, replacing the Moatless SPA.
+  # -- A second hostname to serve the T3 UI on, e.g. t3.example.com, beside
+  # the app host.
   #
   # The hostname must resolve to this deployment's load balancer and its
   # certificate must cover it — neither is the chart's to arrange. Session
@@ -131,8 +82,7 @@ t3:
   extraAllowedOrigins: []
   # -- Resources for the T3 SPA pod
   resources: {}
-  # -- Pod-level security context for the T3 SPA. Mirrors the Moatless
-  # frontend's hardening.
+  # -- Pod-level security context for the T3 SPA.
   podSecurityContext:
     runAsNonRoot: true
     runAsUser: 101          # nginx image UID
@@ -145,9 +95,8 @@ t3:
         value: "80"
   # -- Container-level security context for the T3 SPA. readOnlyRootFilesystem
   # triggers emptyDir mounts for the paths nginx writes at runtime — but NOT for
-  # /etc/nginx/conf.d, unlike the Moatless frontend: the T3 image bakes its
-  # config in rather than rendering a template at startup, so mounting over that
-  # directory would hide it.
+  # /etc/nginx/conf.d: the T3 image bakes its config in rather than rendering a
+  # template at startup, so mounting over that directory would hide it.
   containerSecurityContext:
     allowPrivilegeEscalation: false
     readOnlyRootFilesystem: true
@@ -258,7 +207,7 @@ agentFallbackOrder: ""
 service:
   # -- Service type
   type: ClusterIP
-  # -- Frontend service port (nginx)
+  # -- T3 SPA service port (nginx)
   port: 80
 
 ingress:
@@ -483,14 +432,6 @@ certManager:
     secretKey: "api-token"
     # -- DNS zones that this issuer can solve challenges for
     dnsZones: []
-
-resources:
-  limits:
-    cpu: 200m
-    memory: 128Mi
-  requests:
-    cpu: 50m
-    memory: 32Mi
 
 # -- Node selector
 nodeSelector: {}
@@ -1109,38 +1050,6 @@ externalSecrets:
   # -- Name of existing secret
   secretName: "moatless-secrets"
 
-# Health checks for the frontend (nginx static bundle).
-# Probes hit "/" because the bundled nginx config does not define a /health
-# location; nginx returns the SPA entry point on /.
-# If your image exposes a dedicated /health endpoint, override path: /health.
-livenessProbe:
-  httpGet:
-    path: /
-    port: http
-  initialDelaySeconds: 5
-  periodSeconds: 15
-
-readinessProbe:
-  httpGet:
-    path: /
-    port: http
-  initialDelaySeconds: 2
-  periodSeconds: 5
-
-# -- PodDisruptionBudget for the frontend deployment. Off by default.
-podDisruptionBudget:
-  enabled: false
-  minAvailable: 1
-  # maxUnavailable: 1
-
-# -- HorizontalPodAutoscaler for the frontend. Requires metrics-server.
-autoscaling:
-  enabled: false
-  minReplicas: 2
-  maxReplicas: 6
-  targetCPUUtilizationPercentage: 70
-  # targetMemoryUtilizationPercentage: 80
-
 # NetworkPolicy configuration.
 # The chart applies a NetworkPolicy to sandbox pods to restrict egress
 # (where sandboxes can initiate connections to) and, optionally, ingress
@@ -1477,9 +1386,6 @@ extraEnv:
   # DECISION_PROVIDER: "jev"
   # DECISION_MODEL: "jev-1.13.0"
   # Feature flags
-  FF_NETLIFY_PUBLISH: "false"
-  FF_SHOW_CLAUDE_SETTINGS: "true"
-  FF_SHOW_MODEL_SELECTOR: "false"
   # Shows the Forgejo tab in settings. The Forgejo API routes ignore this flag.
   FF_FORGEJO_ENABLED: "false"
   # Lets the T3 project settings page edit the workspace behind the project.

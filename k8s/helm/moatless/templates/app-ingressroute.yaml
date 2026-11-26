@@ -181,43 +181,17 @@ spec:
       services:
         - name: {{ $fullname }}-backend
           port: 8080
+{{- if .Values.t3.enabled }}
 ---
-# Frontend/SPA catch-all — NO ForwardAuth (public assets, SPA handles auth
-# redirects). Which SPA answers depends on t3.enabled and t3.host; the route
-# itself is the same either way, because both front ends own the whole host
-# below the backend prefixes.
+# T3 SPA catch-all on the T3 host — NO ForwardAuth (public assets, the SPA
+# handles auth redirects). The T3 host is the app host unless t3.host names
+# another. The backend routes carry no explicit priority either, and Traefik's
+# default ordering by rule length already puts every prefixed rule ahead of a
+# bare Host().
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
   name: {{ $fullname }}-frontend
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "moatless.labels" . | nindent 4 }}
-spec:
-  entryPoints:
-    - {{ $entryPoint }}
-  routes:
-    - match: "Host(`{{ $host }}`)"
-      kind: Rule
-      priority: 1
-      {{- if $securityMw }}
-      middlewares:
-        - name: {{ $securityMw }}
-          namespace: {{ .Release.Namespace }}
-      {{- end }}
-      services:
-        - name: {{ include "moatless.spaServiceName" . }}
-          port: {{ .Values.service.port }}
-{{- if (and .Values.t3.enabled .Values.t3.host) }}
----
-# T3 SPA catch-all on the T3 host. Same shape as the Moatless one above and at
-# the same priority: the backend routes carry no explicit priority either, and
-# Traefik's default ordering by rule length already puts every prefixed rule
-# ahead of a bare Host().
-apiVersion: traefik.io/v1alpha1
-kind: IngressRoute
-metadata:
-  name: {{ $fullname }}-t3-frontend
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "moatless.labels" . | nindent 4 }}

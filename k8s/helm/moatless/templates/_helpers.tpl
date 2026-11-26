@@ -60,43 +60,18 @@ Create the name of the service account to use
 {{- end }}
 
 {{/*
-Name of the Service that answers the SPA catch-all on the app host.
+Hostname the T3 UI is served on: t3.host when set, the app host otherwise.
+Empty when T3 is not deployed.
 
-T3 and the Moatless SPA cannot share an origin — both own `/` and every path
-under it that is not a backend route. With t3.host set they get one origin
-each, so the app host keeps the Moatless SPA; without it, T3 takes the app host
-over. Both routing modes read this, so the two cannot disagree about which
-front end is being served.
-*/}}
-{{- define "moatless.spaServiceName" -}}
-{{- if (and .Values.t3.enabled (not .Values.t3.host)) }}
-{{- printf "%s-t3" (include "moatless.fullname" .) }}
-{{- else }}
-{{- include "moatless.fullname" . }}
-{{- end }}
-{{- end }}
-
-{{/*
-Hostname the T3 UI is served on: its own when t3.host is set, the app host
-otherwise. Empty when T3 is not deployed.
-
-Setting t3.host TO the app host is rejected rather than treated as either
-meaning. It is the one value that makes the two modes contradict each other:
-t3.host set says "give T3 its own origin", so the app host keeps the Moatless
-SPA and a second catch-all is rendered for the T3 host — which is now the same
-host, at the same priority, pointing somewhere else. Traefik gets two routers
-with an identical rule; ALB gets two `/` rules at group.order 100. Which front
-end answers `/` then depends on the controller, not the chart.
-
-The two things it could have meant are both already reachable: leave t3.host
-empty to serve T3 on the app host in place of the Moatless SPA, or set it to a
-different hostname to serve both.
+Setting t3.host TO the app host is rejected: `moatless.backendHosts` would list
+that host twice, and every backend rule would be rendered twice for it. Leave
+t3.host empty to serve T3 on the app host.
 */}}
 {{- define "moatless.t3Host" -}}
 {{- if .Values.t3.enabled -}}
 {{- $appHost := (index .Values.ingress.hosts 0).host -}}
 {{- if (and .Values.t3.host (eq .Values.t3.host $appHost)) -}}
-{{- fail (printf "t3.host is set to %q, which is already the app host (ingress.hosts[0].host). Leave t3.host empty to serve the T3 UI on the app host in place of the Moatless SPA, or set it to a different hostname to serve both." .Values.t3.host) -}}
+{{- fail (printf "t3.host is set to %q, which is already the app host (ingress.hosts[0].host). Leave t3.host empty to serve the T3 UI on the app host." .Values.t3.host) -}}
 {{- end -}}
 {{- .Values.t3.host | default $appHost -}}
 {{- end -}}
@@ -142,7 +117,7 @@ Get the secrets name
 
 {{/*
 Get the sandbox image
-Priority: kubernetes.sandboxImage (object or string) > sandboxImage section > fallback to main image
+Priority: kubernetes.sandboxImage (object or string) > sandboxImage section
 Supports both:
   --set kubernetes.sandboxImage.repository=... --set kubernetes.sandboxImage.tag=...
   --set kubernetes.sandboxImage=full/image:tag
@@ -150,18 +125,15 @@ Supports both:
 {{- define "moatless.sandboxImage" -}}
 {{- if .Values.kubernetes.sandboxImage.repository }}
 {{- /* Object format: kubernetes.sandboxImage.repository + tag */}}
-{{- $tag := default (default .Chart.AppVersion .Values.image.tag) .Values.kubernetes.sandboxImage.tag }}
+{{- $tag := default (default .Chart.AppVersion .Values.sandboxImage.tag) .Values.kubernetes.sandboxImage.tag }}
 {{- printf "%s:%s" .Values.kubernetes.sandboxImage.repository $tag }}
 {{- else if and .Values.kubernetes.sandboxImage (kindIs "string" .Values.kubernetes.sandboxImage) }}
 {{- /* String format: kubernetes.sandboxImage is a full image string */}}
 {{- .Values.kubernetes.sandboxImage }}
 {{- else if .Values.sandboxImage.repository }}
-{{- /* Fallback to sandboxImage section */}}
-{{- $tag := default .Values.image.tag .Values.sandboxImage.tag }}
-{{- printf "%s:%s" .Values.sandboxImage.repository (default .Chart.AppVersion $tag) }}
+{{- printf "%s:%s" .Values.sandboxImage.repository (default .Chart.AppVersion .Values.sandboxImage.tag) }}
 {{- else }}
-{{- /* Final fallback: main image */}}
-{{- printf "%s:%s" .Values.image.repository (default .Chart.AppVersion .Values.image.tag) }}
+{{- fail "No sandbox image: set sandboxImage.repository or kubernetes.sandboxImage." }}
 {{- end }}
 {{- end }}
 

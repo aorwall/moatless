@@ -148,7 +148,6 @@ async fn gather_endpoints(local_stack: HttpTimeouts) -> Vec<EndpointStatus> {
     let mut out = Vec::new();
 
     out.push(http_probe("backend", "http://localhost:8080/health", local_stack).await);
-    out.push(http_probe("frontend", "http://localhost:3000/", local_stack).await);
 
     // Postgres — pg_isready inside the container (avoids needing psql on host)
     out.push(

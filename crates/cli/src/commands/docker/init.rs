@@ -190,7 +190,7 @@ mod tests {
     use std::fs;
 
     use super::super::InitArgs;
-    use super::super::docker_compose::{COMPOSE_FILE, NGINX_CONF_FILE};
+    use super::super::docker_compose::{COMPOSE_FILE, ENV_EXAMPLE_FILE};
     use super::run;
 
     /// Repairing one wrong-type asset must not clobber the user's hand-edited
@@ -205,12 +205,12 @@ mod tests {
         fs::create_dir_all(&work).unwrap();
 
         // A user who hand-edited docker-compose.yml (e.g. remapped a port).
-        let user_bytes = "services:\n  frontend:\n    ports: [\"9999:3000\"]  # user edit\n";
+        let user_bytes = "services:\n  backend:\n    ports: [\"9999:8080\"]  # user edit\n";
         fs::write(work.join(COMPOSE_FILE), user_bytes).unwrap();
 
         // The wrong-type entry that triggers the repair path: a stale
-        // nginx.conf *directory* instead of a file.
-        fs::create_dir_all(work.join(NGINX_CONF_FILE)).unwrap();
+        // .env.example *directory* instead of a file.
+        fs::create_dir_all(work.join(ENV_EXAMPLE_FILE)).unwrap();
 
         let args = InitArgs {
             compose_dir: Some(work.clone()),
@@ -221,8 +221,8 @@ mod tests {
         run(args, true).await.unwrap();
 
         assert!(
-            work.join(NGINX_CONF_FILE).is_file(),
-            "stale nginx.conf directory should be repaired to a real file"
+            work.join(ENV_EXAMPLE_FILE).is_file(),
+            "stale .env.example directory should be repaired to a real file"
         );
         assert_eq!(
             fs::read_to_string(work.join(COMPOSE_FILE)).unwrap(),

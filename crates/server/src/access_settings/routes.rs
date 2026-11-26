@@ -25,7 +25,6 @@ use crate::state::AppState;
         handlers::admin_list_provider_apps,
         handlers::admin_save_provider_app,
         handlers::admin_remove_provider_app,
-        handlers::admin_list_adapter_apps,
         handlers::get_forgejo_config,
         handlers::list_forgejo_connections,
         handlers::save_forgejo_pat,
@@ -67,7 +66,6 @@ pub fn access_settings_router(state: AppState) -> (axum::Router, utoipa::openapi
             handlers::admin_save_provider_app,
             handlers::admin_remove_provider_app
         ))
-        .routes(routes!(handlers::admin_list_adapter_apps))
         .routes(routes!(
             handlers::get_forgejo_config,
             handlers::delete_forgejo_config

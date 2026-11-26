@@ -1,7 +1,6 @@
 {{- /*
-PodDisruptionBudgets for backend and frontend.
-Disabled by default to preserve prior install behavior; enable via
-backend.podDisruptionBudget.enabled / podDisruptionBudget.enabled.
+PodDisruptionBudget for the backend. Disabled by default; enable via
+backend.podDisruptionBudget.enabled.
 */ -}}
 {{- if and .Values.backend.podDisruptionBudget .Values.backend.podDisruptionBudget.enabled }}
 apiVersion: policy/v1
@@ -23,26 +22,4 @@ spec:
     matchLabels:
       {{- include "moatless.selectorLabels" . | nindent 6 }}
       app.kubernetes.io/component: backend
----
-{{- end }}
-{{- if and .Values.podDisruptionBudget .Values.podDisruptionBudget.enabled (not (and .Values.t3.enabled (not .Values.t3.host))) }}
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
-  name: {{ include "moatless.fullname" . }}-frontend
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "moatless.labels" . | nindent 4 }}
-    app.kubernetes.io/component: app
-spec:
-  {{- with .Values.podDisruptionBudget.minAvailable }}
-  minAvailable: {{ . }}
-  {{- end }}
-  {{- with .Values.podDisruptionBudget.maxUnavailable }}
-  maxUnavailable: {{ . }}
-  {{- end }}
-  selector:
-    matchLabels:
-      {{- include "moatless.selectorLabels" . | nindent 6 }}
-      app.kubernetes.io/component: app
 {{- end }}

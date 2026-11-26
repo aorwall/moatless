@@ -126,8 +126,8 @@ services:
       SESSION_MAX_AGE: ${SESSION_MAX_AGE:-604800}
       SESSION_ABSOLUTE_MAX_AGE: ${SESSION_ABSOLUTE_MAX_AGE:-2592000}
 
-      # Frontend Configuration
-      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      # Public URL the backend's OAuth flows redirect back to
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:8080}
     volumes:
       # Docker socket for creating sibling containers (READ-ONLY for security)
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -140,28 +140,6 @@ services:
       - "host.docker.internal:host-gateway"
     networks:
       - moatless
-  frontend:
-    image: aorwall/moatless-frontend:${APP_VERSION:-latest}
-    container_name: moatless-frontend
-    restart: unless-stopped
-    labels:
-      - "created-by=moatless"
-      - "moatless.service=frontend"
-      - "moatless.ecosystem=core"
-    depends_on:
-      - backend
-    volumes:
-      - ./nginx.conf:/etc/nginx/templates/default.conf.template:ro
-    ports:
-      - "${FRONTEND_PORT:-3000}:80"
-    networks:
-      - moatless
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:80/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 5s
 
   dozzle:
     image: amir20/dozzle:latest

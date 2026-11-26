@@ -9,12 +9,6 @@
 # --- Images: use locally built :dev images, never pull from Docker Hub ---------
 # Chart defaults are pullPolicy: Always + tag: latest, which forces a registry
 # pull and silently ignores the images built by ./docker/build-*.sh --local.
-image:
-  pullPolicy: IfNotPresent
-  tag: "dev"
-# Local previews are served over plain http under proxy.domain below, so the
-# frontend CSP frame-src must allow that host in addition to the https default.
-cspFrameSrc: "https: http://*.preview.moatless.localhost"
 backend:
   # One replica: a single-node cluster gains nothing from two, and it halves the
   # rollout time on every `task dev:backend`.

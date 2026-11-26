@@ -337,24 +337,6 @@ pub struct ForgejoConnectionsResponse {
     pub instances: Vec<ForgejoProviderTokenStatusResponse>,
 }
 
-#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct AdapterAppSummary {
-    pub adapter_kind: String,
-    pub app_key: String,
-    pub display_name: String,
-    pub config: serde_json::Value,
-    pub secret_fingerprints: std::collections::HashMap<String, String>,
-    pub revision: i32,
-    pub updated_at: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct AdapterAppsResponse {
-    pub apps: Vec<AdapterAppSummary>,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

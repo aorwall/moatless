@@ -99,7 +99,6 @@ pub(super) async fn upgrade(args: UpgradeArgs, json_out: bool) -> Result<(), Cli
 
     let target = KubeTarget::new(args.context.clone());
 
-    let set_tag = format!("image.tag={}", args.tag);
     let set_sandbox = format!("sandboxImage.tag={}", args.tag);
     let set_backend = format!("backend.image.tag={}", args.tag);
     let set_t3 = format!("t3.image.tag={}", args.tag);
@@ -109,8 +108,6 @@ pub(super) async fn upgrade(args: UpgradeArgs, json_out: bool) -> Result<(), Cli
         "--namespace".to_string(),
         args.namespace.clone(),
         "--reuse-values".to_string(),
-        "--set".to_string(),
-        set_tag,
         "--set".to_string(),
         set_sandbox,
         "--set".to_string(),

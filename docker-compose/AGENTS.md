@@ -4,11 +4,10 @@
 ```bash
 docker compose -f docker-compose/docker-compose.yml up -d
 ```
-- Backend API, through the `frontend` nginx proxy: http://localhost:3000/api/
-- Backend, direct: http://localhost:8080
+- Backend: http://localhost:8080
 
-The `frontend` service runs the retired Moatless UI image at its last published
-tag. The stack has no T3 Code service; see `docs/deferred-changes.md`.
+The stack serves no UI: it has no T3 Code service; see
+`docs/deferred-changes.md`.
 
 ## Building the backend locally
 ```bash

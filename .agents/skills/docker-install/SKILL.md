@@ -23,8 +23,8 @@ are the authority for flags and readiness checks.
    Diagnose failed services with `moat docker logs --help` and the service name
    returned by status. Use configured URLs and ports; defaults are in
    [the Compose environment example](../../../docker-compose/.env.example).
-5. Authenticate: `MOATLESS_API_URL=http://localhost:3000 moat login`, then
-   `moat status`. Use the configured frontend port if it differs. App API routes
+5. Authenticate: `MOATLESS_API_URL=http://localhost:8080 moat login`, then
+   `moat status`. Use the configured `BACKEND_PORT` if it differs. App API routes
    require authentication even on localhost.
 6. Follow [manual smoke verification](../e2e-testing/references/manual-smoke.md).
    For a Script smoke, use a workspace that declares a Script, and verify

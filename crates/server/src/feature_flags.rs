@@ -9,10 +9,6 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 /// Response shape for GET /api/v1/feature-flags.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, utoipa::ToSchema)]
 pub struct FeatureFlagsResponse {
-    pub netlify_publish: bool,
-    pub show_claude_settings: bool,
-    pub show_codex_settings: bool,
-    pub show_model_selector: bool,
     pub gitlab_enabled: bool,
     /// Whether the deployment offers Forgejo instances, connections and repos.
     pub forgejo_enabled: bool,
@@ -32,10 +28,6 @@ pub struct FeatureFlagsResponse {
 impl FeatureFlagsResponse {
     fn new(flags: FeatureFlags, device_pairing: bool) -> Self {
         Self {
-            netlify_publish: flags.netlify_publish,
-            show_claude_settings: flags.show_claude_settings,
-            show_codex_settings: flags.show_codex_settings,
-            show_model_selector: flags.show_model_selector,
             gitlab_enabled: flags.gitlab_enabled,
             forgejo_enabled: flags.forgejo_enabled,
             workspace_settings: flags.workspace_settings,
@@ -85,10 +77,6 @@ mod tests {
 
     fn flags() -> FeatureFlags {
         FeatureFlags {
-            netlify_publish: true,
-            show_claude_settings: false,
-            show_codex_settings: true,
-            show_model_selector: false,
             gitlab_enabled: true,
             forgejo_enabled: true,
             workspace_settings: true,
@@ -102,10 +90,6 @@ mod tests {
         assert_eq!(
             response,
             FeatureFlagsResponse {
-                netlify_publish: true,
-                show_claude_settings: false,
-                show_codex_settings: true,
-                show_model_selector: false,
                 gitlab_enabled: true,
                 forgejo_enabled: true,
                 workspace_settings: true,

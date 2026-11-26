@@ -391,7 +391,6 @@ fn build_values(input: &ValuesInput<'_>) -> serde_json::Value {
     }
 
     let mut values = json!({
-        "image": { "tag": input.tag },
         "sandboxImage": { "tag": input.tag, "pullPolicy": "Always" },
         "backend": { "image": { "tag": input.tag } },
         "t3": {
@@ -587,7 +586,7 @@ mod tests {
             values.pointer("/kubernetes/sandboxStorage/defaultMode"),
             Some(&json!("s3"))
         );
-        assert_eq!(values.pointer("/image/tag"), Some(&json!("latest")));
+        assert_eq!(values.pointer("/image"), None);
         assert_eq!(values.pointer("/sandboxImage/tag"), Some(&json!("latest")));
         assert_eq!(
             values.pointer("/sandboxImage/pullPolicy"),

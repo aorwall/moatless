@@ -217,7 +217,7 @@ returns before the previous revision's pods finish terminating.
 ## Notes
 
 - **`task deploy` passes no values file** (`helm upgrade` with only
-  `--set image.tag=...`), so it renders chart defaults. It is not the local path —
+  `--set backend.image.tag=...`), so it renders chart defaults. It is not the local path —
   use the `helm install ... -f k8s/local/values-local.yaml` above.
 - **Docker Desktop Kubernetes can reset on restart** on some versions. If the
   cluster comes back empty, re-run steps 2-4 (the images are still in the store).

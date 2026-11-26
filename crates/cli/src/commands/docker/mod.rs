@@ -2,9 +2,9 @@
 //!
 //! Guides users through preflight → init → install → verify for running
 //! Moatless locally via Docker Compose. Shells out to `docker` / `docker
-//! compose`; the compose assets (`docker-compose.yml`, `.env.example`,
-//! `nginx.conf`) are embedded in the binary and seeded into the work dir on
-//! `init` (see `docker_compose::INSTALL_ASSETS`).
+//! compose`; the compose assets (`docker-compose.yml`, `.env.example`) are
+//! embedded in the binary and seeded into the work dir on `init` (see
+//! `docker_compose::INSTALL_ASSETS`).
 
 mod args;
 mod dispatch;

@@ -21,11 +21,11 @@ Use this workflow for a laptop, evaluation, development, or single-host installa
 
    Confirm `TASK_TOKEN_SECRET` and `SECRETS_ENCRYPTION_KEY` are set. If `CLAUDE_CODE_OAUTH_TOKEN` is missing, have the user set it locally with `moat docker env set`. Do not ask for the value in chat or print `.env`.
 
-3. Record `FRONTEND_PORT` from the non-secret environment listing. Default to `3000` only when it is unset.
+3. Record `BACKEND_PORT` from the non-secret environment listing. Default to `8080` only when it is unset.
 
 ## Ready for login
 
-Preparation is complete when preflight passes, the Compose bundle exists, generated secrets are set, and the frontend port is known. Return to `SKILL.md`, configure one login mode, then resume below.
+Preparation is complete when preflight passes, the Compose bundle exists, generated secrets are set, and the backend port is known. Return to `SKILL.md`, configure one login mode, then resume below.
 
 ## Install and verify
 
@@ -46,12 +46,12 @@ Preparation is complete when preflight passes, the Compose bundle exists, genera
 
    Repair the reported cause and re-run install and status. Preserve the Postgres volume.
 
-3. Verify the public frontend path:
+3. Verify the backend serves the configured auth mode:
 
    ```bash
-   curl -fsS http://localhost:<frontend-port>/api/v1/auth/mode
+   curl -fsS http://localhost:<backend-port>/api/v1/auth/mode
    ```
 
-   Open `http://localhost:<frontend-port>/login` for the real sign-in required by the main workflow.
+   The stack serves no browser UI, so do the real sign-in the main workflow requires with `MOATLESS_API_URL=http://localhost:<backend-port> moat login`.
 
-The deployment checkpoint is complete when Compose reports healthy and the frontend serves the configured auth mode.
+The deployment checkpoint is complete when Compose reports healthy and the backend serves the configured auth mode.

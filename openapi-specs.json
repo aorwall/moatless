@@ -1284,46 +1284,6 @@
         }
       }
     },
-    "/api/v1/admin/settings/adapter-apps": {
-      "get": {
-        "tags": [
-          "app-administration"
-        ],
-        "operationId": "admin_list_adapter_apps",
-        "responses": {
-          "200": {
-            "description": "Configured Adapter apps",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AdapterAppsResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Not authenticated",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Admin only",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/admin/settings/apps": {
       "get": {
         "tags": [
@@ -10188,60 +10148,6 @@
           }
         }
       },
-      "AdapterAppSummary": {
-        "type": "object",
-        "required": [
-          "adapterKind",
-          "appKey",
-          "displayName",
-          "config",
-          "secretFingerprints",
-          "revision",
-          "updatedAt"
-        ],
-        "properties": {
-          "adapterKind": {
-            "type": "string"
-          },
-          "appKey": {
-            "type": "string"
-          },
-          "config": {},
-          "displayName": {
-            "type": "string"
-          },
-          "revision": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "secretFingerprints": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "string"
-            },
-            "propertyNames": {
-              "type": "string"
-            }
-          },
-          "updatedAt": {
-            "type": "string"
-          }
-        }
-      },
-      "AdapterAppsResponse": {
-        "type": "object",
-        "required": [
-          "apps"
-        ],
-        "properties": {
-          "apps": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/AdapterAppSummary"
-            }
-          }
-        }
-      },
       "AdapterConnectionResponse": {
         "type": "object",
         "description": "One adapter connection, describing a transport/auth scope.",
@@ -12664,10 +12570,6 @@
         "type": "object",
         "description": "Response shape for GET /api/v1/feature-flags.",
         "required": [
-          "netlify_publish",
-          "show_claude_settings",
-          "show_codex_settings",
-          "show_model_selector",
           "gitlab_enabled",
           "forgejo_enabled",
           "workspace_settings",
@@ -12683,18 +12585,6 @@
             "description": "Whether the deployment offers Forgejo instances, connections and repos."
           },
           "gitlab_enabled": {
-            "type": "boolean"
-          },
-          "netlify_publish": {
-            "type": "boolean"
-          },
-          "show_claude_settings": {
-            "type": "boolean"
-          },
-          "show_codex_settings": {
-            "type": "boolean"
-          },
-          "show_model_selector": {
             "type": "boolean"
           },
           "workspace_settings": {

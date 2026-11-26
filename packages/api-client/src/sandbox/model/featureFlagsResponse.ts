@@ -20,10 +20,6 @@ export interface FeatureFlagsResponse {
   /** Whether the deployment offers Forgejo instances, connections and repos. */
   forgejo_enabled: boolean;
   gitlab_enabled: boolean;
-  netlify_publish: boolean;
-  show_claude_settings: boolean;
-  show_codex_settings: boolean;
-  show_model_selector: boolean;
   /**
      * Whether a T3 project's settings page edits the Workspace behind it.
      *

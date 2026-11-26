@@ -65,7 +65,7 @@
       },
       "gridPos": {
         "h": 4,
-        "w": 3,
+        "w": 6,
         "x": 0,
         "y": 1
       },
@@ -96,70 +96,6 @@
         }
       ],
       "title": "Backend Ready",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "description": "Available frontend replicas.",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "green",
-                "value": 1
-              }
-            ]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 3,
-        "x": 3,
-        "y": 1
-      },
-      "id": 3,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "pluginVersion": "10.0.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "sum(kube_deployment_status_replicas_available{namespace=\"moatless\",deployment=\"moatless\"}) or vector(0)",
-          "refId": "A"
-        }
-      ],
-      "title": "Frontend Ready",
       "type": "stat"
     },
     {
@@ -5109,7 +5045,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (container)(rate(container_cpu_usage_seconds_total{namespace=\"moatless\", container=~\"backend|frontend|traefik\"}[$__rate_interval]))",
+          "expr": "sum by (container)(rate(container_cpu_usage_seconds_total{namespace=\"moatless\", container=~\"backend|t3|traefik\"}[$__rate_interval]))",
           "refId": "A",
           "legendFormat": "{{container}}"
         },
@@ -5232,7 +5168,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (container)(container_memory_working_set_bytes{namespace=\"moatless\", container=~\"backend|frontend|traefik\"})",
+          "expr": "sum by (container)(container_memory_working_set_bytes{namespace=\"moatless\", container=~\"backend|t3|traefik\"})",
           "refId": "A",
           "legendFormat": "{{container}}"
         },
@@ -5241,7 +5177,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (container)(kube_pod_container_resource_limits{namespace=\"moatless\", resource=\"memory\", container=~\"backend|frontend\"})",
+          "expr": "sum by (container)(kube_pod_container_resource_limits{namespace=\"moatless\", resource=\"memory\", container=~\"backend|t3\"})",
           "refId": "B",
           "legendFormat": "{{container}} limit"
         }
