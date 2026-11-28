@@ -105,6 +105,56 @@ pub(super) fn build_dind_container(config: &Config) -> Container {
     }
 }
 
+/// Gives `/tmp`'s backing dir (volume root as `$1`) to uid 1000 at mode 1777.
+/// The kubelet creates a missing `subPath` as root (`2777 root:1000` under
+/// `fsGroup`), which the sandbox cannot chmod, and tools such as Codex's token
+/// broker reject a `/tmp` without the sticky bit. A root-owned `tmp` on a PVC
+/// is moved aside, since this container is uid 1000 too.
+pub(super) const TMP_PREPARE: &str = r#"set -eu
+cd "$1"
+if [ -e tmp ] && [ ! -O tmp ]; then mv tmp ".tmp-stale.$$"; fi
+mkdir -p tmp
+chmod 01777 tmp
+rm -rf .tmp-stale.* 2>/dev/null || true"#;
+
+/// The `prepare-tmp` init container, which only `run_as_non_root` needs: a
+/// root sandbox owns `/tmp` already and `init::dirs::reset_tmp` chmods it.
+pub(super) fn build_tmp_init_container(config: &Config, plan: &ProvisionPlan) -> Option<Container> {
+    if !config.sandbox.run_as_non_root {
+        return None;
+    }
+    // Requests equal limits so the init container cannot lower the pod's QoS
+    // class below what the sandbox container sets.
+    let envelope = BTreeMap::from([
+        ("cpu".to_string(), Quantity("100m".to_string())),
+        ("memory".to_string(), Quantity("64Mi".to_string())),
+    ]);
+    Some(Container {
+        name: "prepare-tmp".to_string(),
+        image: Some(resolve_sandbox_image(config, plan)),
+        image_pull_policy: Some(config.sandbox.image_pull_policy.clone()),
+        command: Some(vec![
+            "sh".to_string(),
+            "-c".to_string(),
+            TMP_PREPARE.to_string(),
+            "prepare-tmp".to_string(),
+            "/opt/moatless".to_string(),
+        ]),
+        security_context: Some(app_security_context(config)),
+        volume_mounts: Some(vec![VolumeMount {
+            name: "workspace-data".to_string(),
+            mount_path: "/opt/moatless".to_string(),
+            ..Default::default()
+        }]),
+        resources: Some(ResourceRequirements {
+            limits: Some(envelope.clone()),
+            requests: Some(envelope),
+            ..Default::default()
+        }),
+        ..Default::default()
+    })
+}
+
 /// Overlay a per-repo resource override onto the configured defaults, field
 /// by field: an override replaces only the `cpu`/`memory` it names.
 ///

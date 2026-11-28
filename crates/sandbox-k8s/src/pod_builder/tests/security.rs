@@ -137,3 +137,89 @@ fn privileged_containers_have_no_selinux_options() {
         None
     );
 }
+
+/// Under `run_as_non_root` the `prepare-tmp` init container gets the whole
+/// `workspace-data` volume, so the kubelet has not yet created the `tmp`
+/// subPath the sandbox mounts at `/tmp`, and it runs before the sandbox does.
+#[test]
+fn run_as_non_root_prepares_tmp_before_the_sandbox_mounts_it() {
+    let mut config = test_config();
+    config.sandbox.run_as_non_root = true;
+    let pod = build_pod(&config, "task-1", &test_plan(), None, None).unwrap();
+    let spec = pod.spec.as_ref().unwrap();
+
+    let init = spec.init_containers.as_ref().expect("init containers");
+    assert_eq!(init.len(), 1);
+    let prepare = &init[0];
+    assert_eq!(prepare.name, "prepare-tmp");
+    assert_eq!(prepare.image, spec.containers[0].image);
+    let mounts = prepare.volume_mounts.as_ref().unwrap();
+    assert_eq!(mounts.len(), 1);
+    assert_eq!(mounts[0].name, "workspace-data");
+    assert_eq!(mounts[0].mount_path, "/opt/moatless");
+    assert_eq!(
+        mounts[0].sub_path, None,
+        "a subPath here would create tmp as root"
+    );
+    let command = prepare.command.as_ref().unwrap();
+    assert!(command[2].contains("chmod 01777 tmp"));
+    assert_eq!(command.last().map(String::as_str), Some("/opt/moatless"));
+
+    let tmp_mount = spec.containers[0]
+        .volume_mounts
+        .as_ref()
+        .unwrap()
+        .iter()
+        .find(|m| m.mount_path == "/tmp")
+        .expect("sandbox mounts /tmp");
+    assert_eq!(tmp_mount.name, "workspace-data");
+    assert_eq!(tmp_mount.sub_path.as_deref(), Some("tmp"));
+}
+
+/// A root sandbox owns `/tmp` and chmods it itself, so it gets no init
+/// container.
+#[test]
+fn run_as_root_adds_no_tmp_init_container() {
+    let pod = build_pod(&test_config(), "task-1", &test_plan(), None, None).unwrap();
+    assert!(pod.spec.unwrap().init_containers.is_none());
+}
+
+/// Runs [`super::containers::TMP_PREPARE`] the way the pod does, on a volume
+/// whose `tmp` is missing, then on one whose `tmp` is the kubelet's `2777`.
+#[cfg(unix)]
+#[test]
+fn tmp_prepare_script_leaves_a_sticky_tmp() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let run = |root: &std::path::Path| {
+        let status = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(super::containers::TMP_PREPARE)
+            .arg("prepare-tmp")
+            .arg(root)
+            .status()
+            .expect("run sh");
+        assert!(status.success());
+        let mode = std::fs::metadata(root.join("tmp"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o7777, 0o1777, "got {mode:o}");
+    };
+
+    let volume = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(volume.path(), std::fs::Permissions::from_mode(0o2777)).unwrap();
+    run(volume.path());
+
+    std::fs::set_permissions(
+        volume.path().join("tmp"),
+        std::fs::Permissions::from_mode(0o2777),
+    )
+    .unwrap();
+    std::fs::write(volume.path().join("tmp/leftover"), b"x").unwrap();
+    run(volume.path());
+    assert!(
+        volume.path().join("tmp/leftover").exists(),
+        "an owned tmp is kept"
+    );
+}

@@ -32,6 +32,8 @@ mod memory_watch;
 pub mod outbox;
 pub mod pod_processes;
 pub mod preview_proxy;
+#[cfg(unix)]
+pub mod reaper;
 pub mod shutdown;
 pub mod state;
 pub mod supervisor;

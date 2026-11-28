@@ -14,6 +14,12 @@ path = "src/lib.rs"
 name = "sandbox"
 path = "src/main.rs"
 
+# Its own process with no libtest threads: `reaper::run_as_init` needs the
+# whole process to block `SIGCHLD`.
+[[test]]
+name = "reaper_test"
+harness = false
+
 [dependencies]
 moatless-workspace-types = { workspace = true }
 # Claude Agent SDK
@@ -101,7 +107,7 @@ base64 = { workspace = true }
 reqwest = { workspace = true, features = ["rustls", "stream"] }
 
 [target.'cfg(unix)'.dependencies]
-nix = { version = "0.32", features = ["signal"] }
+nix = { version = "0.32", features = ["process", "signal"] }
 
 [dev-dependencies]
 # `S3Storage::at_endpoint`, for the MinIO round trip.

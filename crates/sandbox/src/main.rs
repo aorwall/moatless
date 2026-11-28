@@ -13,6 +13,10 @@ const CLAUDE_CODE_DEBUG_LOGS_FILE: &str = "claude-debug.log";
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(unix)]
+    if let Some(code) = moatless_sandbox::reaper::supervise_if_pid1() {
+        std::process::exit(code);
+    }
     // Set before the Tokio runtime exists: `set_var` is only sound while the
     // process is single-threaded, and every consumer is a CLI child process
     // spawned much later, so the pre-runtime prologue is the one safe place.

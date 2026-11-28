@@ -2,7 +2,8 @@
 //! rebuild is needed, and the generation stamped on it.
 
 use super::containers::{
-    build_dind_container, build_sandbox_container, docker_access_enabled, validate_compute_mode,
+    build_dind_container, build_sandbox_container, build_tmp_init_container, docker_access_enabled,
+    validate_compute_mode,
 };
 use super::env::{chrono_now_iso, redact_url_userinfo};
 use super::placement::{
@@ -206,6 +207,7 @@ pub fn build_pod(
                     .extend(extra.iter().map(|(k, v)| (k.clone(), v.clone())));
             }
             PodSpec {
+                init_containers: build_tmp_init_container(config, plan).map(|c| vec![c]),
                 containers: all_containers,
                 volumes: Some(volumes),
                 restart_policy: Some("Always".to_string()),
