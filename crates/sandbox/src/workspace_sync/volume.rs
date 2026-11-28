@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use tracing::error;
+use tracing::{error, warn};
 
 use super::notices::publish_workspace_event;
 use crate::config::Config;
@@ -53,8 +53,9 @@ pub(super) enum DamagedCheckout {
     /// `git` reads the checkout, an unborn `HEAD` included, or nothing is
     /// there.
     Readable,
-    /// Moved to this path, so the clone gets an empty directory.
-    SetAside(PathBuf),
+    /// Moved to `path`, so the clone gets an empty directory. `git_kept` means
+    /// the copy's `.git` could not be renamed, so no snapshot stores its tree.
+    SetAside { path: PathBuf, git_kept: bool },
     /// Damaged and left in place: it is the workspace dir itself, or the
     /// rename failed.
     LeftInPlace,
@@ -78,9 +79,23 @@ pub(super) fn set_aside_checkout(workspace_dir: &Path, repo_dir: &Path) -> Damag
     };
     let stamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ");
     let aside = repo_dir.with_file_name(format!("{}.unreadable-{stamp}", name.to_string_lossy()));
-    match std::fs::rename(repo_dir, &aside) {
-        Ok(()) => DamagedCheckout::SetAside(aside),
-        Err(_) => DamagedCheckout::LeftInPlace,
+    if let Err(error) = std::fs::rename(repo_dir, &aside) {
+        warn!(%error, from = %repo_dir.display(), to = %aside.display(), "Could not set the damaged checkout aside");
+        return DamagedCheckout::LeftInPlace;
+    }
+    // A `.git` dir makes `file_set::collect` list the copy through `git
+    // ls-files`, which fails on it and stores none of the working tree.
+    let git = aside.join(".git");
+    let mut git_kept = false;
+    if git.exists() {
+        if let Err(error) = std::fs::rename(&git, aside.join(".git.unreadable")) {
+            warn!(%error, dir = %git.display(), "Could not rename the damaged .git; the next snapshot keeps none of the moved copy's working tree");
+            git_kept = true;
+        }
+    }
+    DamagedCheckout::SetAside {
+        path: aside,
+        git_kept,
     }
 }
 
@@ -121,13 +136,18 @@ pub(super) async fn set_aside_damaged_checkout(
             .unwrap_or(DamagedCheckout::LeftInPlace);
     let message = match outcome {
         DamagedCheckout::Readable => return,
-        DamagedCheckout::SetAside(aside) => format!(
-            "The restored checkout at {} had a `.git` that git cannot read, so it was moved to {} and the repository was cloned again. Uncommitted work from before the restart is in the moved copy.",
+        DamagedCheckout::SetAside { path, git_kept } => format!(
+            "The restored checkout at {} was not one git can read, so it was moved to {} and the repository was cloned again. Uncommitted work from before the restart is in the moved copy.{}",
             dir.display(),
-            aside.display()
+            path.display(),
+            if git_kept {
+                " Its `.git` could not be renamed, so no later snapshot stores that copy's files: copy out what you need before the sandbox restarts again."
+            } else {
+                ""
+            }
         ),
         DamagedCheckout::LeftInPlace => format!(
-            "The restored checkout at {} has a `.git` that git cannot read, and it could not be moved aside, so git commands there fail.",
+            "The restored checkout at {} is not one git can read, and it could not be moved aside, so git commands there fail.",
             dir.display()
         ),
     };
@@ -210,13 +230,24 @@ mod tests {
 
         let outcome = set_aside_checkout(tmp.path(), &repo);
 
-        let DamagedCheckout::SetAside(aside) = outcome else {
+        let DamagedCheckout::SetAside {
+            path: aside,
+            git_kept: false,
+        } = outcome
+        else {
             panic!("a damaged checkout was not set aside: {outcome:?}");
         };
         assert!(!repo.exists(), "the clone needs the directory free");
         assert_eq!(
             std::fs::read_to_string(aside.join("edited.rs")).unwrap(),
             "work"
+        );
+        // The next snapshot must carry the moved working tree, not only the
+        // broken `.git` that `git ls-files` fails on.
+        let stored = super::super::file_set::collect(tmp.path()).files;
+        assert!(
+            stored.contains(&aside.join("edited.rs")),
+            "the moved copy's working tree is not snapshotted: {stored:?}"
         );
     }
 
@@ -229,7 +260,10 @@ mod tests {
 
         assert!(matches!(
             set_aside_checkout(tmp.path(), &repo),
-            DamagedCheckout::SetAside(_)
+            DamagedCheckout::SetAside {
+                git_kept: false,
+                ..
+            }
         ));
     }
 
