@@ -39,7 +39,13 @@ pub fn literals(item: &syn::Item) -> Vec<String> {
     found.visit_item(item);
     found.values
 }
-fn pattern(cell: &'static OnceLock<Regex>, expression: &str) -> &'static Regex {
+/// String literals written by one `impl` item, including macro arguments.
+pub fn impl_item_literals(item: &syn::ImplItem) -> Vec<String> {
+    let mut found = Literals::default();
+    found.visit_impl_item(item);
+    found.values
+}
+pub(crate) fn pattern(cell: &'static OnceLock<Regex>, expression: &str) -> &'static Regex {
     cell.get_or_init(|| {
         Regex::new(expression).unwrap_or_else(|e| panic!("invalid SQL matcher: {e}"))
     })

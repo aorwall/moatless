@@ -47,6 +47,7 @@ pub mod table_ownership;
 pub mod transport_direction;
 pub mod vendor_crate_owner;
 pub mod vendor_type_export;
+pub mod wildcard_projection;
 pub mod workspace;
 
 mod runner;

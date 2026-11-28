@@ -173,7 +173,8 @@ enforce!(
     sqlx_test_migrations,
     migration_contract,
     agent_id_literal,
-    deployment_identifiers
+    deployment_identifiers,
+    wildcard_projection
 );
 
 #[test]

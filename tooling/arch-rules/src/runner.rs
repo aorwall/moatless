@@ -8,7 +8,7 @@ use crate::{
     persistence_export, persistence_sql_location, port_admission, process_exit, reqwest_default,
     route_registration, row_stays_with_query, session_line_parsing, single_implementation_trait,
     sqlx_test_migrations, store_privacy, table_ownership, transport_direction, vendor_crate_owner,
-    vendor_type_export,
+    vendor_type_export, wildcard_projection,
 };
 use anyhow::{Context, Result};
 
@@ -74,6 +74,7 @@ rules!(
     agent_id_literal => "Production code names an agent profile through `AgentProfile`, not its wire id.",
     deployment_identifiers => "No tracked file names a private deployment's hosts or ids.",
     migration_contract => "A migration dropping or renaming a table or column names the release that stopped reading it.",
+    wildcard_projection => "Production SQL names its projected columns rather than `*`.",
 );
 
 /// Run every registered rule against one workspace read.
