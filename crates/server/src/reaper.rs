@@ -109,6 +109,8 @@ pub struct TaskReaper {
     config: Arc<Config>,
     agent_error: AgentErrorPorts,
     k8s: moatless_sandbox_k8s::client::K8sClient,
+    /// When [`crate::reaper_stranded::rewake_stranded_inboxes`] last woke each Task.
+    stranded_rewoken: std::sync::Mutex<HashMap<String, DateTime<Utc>>>,
 }
 
 impl TaskReaper {
@@ -145,6 +147,7 @@ impl TaskReaper {
             config,
             agent_error,
             k8s,
+            stranded_rewoken: std::sync::Mutex::new(HashMap::new()),
         }
     }
 
@@ -209,6 +212,10 @@ impl TaskReaper {
         metrics::describe_counter!(
             "task_turns_reopened_total",
             "Turns allocated by the reaper for a live agent run whose open event was lost"
+        );
+        metrics::describe_counter!(
+            "inbox_stranded_rewakes_total",
+            "Open tasks re-woken because a pending message had no turn to take it"
         );
         metrics::describe_counter!(
             "task_turns_disagreed_total",
@@ -317,6 +324,14 @@ impl TaskReaper {
             Ok(superseded) => self.reconcile_superseded_turns(&superseded).await,
             Err(e) => warn!(error = %e, "reconcile: failed to list superseded open turns"),
         }
+
+        crate::reaper_stranded::rewake_stranded_inboxes(
+            &self.messages,
+            self.agent_error.sandbox_waker.as_ref(),
+            &self.stranded_rewoken,
+            Utc::now(),
+        )
+        .await;
 
         // Orphan-GC deletes only taskless resources. Desired Removed convergence
         // for existing Tasks belongs to the Sandbox reconciler.

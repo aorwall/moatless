@@ -440,6 +440,39 @@ pub(crate) async fn clear_settled_pending_work(
     .map(|_| ())
 }
 
+/// Every open Task whose oldest pending item predates `cutoff` with no turn
+/// open to take it, oldest first, with that item's `created_at`.
+///
+/// Leaves out what is deliberately left waiting: a Sandbox a person stopped,
+/// one stopped for crashing or cleanup, a removed one, and an `error` Task,
+/// which a failed create leaves holding its first message.
+pub(crate) async fn stranded(
+    pool: &DbPool,
+    cutoff: chrono::DateTime<chrono::Utc>,
+) -> Result<Vec<(String, chrono::DateTime<chrono::Utc>)>, sqlx::Error> {
+    sqlx::query_as(
+        r#"SELECT t.task_id, MIN(i.created_at) AS oldest_pending_at
+             FROM task_inbox i
+             JOIN tasks t ON t.task_id = i.task_id
+             JOIN sandboxes s ON s.sandbox_id = t.sandbox_id
+            WHERE i.status = 'pending'
+              AND t.status = 'open'
+              AND (s.desired_state = 'running'
+                   OR (s.desired_state = 'stopped'
+                       AND COALESCE(s.stop_reason, 'system') IN ('idle_reaper', 'system')))
+              AND NOT EXISTS (
+                  SELECT 1 FROM task_turns tt
+                   WHERE tt.task_id = t.task_id AND tt.status IN ('active', 'interrupted')
+              )
+            GROUP BY t.task_id
+           HAVING MIN(i.created_at) < $1
+            ORDER BY oldest_pending_at"#,
+    )
+    .bind(cutoff)
+    .fetch_all(pool)
+    .await
+}
+
 /// Every open Task sharing `task_id`'s Sandbox with a pending item — matches
 /// `clear_settled_pending_work`, so a wake that survives always names someone.
 pub(crate) async fn members_awaiting_dispatch(

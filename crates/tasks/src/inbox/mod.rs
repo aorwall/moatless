@@ -7,6 +7,8 @@ mod dao_db_tests;
 pub mod models;
 mod service;
 #[cfg(all(test, feature = "db-tests"))]
+mod stranded_db_tests;
+#[cfg(all(test, feature = "db-tests"))]
 mod trigger_db_tests;
 pub mod view;
 

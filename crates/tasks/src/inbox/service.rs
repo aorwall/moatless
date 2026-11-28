@@ -44,6 +44,14 @@ impl InboxService {
         dao::pending(&self.0, task_id, limit, hold_queued).await
     }
 
+    /// See [`dao::stranded`].
+    pub(crate) async fn stranded(
+        &self,
+        cutoff: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<(String, chrono::DateTime<chrono::Utc>)>, sqlx::Error> {
+        dao::stranded(&self.0, cutoff).await
+    }
+
     pub(crate) async fn delivered_in_turn(
         &self,
         task_id: &str,

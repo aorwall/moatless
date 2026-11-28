@@ -77,6 +77,16 @@ impl Messages {
         Ok(PendingView::of(&items))
     }
 
+    /// The open Tasks holding a pending item older than `cutoff` that nothing
+    /// is set to deliver, each with its oldest pending item's `created_at`.
+    /// `inbox::dao::stranded` names what it leaves out.
+    pub async fn stranded_inboxes(
+        &self,
+        cutoff: DateTime<Utc>,
+    ) -> Result<Vec<(String, DateTime<Utc>)>, sqlx::Error> {
+        self.inbox.stranded(cutoff).await
+    }
+
     /// See [`MessageDao::latest_agent_session_id`].
     pub async fn latest_agent_session_id(
         &self,

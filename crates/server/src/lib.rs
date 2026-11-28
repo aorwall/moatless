@@ -31,6 +31,7 @@ pub mod model_gateway;
 mod proxy;
 pub mod reaper;
 mod reaper_decisions;
+pub mod reaper_stranded;
 pub mod repository_sync;
 pub mod sandbox;
 pub mod sandbox_driver;

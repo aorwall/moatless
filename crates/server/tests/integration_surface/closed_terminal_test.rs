@@ -736,3 +736,85 @@ async fn reconcile_error_keeps_closed_and_says_nothing(pool: PgPool) {
         "a reconciled orphaned turn is not something anybody said: {rows:?}"
     );
 }
+
+// =========================================================================
+// A child whose Sandbox never got past init
+// =========================================================================
+
+/// Queue `text` in `task_id`'s inbox as `source_task_id` sent it.
+async fn send_from_task(state: &AppState, source_task_id: &str, task_id: &str, text: &str) {
+    state
+        .message_send
+        .send_message_flow(
+            task_id,
+            text,
+            None,
+            None,
+            None,
+            &[],
+            &[],
+            false,
+            moatless_types::task::ExternalOrigin {
+                source_task_id: Some(source_task_id),
+                ..moatless_types::task::ExternalOrigin::none()
+            },
+            false,
+            None,
+            &[],
+            None,
+            false,
+            None,
+            None,
+        )
+        .await
+        .unwrap()
+        .expect("queued");
+}
+
+/// The `auto_stopped` error the pod watcher publishes when the container exits
+/// 78 during init, before any run opened a turn.
+fn permanent_init_failure_event(task_id: &str) -> AgentEvent {
+    let value = serde_json::json!({
+        "eventId": "evt-init-78",
+        "type": "sandbox",
+        "subType": "error",
+        "taskId": task_id,
+        "timestamp": "2026-10-15T00:00:00.000Z",
+        "isError": true,
+        "payload": {
+            "message": "Sandbox stopped: permanent init failure.",
+            "error": "Sandbox stopped: permanent init failure.\nError: `clone failed`",
+            "lifecycleEvent": "auto_stopped",
+            "exitCode": 78,
+            "initiator": "crash_autostop",
+        },
+    });
+    serde_json::from_value(value).unwrap()
+}
+
+const INIT_FAILURE_NOTICE: &str = "Child task `task-child` errored.\n\nError: Sandbox stopped: \
+                                   permanent init failure.\nError: `clone failed`";
+
+/// Regression: a delegated child whose clone failed exited 78 before its agent
+/// ran, and its parent was never told.
+#[sqlx::test]
+async fn a_child_failing_init_before_its_first_turn_tells_its_parent(pool: PgPool) {
+    seed_task_pair_with_created_by(&pool, "task-parent", "task-child").await;
+    let (state, waker) = state_with_recording_waker(&pool);
+    send_from_task(&state, "task-parent", "task-child", "Fix the bug").await;
+
+    handle_sandbox_fatal(
+        &(&state).into(),
+        &permanent_init_failure_event("task-child"),
+    )
+    .await;
+
+    assert_eq!(
+        visible_parent_texts(&pool, "task-parent").await,
+        vec![INIT_FAILURE_NOTICE.to_string()]
+    );
+    assert_eq!(
+        *waker.woken.lock().unwrap(),
+        vec!["task-parent".to_string()]
+    );
+}

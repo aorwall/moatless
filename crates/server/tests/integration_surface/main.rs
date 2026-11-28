@@ -11,6 +11,7 @@ mod common;
 mod auth_operations_test;
 mod closed_terminal_test;
 mod event_subscriptions_test;
+mod stranded_inbox_test;
 mod task_switch_test;
 mod ui_rpc_command_test;
 mod ui_rpc_shell_test;
