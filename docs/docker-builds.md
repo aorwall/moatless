@@ -62,3 +62,17 @@ For K8s clusters (typically linux/amd64), always specify the platform:
 ```
 
 This uses `docker buildx` for cross-platform builds.
+
+## Publishing from CI
+
+A push to `main` publishes every image to Docker Hub under `REGISTRY_ORG`. The
+repository needs:
+
+| Setting | Kind | Value |
+|---|---|---|
+| `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` | secrets of the `dockerhub` environment | a Docker Hub token with write access to `REGISTRY_ORG` |
+| `REGISTRY_ORG` | variable, optional | the Docker Hub namespace; `aorwall` when unset |
+| `CI_RUNNER`, `CI_RUNNER_LARGE` | variables, optional | runner labels for the CI jobs; `ubuntu-latest` when unset |
+
+Restrict the `dockerhub` environment to `main`. A job that names a runner label
+no runner serves stays queued for 24 hours and is then cancelled, with no error.

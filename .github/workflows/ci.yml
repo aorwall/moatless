@@ -66,7 +66,7 @@ jobs:
     name: mini-swe-agent bridge contracts
     needs: detect-changes
     if: needs.detect-changes.outputs.mini-swe-bridge == 'true'
-    runs-on: ci-runners
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -92,7 +92,7 @@ jobs:
   # ── Detect which areas of code changed ──
   detect-changes:
     name: Detect changes
-    runs-on: ci-runners
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     # Only workflow_dispatch bypasses change detection. On a PR paths-filter
     # diffs against the base ref, so a docs-only PR runs no clippy and no
     # TypeScript type-check.
@@ -263,7 +263,7 @@ jobs:
     name: Rust architecture
     # Bot PR gate: see `detect-changes`.
     if: (github.event_name != 'pull_request' || !endsWith(github.triggering_actor, '[bot]') || contains(fromJSON(vars.TRUSTED_AGENT_BOTS || '[]'), github.triggering_actor))
-    runs-on: ci-runners-large
+    runs-on: ${{ vars.CI_RUNNER_LARGE || 'ubuntu-latest' }}
     container:
       image: rust:1.97-bookworm
     timeout-minutes: 10
@@ -391,7 +391,7 @@ jobs:
 
   toolchain-drift:
     name: Sandbox toolchain drift
-    runs-on: ci-runners
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Compare rust-toolchain.toml with Dockerfile.sandbox-base
@@ -410,7 +410,7 @@ jobs:
 
   playwright-pins:
     name: Playwright pin drift
-    runs-on: ci-runners
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     # Skipped until the `E2E_GITHUB_PAT` secret exists: see docs/deferred-changes.md.
     env:
       GH_TOKEN: ${{ secrets.E2E_GITHUB_PAT }}
@@ -449,7 +449,7 @@ jobs:
       (github.event_name != 'pull_request' || !endsWith(github.triggering_actor, '[bot]') || contains(fromJSON(vars.TRUSTED_AGENT_BOTS || '[]'), github.triggering_actor)) &&
       (github.event_name == 'pull_request' ||
        (github.event_name == 'push' && github.ref == 'refs/heads/main'))
-    runs-on: ci-runners-large
+    runs-on: ${{ vars.CI_RUNNER_LARGE || 'ubuntu-latest' }}
     container:
       image: rust:1.97-bookworm
     timeout-minutes: 30
@@ -582,7 +582,7 @@ jobs:
       (github.event_name != 'pull_request' || !endsWith(github.triggering_actor, '[bot]') || contains(fromJSON(vars.TRUSTED_AGENT_BOTS || '[]'), github.triggering_actor)) &&
       (github.event_name == 'pull_request' ||
        (github.event_name == 'push' && github.ref == 'refs/heads/main'))
-    runs-on: ci-runners-large
+    runs-on: ${{ vars.CI_RUNNER_LARGE || 'ubuntu-latest' }}
     container:
       image: rust:1.97-bookworm
     # `#[sqlx::test]` creates and drops a database per test, so the role it
@@ -879,7 +879,7 @@ jobs:
         ) ||
         (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)
       )
-    runs-on: ci-runners-large
+    runs-on: ${{ vars.CI_RUNNER_LARGE || 'ubuntu-latest' }}
     # Build inside Debian 12 (bookworm) container so the binaries link against
     # GLIBC 2.36, matching the distroless/cc-debian12 runtime image.
     container:
@@ -1030,7 +1030,7 @@ jobs:
       (github.event_name != 'push' ||
        needs.detect-changes.outputs.rust == 'true' ||
        needs.detect-changes.outputs.docker-backend == 'true')
-    runs-on: ci-runners
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
@@ -1073,7 +1073,7 @@ jobs:
         needs.detect-changes.outputs.skill-scripts == 'true' ||
         (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)
       )
-    runs-on: ci-runners
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
@@ -1117,7 +1117,7 @@ jobs:
         (github.event_name == 'push' && needs.detect-changes.outputs.rust == 'true') ||
         (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)
       )
-    runs-on: ci-runners
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
@@ -1164,7 +1164,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       needs.detect-changes.outputs.dockerfile-e2e == 'true'
-    runs-on: ci-runners-large
+    runs-on: ${{ vars.CI_RUNNER_LARGE || 'ubuntu-latest' }}
     timeout-minutes: 45
     permissions:
       contents: read
@@ -1202,7 +1202,7 @@ jobs:
        (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)) &&
       needs.build-rust.result == 'success' &&
       (github.event_name == 'workflow_dispatch' || needs.rust-test.result == 'success')
-    runs-on: ci-runners
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     environment: dockerhub
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -1262,9 +1262,17 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       needs.detect-changes.outputs.sandbox-base == 'true'
-    runs-on: ci-runners-large
+    runs-on: ${{ vars.CI_RUNNER_LARGE || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      # A GitHub-hosted runner leaves about 14 GB free, which a sandbox image
+      # build overruns. Self-hosted runners skip this: they have no `sudo`.
+      - name: Free disk space
+        if: runner.environment == 'github-hosted'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
 
       - name: Test codeartifact-env.sh
         run: bash docker/codeartifact/test.sh
@@ -1319,10 +1327,17 @@ jobs:
         needs.detect-changes.outputs.sandbox-base == 'true' ||
         (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)
       )
-    runs-on: ci-runners-large
+    runs-on: ${{ vars.CI_RUNNER_LARGE || 'ubuntu-latest' }}
     environment: dockerhub
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      # Runs on GitHub-hosted runners only; see `validate-sandbox-base`.
+      - name: Free disk space
+        if: runner.environment == 'github-hosted'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
 
       - name: Load CLI versions
         run: grep -E '^[A-Z0-9_]+=' docker/cli-versions.env >> "$GITHUB_ENV"
@@ -1381,7 +1396,7 @@ jobs:
         (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)
       ) &&
       needs.build-rust.result == 'success'
-    runs-on: ci-runners
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     environment: dockerhub
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -1450,10 +1465,17 @@ jobs:
       needs.build-rust.result == 'success' &&
       (needs.build-sandbox-tools.result == 'success' || needs.build-sandbox-tools.result == 'skipped') &&
       (needs.build-sandbox-base.result == 'success' || needs.build-sandbox-base.result == 'skipped')
-    runs-on: ci-runners
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     environment: dockerhub
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      # Runs on GitHub-hosted runners only; see `validate-sandbox-base`.
+      - name: Free disk space
+        if: runner.environment == 'github-hosted'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
 
       - name: Restore sandbox binaries
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
@@ -1516,7 +1538,7 @@ jobs:
         needs.detect-changes.outputs.helm == 'true' ||
         needs.build-backend-image.result == 'success'
       )
-    runs-on: ci-runners
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     environment: dockerhub
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -1567,7 +1589,7 @@ jobs:
       needs.build-rust.result != 'skipped' &&
       !contains(needs.*.result, 'failure') &&
       !contains(needs.*.result, 'cancelled')
-    runs-on: ci-runners
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     permissions:
       actions: write
     steps:
@@ -1598,7 +1620,7 @@ jobs:
       !cancelled() &&
       ((github.event_name == 'push' && github.ref == 'refs/heads/main') ||
        (github.event_name == 'workflow_dispatch' && inputs.prune_rust_caches_dry_run))
-    runs-on: ci-runners
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     permissions:
       actions: write
     steps:

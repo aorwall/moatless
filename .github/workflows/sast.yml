@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   sast:
-    runs-on: ci-runners
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     env:
       # renovate: datasource=pypi depName=semgrep
       SEMGREP_VERSION: "1.179.0"
