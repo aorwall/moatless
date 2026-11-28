@@ -44,7 +44,6 @@ type AckRecord = (String, Vec<String>, String, Option<String>);
 struct MockBackendClient {
     message_batches: Mutex<Vec<Vec<PendingAgentDelivery>>>,
     acknowledgments: Mutex<Vec<AckRecord>>,
-    publish_count: AtomicUsize,
     ack_count: AtomicUsize,
     get_pending_count: AtomicUsize,
 }
@@ -54,15 +53,9 @@ impl MockBackendClient {
         Self {
             message_batches: Mutex::new(batches),
             acknowledgments: Mutex::new(Vec::new()),
-            publish_count: AtomicUsize::new(0),
             ack_count: AtomicUsize::new(0),
             get_pending_count: AtomicUsize::new(0),
         }
-    }
-
-    #[expect(dead_code, reason = "used by only some tests")]
-    fn publish_count(&self) -> usize {
-        self.publish_count.load(Ordering::SeqCst)
     }
 
     fn ack_count(&self) -> usize {
@@ -81,7 +74,6 @@ impl MockBackendClient {
 #[async_trait::async_trait]
 impl BackendClient for MockBackendClient {
     async fn publish_event(&self, _req: PublishEventRequest) -> Result<(), tonic::Status> {
-        self.publish_count.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
 

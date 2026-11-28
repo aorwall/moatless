@@ -22,8 +22,8 @@ pub struct TurnOrigin {
 
 /// A turn arriving from outside the product, addressed to a Task that exists.
 ///
-/// One struct rather than a parameter list: the flow it feeds already carried
-/// `#[allow(clippy::too_many_arguments)]`.
+/// One struct rather than a parameter list: the flow it feeds already carries
+/// `#[expect(clippy::too_many_arguments)]`.
 #[derive(Debug, Clone)]
 pub struct InboundTurn {
     pub task_id: String,

@@ -1,8 +1,5 @@
-// This module compiles only for test builds (`#[cfg(test)]`) or downstream test
-// tiers (`feature = "test-support"`), never a shipping build, so the recorder's
-// mutex `.expect()` calls are test scaffolding — allow them the way the crate's
-// own `#[cfg(test)]` code is allowed (the crate-level allow is `test`-gated and
-// does not cover the feature-gated build).
+// The crate root's `cfg_attr(test, expect(...))` does not cover the
+// `test-support` feature build this module also compiles in.
 #![expect(clippy::expect_used, reason = "tests fail by panicking")]
 
 //! Shared [`EventPublisher`] test double used across the workspace's test

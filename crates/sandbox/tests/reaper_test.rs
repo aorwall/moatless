@@ -4,12 +4,7 @@
 //! `harness = false`: libtest's threads would leave `SIGCHLD` unblocked
 //! somewhere in the process, and the reaper would never see it.
 
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::print_stdout,
-    reason = "a harness-less test binary: a failed check panics, and stdout is its report"
-)]
+#![expect(clippy::print_stdout, reason = "the custom harness reports on stdout")]
 
 /// Speaks the part of libtest's CLI nextest drives a `harness = false` binary
 /// with: `--list --format terse` must print `<name>: test` lines and nothing
@@ -26,6 +21,7 @@ fn main() {
 }
 
 #[cfg(target_os = "linux")]
+#[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
 fn run() {
     use moatless_sandbox::reaper::run_as_init;
     use std::process::Command;

@@ -1,9 +1,5 @@
 #![cfg(feature = "db-tests")]
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    reason = "integration fixtures fail on invalid setup"
-)]
+#![expect(clippy::unwrap_used, reason = "tests fail by panicking")]
 //! The reaper's stranded-inbox pass re-wakes a parent whose child notice was
 //! queued but never opened a turn.
 
