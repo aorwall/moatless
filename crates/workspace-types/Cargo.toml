@@ -5,6 +5,7 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "Workspace domain values and optional wire contracts"
+repository.workspace = true
 
 [dependencies]
 moatless-types = { workspace = true }

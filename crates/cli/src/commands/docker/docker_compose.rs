@@ -15,20 +15,15 @@ use crate::commands::subprocess::{CmdOutput, run, run_streaming};
 pub(super) const COMPOSE_FILE: &str = "docker-compose.yml";
 pub(super) const ENV_EXAMPLE_FILE: &str = ".env.example";
 
-/// Files required in the compose work dir for `docker compose up`, embedded via
-/// `include_str!` at compile time.
-///
-/// Never add `moatless-cli` to a publish set without vendoring these files
-/// first — the path reaching outside the crate directory is safe only because
-/// this crate is never packaged or published.
+/// Embedded templates for the Compose work directory.
 pub(super) const INSTALL_ASSETS: &[(&str, &str)] = &[
     (
         COMPOSE_FILE,
-        include_str!("../../../../../docker-compose/docker-compose.yml"),
+        include_str!("../../../assets/docker-compose.yml"),
     ),
     (
         ENV_EXAMPLE_FILE,
-        include_str!("../../../../../docker-compose/.env.example"),
+        include_str!("../../../assets/compose.env.example"),
     ),
 ];
 pub(super) const ENV_FILE: &str = ".env";

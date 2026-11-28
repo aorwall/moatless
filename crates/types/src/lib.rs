@@ -20,8 +20,6 @@
     )
 )]
 
-mod string_enum;
-pub(crate) use string_enum::{string_enum, string_enum_mapping};
 pub mod access_control;
 pub mod adapter;
 pub mod agent;
@@ -42,6 +40,7 @@ pub mod pull_request_key;
 pub mod sandbox;
 pub mod secret;
 pub mod store;
+mod string_enum;
 pub mod task;
 pub mod user;
 

@@ -3,6 +3,8 @@
 ///
 /// Keep this invocation name (`string_enum!`) stable: architecture analysis
 /// greps for it. `Name [Hash, Default] { ... }` adds extra derives.
+#[doc(hidden)]
+#[macro_export]
 macro_rules! string_enum {
     (
         $(#[$meta:meta])*
@@ -62,6 +64,8 @@ macro_rules! string_enum {
 /// list rather than [`string_enum!`]'s. Unlike that macro, the caller declares
 /// the enum, so architecture analysis indexes it directly and this name is not
 /// part of the grep contract.
+#[doc(hidden)]
+#[macro_export]
 macro_rules! string_enum_mapping {
     (
         $name:ident {
@@ -121,6 +125,3 @@ macro_rules! string_enum_mapping {
         }
     };
 }
-
-pub(crate) use string_enum;
-pub(crate) use string_enum_mapping;

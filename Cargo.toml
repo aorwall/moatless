@@ -38,6 +38,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Albert Örwall <albert@moatless.ai>"]
 license = "Apache-2.0"
+repository = "https://github.com/aorwall/moatless"
 
 [workspace.dependencies]
 apollo-parser = { version = "0.8.7" }
@@ -62,8 +63,8 @@ moatless-adapter-github-pr = { path = "crates/adapter-github-pr" }
 moatless-adapter-linear = { path = "crates/adapter-linear" }
 moatless-adapter-model = { path = "crates/adapter-model" }
 moatless-adapter-slack = { path = "crates/adapter-slack" }
-moatless-api-client = { path = "crates/api-client" }
-moatless-api-schemas = { path = "crates/api-schemas" }
+moatless-api-client = { path = "crates/api-client", version = "0.1.0" }
+moatless-api-schemas = { path = "crates/api-schemas", version = "0.1.0" }
 moatless-arch-rules = { path = "tooling/arch-rules" }
 moatless-backend = { path = "crates/server" }
 moatless-ports = { path = "crates/ports" }
@@ -82,9 +83,9 @@ moatless-sandbox-runtime = { path = "crates/sandbox-runtime" }
 moatless-supervisor = { path = "crates/supervisor" }
 moatless-t3code = { path = "crates/t3code" }
 moatless-tasks = { path = "crates/tasks" }
-moatless-types = { path = "crates/types" }
+moatless-types = { path = "crates/types", version = "0.1.0" }
 moatless-workspaces = { path = "crates/workspaces" }
-moatless-workspace-types = { path = "crates/workspace-types" }
+moatless-workspace-types = { path = "crates/workspace-types", version = "0.1.0" }
 moatless-workspace-ports = { path = "crates/workspace-ports" }
 mockall = { version = "0.15" }
 moka = { version = "0.12" }
@@ -96,7 +97,7 @@ reqwest = { version = "0.13", default-features = false }
 # minor bump is a format decision, not a dependency refresh. Three crates read
 # and write one repository, so a skew is two incompatible `Repository` types.
 rustic_core = { version = "=0.13.0" }
-sandbox-proto = { path = "crates/sandbox-proto" }
+sandbox-proto = { path = "crates/sandbox-proto", version = "0.1.0" }
 serde = { version = "1" }
 serde_json = { version = "1" }
 serde_yaml = { version = "0.9" }
