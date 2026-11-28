@@ -352,12 +352,19 @@ fn emit_summaries<T: serde::Serialize>(json: bool, resp: &T, items: &[MemorySumm
                     s.key.clone(),
                     s.scope.to_string(),
                     s.updated_at.get(..10).unwrap_or(&s.updated_at).to_string(),
+                    s.expires_at
+                        .as_deref()
+                        .map_or("never", |at| at.get(..10).unwrap_or(at))
+                        .to_string(),
                     flags.join(", "),
                     s.summary.clone(),
                 ]
             })
             .collect();
-        output::print_table(&["KEY", "SCOPE", "UPDATED", "FLAGS", "SUMMARY"], &rows);
+        output::print_table(
+            &["KEY", "SCOPE", "UPDATED", "EXPIRES", "FLAGS", "SUMMARY"],
+            &rows,
+        );
     });
 }
 

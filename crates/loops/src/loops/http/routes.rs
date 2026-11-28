@@ -12,8 +12,11 @@ use crate::bindings::operations::Bindings;
 use crate::loops::operations::Loops;
 use crate::loops::sync::LoopSyncService;
 use moatless_adapter_model::connections::AdapterConnections;
+use moatless_adapter_model::registry::Adapters;
 use moatless_core::http_auth::UserTokenVerifier;
 use moatless_ports::identity::UserResolver;
+use moatless_ports::sandbox::SandboxWaker;
+use moatless_ports::task::{MessageAcceptor, TaskOpener, TaskReader};
 use moatless_workspace_ports::{RepositoryReader, WorkspaceResolver};
 
 #[derive(OpenApi)]
@@ -27,6 +30,7 @@ use moatless_workspace_ports::{RepositoryReader, WorkspaceResolver};
         handlers::delete_loop,
         handlers::list_loop_recent_tasks,
         handlers::activate_loop,
+        handlers::run_loop,
         handlers::pause_loop,
         handlers::resume_loop,
         handlers::override_loop,
@@ -51,6 +55,11 @@ where
     Arc<LoopSyncService>: FromRef<S>,
     Arc<AdapterConnections>: FromRef<S>,
     Arc<dyn UserTokenVerifier>: FromRef<S>,
+    Arc<dyn TaskReader>: FromRef<S>,
+    Arc<dyn MessageAcceptor>: FromRef<S>,
+    Option<Arc<Adapters>>: FromRef<S>,
+    Arc<dyn TaskOpener>: FromRef<S>,
+    Arc<dyn SandboxWaker>: FromRef<S>,
 {
     let (router, api) = OpenApiRouter::with_openapi(LoopsApiDoc::openapi())
         .routes(routes!(handlers::list_loops, handlers::create_loop))
@@ -58,6 +67,7 @@ where
         .routes(routes!(handlers::update_loop, handlers::delete_loop))
         .routes(routes!(handlers::list_loop_recent_tasks))
         .routes(routes!(handlers::activate_loop))
+        .routes(routes!(handlers::run_loop))
         .routes(routes!(handlers::pause_loop))
         .routes(routes!(handlers::resume_loop))
         .routes(routes!(handlers::override_loop))

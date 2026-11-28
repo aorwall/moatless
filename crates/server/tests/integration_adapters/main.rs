@@ -23,6 +23,7 @@ mod linear_factory_test;
 mod linear_ingress_test;
 mod linear_webhook_metrics_test;
 mod linear_workflow_test;
+mod loop_run_now_test;
 mod loops_sync_test;
 mod slack_ingress_order_test;
 mod task_room_open_test;

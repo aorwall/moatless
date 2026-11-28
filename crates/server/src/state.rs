@@ -687,6 +687,18 @@ impl axum::extract::FromRef<AppState> for Arc<dyn moatless_ports::task::TaskRead
     }
 }
 
+impl axum::extract::FromRef<AppState> for Arc<dyn moatless_ports::task::TaskOpener> {
+    fn from_ref(state: &AppState) -> Self {
+        state.loop_task_opener.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<dyn moatless_ports::task::MessageAcceptor> {
+    fn from_ref(state: &AppState) -> Self {
+        state.loop_turns.clone()
+    }
+}
+
 impl axum::extract::FromRef<AppState> for Arc<dyn moatless_ports::task::TranscriptAppend> {
     fn from_ref(state: &AppState) -> Self {
         state.transcript.clone()

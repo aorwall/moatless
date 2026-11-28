@@ -43,6 +43,11 @@ pub async fn run(
             )
         }
         Some(TypedInvocation::Stack(a)) => stack::run_stack(client, cfg, a, json).await,
+        Some(TypedInvocation::Refused(reason)) => Err(reason.into()),
+        Some(TypedInvocation::Help(text)) => {
+            print!("{text}");
+            Ok(())
+        }
         None if args.first().is_some_and(|a| a == "api") => {
             let args = run_logs::allow_escape_sequences(&args).unwrap_or(args);
             let gh_repo = origin_gh_repo(client, cfg).await;

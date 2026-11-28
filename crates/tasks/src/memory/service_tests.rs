@@ -557,3 +557,21 @@ async fn an_append_creating_a_key_longer_than_a_summary_cuts_the_summary() {
     let summary = puts.lock().unwrap()[0].summary.clone().unwrap_or_default();
     assert_eq!(summary.chars().count(), MAX_SUMMARY_CHARS);
 }
+
+/// A listing is where an agent checks what is about to lapse (feedback
+/// 047647d2), so the summary carries the same expiry the full entry does.
+#[test]
+fn a_summary_carries_the_entry_expiry() {
+    let expiring = row("k", MemoryScope::Loop, "loop-1");
+    assert_eq!(
+        summary_response(&expiring).expires_at,
+        entry_response(&expiring).expires_at
+    );
+    assert!(summary_response(&expiring).expires_at.is_some());
+
+    let kept = MemoryEntryRow {
+        expires_at: None,
+        ..row("k", MemoryScope::Loop, "loop-1")
+    };
+    assert_eq!(summary_response(&kept).expires_at, None);
+}

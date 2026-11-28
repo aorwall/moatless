@@ -32,6 +32,8 @@ import type {
   Loop,
   LoopRecentTaskItem,
   ResetGitLoopResponse,
+  RunLoopRequest,
+  RunLoopResponse,
   UpdateLoopRequest
 } from '../model';
 
@@ -1218,6 +1220,167 @@ export const prefetchResumeLoopQuery = async <TData = Awaited<ReturnType<typeof 
   ): Promise<QueryClient> => {
 
   const queryOptions = getResumeLoopQueryOptions(id,options)
+
+  await queryClient.query(queryOptions).catch(() => {});
+
+  return queryClient;
+}
+
+
+
+
+
+export type runLoopResponse200 = {
+  data: RunLoopResponse
+  status: 200
+}
+
+export type runLoopResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type runLoopResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+
+export type runLoopResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
+export type runLoopResponse409 = {
+  data: ErrorBody
+  status: 409
+}
+
+export type runLoopResponseSuccess = (runLoopResponse200) & {
+  headers: Headers;
+};
+export type runLoopResponseError = (runLoopResponse400 | runLoopResponse403 | runLoopResponse404 | runLoopResponse409) & {
+  headers: Headers;
+};
+
+export type runLoopResponse = (runLoopResponseSuccess | runLoopResponseError)
+
+export const getRunLoopUrl = (id: string,) => {
+
+
+
+
+  return `/api/v1/loops/${id}/run`
+}
+
+export const runLoop = async (id: string,
+    runLoopRequest: RunLoopRequest, options?: Parameters<typeof customInstance>[1]): Promise<runLoopResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customInstance<runLoopResponse>(getRunLoopUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(runLoopRequest)
+  }
+);}
+
+
+
+
+
+export const getRunLoopQueryKey = (id: string,
+    runLoopRequest?: RunLoopRequest,) => {
+    return [
+    'POST', `/api/v1/loops/${id}/run`, runLoopRequest
+    ] as const;
+    }
+
+
+export const getRunLoopQueryOptions = <TData = Awaited<ReturnType<typeof runLoop>>, TError = ErrorType<ErrorBody>>(id: string,
+    runLoopRequest: RunLoopRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof runLoop>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getRunLoopQueryKey(id,runLoopRequest);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof runLoop>>> = ({ signal }) => runLoop(id,runLoopRequest, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof runLoop>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type RunLoopQueryResult = NonNullable<Awaited<ReturnType<typeof runLoop>>>
+export type RunLoopQueryError = ErrorType<ErrorBody>
+
+
+export function useRunLoop<TData = Awaited<ReturnType<typeof runLoop>>, TError = ErrorType<ErrorBody>>(
+ id: string,
+    runLoopRequest: RunLoopRequest, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof runLoop>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof runLoop>>,
+          TError,
+          Awaited<ReturnType<typeof runLoop>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useRunLoop<TData = Awaited<ReturnType<typeof runLoop>>, TError = ErrorType<ErrorBody>>(
+ id: string,
+    runLoopRequest: RunLoopRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof runLoop>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof runLoop>>,
+          TError,
+          Awaited<ReturnType<typeof runLoop>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useRunLoop<TData = Awaited<ReturnType<typeof runLoop>>, TError = ErrorType<ErrorBody>>(
+ id: string,
+    runLoopRequest: RunLoopRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof runLoop>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useRunLoop<TData = Awaited<ReturnType<typeof runLoop>>, TError = ErrorType<ErrorBody>>(
+ id: string,
+    runLoopRequest: RunLoopRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof runLoop>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getRunLoopQueryOptions(id,runLoopRequest,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const prefetchRunLoopQuery = async <TData = Awaited<ReturnType<typeof runLoop>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient, id: string,
+    runLoopRequest: RunLoopRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof runLoop>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getRunLoopQueryOptions(id,runLoopRequest,options)
 
   await queryClient.query(queryOptions).catch(() => {});
 

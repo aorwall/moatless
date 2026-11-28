@@ -386,6 +386,26 @@ pub struct ActivateLoopRequest {
     pub run_as_user_id: String,
 }
 
+/// Body of `POST /api/v1/loops/{id}/run`.
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct RunLoopRequest {
+    /// The firing's first message. Defaults to a schedule Loop's message
+    /// template; required for any other Loop.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+/// Response of `POST /api/v1/loops/{id}/run`.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct RunLoopResponse {
+    /// The Task the firing opened, or the Ongoing Task it messaged.
+    pub task_id: String,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]

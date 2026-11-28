@@ -7,6 +7,14 @@ fn argv(args: &[&str]) -> Vec<String> {
     args.iter().map(ToString::to_string).collect()
 }
 
+/// The refusal message, so a test can check it names the flag that caused it.
+fn refusal(args: &[&str]) -> String {
+    match parse_typed(&argv(args)) {
+        Some(TypedInvocation::Refused(reason)) => reason,
+        other => panic!("expected a refusal for {args:?}, got {other:?}"),
+    }
+}
+
 #[test]
 fn parses_pr_create_with_typed_flags() {
     let parsed = parse_typed(&argv(&[
@@ -45,17 +53,20 @@ fn parses_pr_create_short_flags() {
     assert!(matches!(parsed, Some(TypedInvocation::PrCreate(_))));
 }
 
+/// Plain `gh` would open the PR unbound and without the `Moatless task:`
+/// footer, so a CI hand-back could not find the task (feedback 038c31fb).
 #[test]
-fn pr_create_with_unknown_flag_falls_through() {
-    // `--fill` is not typed — must go to the real gh.
-    assert_eq!(parse_typed(&argv(&["pr", "create", "--fill"])), None);
-    // Missing required --title also falls through.
-    assert_eq!(parse_typed(&argv(&["pr", "create"])), None);
+fn pr_create_with_an_unmodeled_flag_is_refused_not_passed_through() {
+    let reason = refusal(&["pr", "create", "--attach", "x.png", "-t", "t", "-b", "b"]);
+    assert!(reason.contains("`--attach`"), "names the flag: {reason}");
+    assert!(reason.contains("unbound"), "names the cost: {reason}");
+
+    assert!(refusal(&["pr", "create", "--fill"]).contains("`--fill`"));
+    assert!(refusal(&["pr", "create"]).contains("--title"));
 }
 
-/// `--body-file` must not demote `pr create` to plain `gh`: plain `gh` opens
-/// the PR and returns its URL while binding nothing, so the PR is never
-/// connected to the task even though comments posted in the same run are.
+/// `--body-file` is a flag agents reach for, so it must stay typed rather than
+/// be refused.
 #[test]
 fn pr_create_with_body_file_stays_on_the_typed_path() {
     let parsed = parse_typed(&argv(&[
@@ -88,27 +99,21 @@ fn pr_create_accepts_the_gh_short_body_file_flag() {
     assert!(matches!(parsed, Some(TypedInvocation::PrCreate(_))));
 }
 
-/// Both spellings at once is a user error, not a demotion — but it still falls
-/// through, so real gh reports it rather than moat guessing.
 #[test]
 fn pr_create_rejects_body_and_body_file_together() {
-    assert_eq!(
-        parse_typed(&argv(&[
-            "pr",
-            "create",
-            "-t",
-            "t",
-            "-b",
-            "inline",
-            "--body-file",
-            "/tmp/b.md"
-        ])),
-        None
-    );
+    refusal(&[
+        "pr",
+        "create",
+        "-t",
+        "t",
+        "-b",
+        "inline",
+        "--body-file",
+        "/tmp/b.md",
+    ]);
 }
 
-/// A comment body may come from a file as well; the same demotion cost applied,
-/// and the same flag caused it.
+/// A comment body may come from a file as well.
 #[test]
 fn comment_accepts_body_file() {
     let parsed = parse_typed(&argv(&["pr", "comment", "42", "--body-file", "/tmp/b.md"]));
@@ -125,8 +130,9 @@ fn comment_accepts_body_file() {
 
 /// A comment still needs a body from somewhere.
 #[test]
-fn comment_without_any_body_falls_through() {
-    assert_eq!(parse_typed(&argv(&["pr", "comment", "42"])), None);
+fn comment_without_any_body_is_refused() {
+    refusal(&["pr", "comment", "42"]);
+    refusal(&["issue", "comment", "42"]);
 }
 
 #[test]
@@ -162,11 +168,14 @@ fn a_missing_body_file_names_the_path() {
     );
 }
 
-/// The demotion warning exists so a fall-through is never silent again.
-/// `--help` is not a demotion: the user asked for text.
+/// Real `gh`'s help would advertise flags such as `--attach` that are refused.
 #[test]
-fn help_is_not_reported_as_a_demotion() {
-    assert_eq!(parse_typed(&argv(&["pr", "create", "--help"])), None);
+fn help_on_a_proxied_write_lists_moats_own_flags() {
+    let Some(TypedInvocation::Help(text)) = parse_typed(&argv(&["pr", "create", "--help"])) else {
+        panic!("expected moat's help");
+    };
+    assert!(text.contains("--close-task-on-close"));
+    assert!(!text.contains("--attach"));
 }
 
 #[test]
@@ -184,21 +193,16 @@ fn parses_pr_and_issue_comment() {
     ));
 }
 
+/// gh accepts URLs and branches as the comment target; moat types numbers.
 #[test]
-fn comment_with_non_numeric_target_falls_through() {
-    // gh accepts URLs/branches as the comment target — we only type numbers.
-    assert_eq!(
-        parse_typed(&argv(&[
-            "pr",
-            "comment",
-            "https://github.com/o/r/pull/42",
-            "--body",
-            "hi"
-        ])),
-        None
-    );
-    // No --body → editor-based flow → passthrough.
-    assert_eq!(parse_typed(&argv(&["pr", "comment", "42"])), None);
+fn comment_with_non_numeric_target_is_refused() {
+    refusal(&[
+        "pr",
+        "comment",
+        "https://github.com/o/r/pull/42",
+        "--body",
+        "hi",
+    ]);
 }
 
 #[test]
@@ -217,27 +221,15 @@ fn parses_pr_reply() {
 }
 
 #[test]
-fn pr_reply_missing_body_falls_through() {
-    // No --body → fall through to the real gh (which errors: `pr reply`
-    // is moat-only). Better than a half-typed editor flow.
-    assert_eq!(parse_typed(&argv(&["pr", "reply", "42", "777"])), None);
+fn pr_reply_missing_body_is_refused() {
+    refusal(&["pr", "reply", "42", "777"]);
 }
 
 #[test]
-fn pr_reply_non_numeric_positionals_fall_through() {
-    assert_eq!(
-        parse_typed(&argv(&["pr", "reply", "abc", "777", "--body", "x"])),
-        None
-    );
-    assert_eq!(
-        parse_typed(&argv(&["pr", "reply", "42", "not-an-id", "--body", "x"])),
-        None
-    );
-    // Missing comment_id entirely also falls through.
-    assert_eq!(
-        parse_typed(&argv(&["pr", "reply", "42", "--body", "x"])),
-        None
-    );
+fn pr_reply_non_numeric_positionals_are_refused() {
+    refusal(&["pr", "reply", "abc", "777", "--body", "x"]);
+    refusal(&["pr", "reply", "42", "not-an-id", "--body", "x"]);
+    refusal(&["pr", "reply", "42", "--body", "x"]);
 }
 
 #[test]
@@ -275,8 +267,8 @@ fn other_subcommands_fall_through() {
     assert_eq!(parse_typed(&argv(&["pr"])), None);
 }
 
-/// An unknown flag demotes the call to plain `gh`, losing the task binding,
-/// so the flags `gh pr create` users reach for stay on the typed path.
+/// An unknown flag refuses the call, so the flags `gh pr create` users reach
+/// for stay on the typed path.
 #[test]
 fn pr_create_takes_labels_and_reviewers_on_the_typed_path() {
     let parsed = parse_typed(&argv(&[

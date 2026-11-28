@@ -25,6 +25,10 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  AdminDeleteBotProviderTokenParams,
+  AdminGetBotProviderTokenParams,
+  BotCredentialProvider,
+  BotProviderTokenStatusResponse,
   DeleteForgejoConfigParams,
   DeleteForgejoPatOverrideParams,
   ErrorBody,
@@ -32,6 +36,7 @@ import type {
   ForgejoProviderTokenStatusResponse,
   GetForgejoConfigParams,
   GitHubProviderTokenStatusResponse,
+  SaveBotProviderTokenRequest,
   SaveForgejoProviderTokenRequest,
   SaveGitHubProviderTokenRequest
 } from '../model';
@@ -62,6 +67,437 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
   }
   return result;
 };
+
+export type adminGetBotProviderTokenResponse200 = {
+  data: BotProviderTokenStatusResponse
+  status: 200
+}
+
+export type adminGetBotProviderTokenResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type adminGetBotProviderTokenResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+
+export type adminGetBotProviderTokenResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
+export type adminGetBotProviderTokenResponseSuccess = (adminGetBotProviderTokenResponse200) & {
+  headers: Headers;
+};
+export type adminGetBotProviderTokenResponseError = (adminGetBotProviderTokenResponse400 | adminGetBotProviderTokenResponse403 | adminGetBotProviderTokenResponse404) & {
+  headers: Headers;
+};
+
+export type adminGetBotProviderTokenResponse = (adminGetBotProviderTokenResponseSuccess | adminGetBotProviderTokenResponseError)
+
+export const getAdminGetBotProviderTokenUrl = (userId: string,
+    provider: BotCredentialProvider,
+    params?: AdminGetBotProviderTokenParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/admin/users/${userId}/provider-tokens/${provider}?${stringifiedParams}` : `/api/v1/admin/users/${userId}/provider-tokens/${provider}`
+}
+
+export const adminGetBotProviderToken = async (userId: string,
+    provider: BotCredentialProvider,
+    params?: AdminGetBotProviderTokenParams, options?: Parameters<typeof customInstance>[1]): Promise<adminGetBotProviderTokenResponse> => {
+
+  return customInstance<adminGetBotProviderTokenResponse>(getAdminGetBotProviderTokenUrl(userId,provider,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetBotProviderTokenMutationKey = () => ['adminGetBotProviderToken'] as const;
+
+export const getAdminGetBotProviderTokenMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminGetBotProviderToken>>, TError,AdminGetBotProviderTokenMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminGetBotProviderToken>>, TError,AdminGetBotProviderTokenMutationVariables, TContext> => {
+
+const mutationKey = getAdminGetBotProviderTokenMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminGetBotProviderToken>>, AdminGetBotProviderTokenMutationVariables> = (props) => {
+          const {userId,provider,params} = props ?? {};
+
+          return  adminGetBotProviderToken(userId,provider,params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminGetBotProviderTokenMutationResult = NonNullable<Awaited<ReturnType<typeof adminGetBotProviderToken>>>
+
+    export type AdminGetBotProviderTokenMutationError = ErrorType<ErrorBody>
+    export type AdminGetBotProviderTokenMutationVariables = {userId: string;provider: BotCredentialProvider;params?: AdminGetBotProviderTokenParams}
+
+    export const useAdminGetBotProviderToken = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminGetBotProviderToken>>, TError,AdminGetBotProviderTokenMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof adminGetBotProviderToken>>,
+        TError,
+        AdminGetBotProviderTokenMutationVariables,
+        TContext
+      > => {
+      return useMutation(getAdminGetBotProviderTokenMutationOptions(options), queryClient);
+    }
+    export type adminSaveBotProviderTokenResponse200 = {
+  data: BotProviderTokenStatusResponse
+  status: 200
+}
+
+export type adminSaveBotProviderTokenResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type adminSaveBotProviderTokenResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+
+export type adminSaveBotProviderTokenResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
+export type adminSaveBotProviderTokenResponseSuccess = (adminSaveBotProviderTokenResponse200) & {
+  headers: Headers;
+};
+export type adminSaveBotProviderTokenResponseError = (adminSaveBotProviderTokenResponse400 | adminSaveBotProviderTokenResponse403 | adminSaveBotProviderTokenResponse404) & {
+  headers: Headers;
+};
+
+export type adminSaveBotProviderTokenResponse = (adminSaveBotProviderTokenResponseSuccess | adminSaveBotProviderTokenResponseError)
+
+export const getAdminSaveBotProviderTokenUrl = (userId: string,
+    provider: BotCredentialProvider,) => {
+
+
+
+
+  return `/api/v1/admin/users/${userId}/provider-tokens/${provider}`
+}
+
+export const adminSaveBotProviderToken = async (userId: string,
+    provider: BotCredentialProvider,
+    saveBotProviderTokenRequest: SaveBotProviderTokenRequest, options?: Parameters<typeof customInstance>[1]): Promise<adminSaveBotProviderTokenResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customInstance<adminSaveBotProviderTokenResponse>(getAdminSaveBotProviderTokenUrl(userId,provider),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(saveBotProviderTokenRequest)
+  }
+);}
+
+
+
+
+
+export const getAdminSaveBotProviderTokenQueryKey = (userId: string,
+    provider: BotCredentialProvider,
+    saveBotProviderTokenRequest?: SaveBotProviderTokenRequest,) => {
+    return [
+    'PUT', `/api/v1/admin/users/${userId}/provider-tokens/${provider}`, saveBotProviderTokenRequest
+    ] as const;
+    }
+
+
+export const getAdminSaveBotProviderTokenQueryOptions = <TData = Awaited<ReturnType<typeof adminSaveBotProviderToken>>, TError = ErrorType<ErrorBody>>(userId: string,
+    provider: BotCredentialProvider,
+    saveBotProviderTokenRequest: SaveBotProviderTokenRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof adminSaveBotProviderToken>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminSaveBotProviderTokenQueryKey(userId,provider,saveBotProviderTokenRequest);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminSaveBotProviderToken>>> = ({ signal }) => adminSaveBotProviderToken(userId,provider,saveBotProviderTokenRequest, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: userId !== null && userId !== undefined && provider !== null && provider !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminSaveBotProviderToken>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type AdminSaveBotProviderTokenQueryResult = NonNullable<Awaited<ReturnType<typeof adminSaveBotProviderToken>>>
+export type AdminSaveBotProviderTokenQueryError = ErrorType<ErrorBody>
+
+
+export function useAdminSaveBotProviderToken<TData = Awaited<ReturnType<typeof adminSaveBotProviderToken>>, TError = ErrorType<ErrorBody>>(
+ userId: string,
+    provider: BotCredentialProvider,
+    saveBotProviderTokenRequest: SaveBotProviderTokenRequest, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof adminSaveBotProviderToken>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof adminSaveBotProviderToken>>,
+          TError,
+          Awaited<ReturnType<typeof adminSaveBotProviderToken>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useAdminSaveBotProviderToken<TData = Awaited<ReturnType<typeof adminSaveBotProviderToken>>, TError = ErrorType<ErrorBody>>(
+ userId: string,
+    provider: BotCredentialProvider,
+    saveBotProviderTokenRequest: SaveBotProviderTokenRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof adminSaveBotProviderToken>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof adminSaveBotProviderToken>>,
+          TError,
+          Awaited<ReturnType<typeof adminSaveBotProviderToken>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useAdminSaveBotProviderToken<TData = Awaited<ReturnType<typeof adminSaveBotProviderToken>>, TError = ErrorType<ErrorBody>>(
+ userId: string,
+    provider: BotCredentialProvider,
+    saveBotProviderTokenRequest: SaveBotProviderTokenRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof adminSaveBotProviderToken>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useAdminSaveBotProviderToken<TData = Awaited<ReturnType<typeof adminSaveBotProviderToken>>, TError = ErrorType<ErrorBody>>(
+ userId: string,
+    provider: BotCredentialProvider,
+    saveBotProviderTokenRequest: SaveBotProviderTokenRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof adminSaveBotProviderToken>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getAdminSaveBotProviderTokenQueryOptions(userId,provider,saveBotProviderTokenRequest,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const prefetchAdminSaveBotProviderTokenQuery = async <TData = Awaited<ReturnType<typeof adminSaveBotProviderToken>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient, userId: string,
+    provider: BotCredentialProvider,
+    saveBotProviderTokenRequest: SaveBotProviderTokenRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof adminSaveBotProviderToken>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getAdminSaveBotProviderTokenQueryOptions(userId,provider,saveBotProviderTokenRequest,options)
+
+  await queryClient.query(queryOptions).catch(() => {});
+
+  return queryClient;
+}
+
+
+
+
+
+export type adminDeleteBotProviderTokenResponse200 = {
+  data: BotProviderTokenStatusResponse
+  status: 200
+}
+
+export type adminDeleteBotProviderTokenResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type adminDeleteBotProviderTokenResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+
+export type adminDeleteBotProviderTokenResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
+export type adminDeleteBotProviderTokenResponseSuccess = (adminDeleteBotProviderTokenResponse200) & {
+  headers: Headers;
+};
+export type adminDeleteBotProviderTokenResponseError = (adminDeleteBotProviderTokenResponse400 | adminDeleteBotProviderTokenResponse403 | adminDeleteBotProviderTokenResponse404) & {
+  headers: Headers;
+};
+
+export type adminDeleteBotProviderTokenResponse = (adminDeleteBotProviderTokenResponseSuccess | adminDeleteBotProviderTokenResponseError)
+
+export const getAdminDeleteBotProviderTokenUrl = (userId: string,
+    provider: BotCredentialProvider,
+    params?: AdminDeleteBotProviderTokenParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/admin/users/${userId}/provider-tokens/${provider}?${stringifiedParams}` : `/api/v1/admin/users/${userId}/provider-tokens/${provider}`
+}
+
+export const adminDeleteBotProviderToken = async (userId: string,
+    provider: BotCredentialProvider,
+    params?: AdminDeleteBotProviderTokenParams, options?: Parameters<typeof customInstance>[1]): Promise<adminDeleteBotProviderTokenResponse> => {
+
+  return customInstance<adminDeleteBotProviderTokenResponse>(getAdminDeleteBotProviderTokenUrl(userId,provider,params),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminDeleteBotProviderTokenQueryKey = (userId: string,
+    provider: BotCredentialProvider,
+    params?: AdminDeleteBotProviderTokenParams,) => {
+    return [
+    'DELETE', `/api/v1/admin/users/${userId}/provider-tokens/${provider}`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getAdminDeleteBotProviderTokenQueryOptions = <TData = Awaited<ReturnType<typeof adminDeleteBotProviderToken>>, TError = ErrorType<ErrorBody>>(userId: string,
+    provider: BotCredentialProvider,
+    params?: AdminDeleteBotProviderTokenParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof adminDeleteBotProviderToken>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminDeleteBotProviderTokenQueryKey(userId,provider,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminDeleteBotProviderToken>>> = ({ signal }) => adminDeleteBotProviderToken(userId,provider,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: userId !== null && userId !== undefined && provider !== null && provider !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminDeleteBotProviderToken>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type AdminDeleteBotProviderTokenQueryResult = NonNullable<Awaited<ReturnType<typeof adminDeleteBotProviderToken>>>
+export type AdminDeleteBotProviderTokenQueryError = ErrorType<ErrorBody>
+
+
+export function useAdminDeleteBotProviderToken<TData = Awaited<ReturnType<typeof adminDeleteBotProviderToken>>, TError = ErrorType<ErrorBody>>(
+ userId: string,
+    provider: BotCredentialProvider,
+    params: undefined |  AdminDeleteBotProviderTokenParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof adminDeleteBotProviderToken>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof adminDeleteBotProviderToken>>,
+          TError,
+          Awaited<ReturnType<typeof adminDeleteBotProviderToken>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useAdminDeleteBotProviderToken<TData = Awaited<ReturnType<typeof adminDeleteBotProviderToken>>, TError = ErrorType<ErrorBody>>(
+ userId: string,
+    provider: BotCredentialProvider,
+    params?: AdminDeleteBotProviderTokenParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof adminDeleteBotProviderToken>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof adminDeleteBotProviderToken>>,
+          TError,
+          Awaited<ReturnType<typeof adminDeleteBotProviderToken>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useAdminDeleteBotProviderToken<TData = Awaited<ReturnType<typeof adminDeleteBotProviderToken>>, TError = ErrorType<ErrorBody>>(
+ userId: string,
+    provider: BotCredentialProvider,
+    params?: AdminDeleteBotProviderTokenParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof adminDeleteBotProviderToken>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useAdminDeleteBotProviderToken<TData = Awaited<ReturnType<typeof adminDeleteBotProviderToken>>, TError = ErrorType<ErrorBody>>(
+ userId: string,
+    provider: BotCredentialProvider,
+    params?: AdminDeleteBotProviderTokenParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof adminDeleteBotProviderToken>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getAdminDeleteBotProviderTokenQueryOptions(userId,provider,params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const prefetchAdminDeleteBotProviderTokenQuery = async <TData = Awaited<ReturnType<typeof adminDeleteBotProviderToken>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient, userId: string,
+    provider: BotCredentialProvider,
+    params?: AdminDeleteBotProviderTokenParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof adminDeleteBotProviderToken>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getAdminDeleteBotProviderTokenQueryOptions(userId,provider,params,options)
+
+  await queryClient.query(queryOptions).catch(() => {});
+
+  return queryClient;
+}
+
+
+
+
 
 export type getForgejoConfigResponse200 = {
   data: ForgejoProviderTokenStatusResponse

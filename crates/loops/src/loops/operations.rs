@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use super::access::ensure_workspace_usable;
 use super::dao::LoopDao;
+use super::firing::loop_firing::{Firing, FiringPorts};
 use super::models::{
     AdapterSourceUpdate, LoopAgentChoice, LoopListFilter, LoopRecord, LoopSourceRow, LoopUpdate,
     ManagedLoopUpsert, NewAdapterEventSource, NewLoop, NewLoopConfig, NewLoopSource,
@@ -20,6 +21,7 @@ use moatless_api_schemas::loops::{
     CreateLoopRequest, UpdateLoopConfig, UpdateLoopRequest, UpdateLoopSource,
 };
 use moatless_ports::identity::UserResolver;
+use moatless_ports::task::TaskOpenError;
 use moatless_tasks::agent::catalog;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::agent::AgentProfile;
@@ -496,6 +498,63 @@ impl Loops {
             return Err(SharedAdapterError::NotFound(format!("Loop {id} not found")).into());
         }
         Ok(())
+    }
+
+    /// Fire the Loop now, as its schedule would, for an administrator, and
+    /// return the Task that took the turn. Needs an approved run-as user but
+    /// not an active Loop, so a paused Loop can be tried before it is resumed.
+    pub async fn run_now(
+        &self,
+        ports: &FiringPorts,
+        ctx: &ScopeContext,
+        id: &str,
+        message: Option<String>,
+    ) -> Result<String, AdapterError> {
+        require_admin(ctx)?;
+        let record = self.load_for_auth(ctx, id).await?;
+        if record.loop_.deleted {
+            return Err(SharedAdapterError::NotFound(format!("Loop {id} not found")).into());
+        }
+        let text = match (message.filter(|m| !m.trim().is_empty()), &record.source) {
+            (Some(text), _) => text,
+            (None, LoopSourceRow::Schedule(schedule)) => schedule.message_template.clone(),
+            _ => {
+                return Err(SharedAdapterError::BadRequest(
+                    "Only a schedule Loop has a message to default to; pass one".to_string(),
+                )
+                .into());
+            }
+        };
+        let route = self.store.find_loop_spawn_config(id).await?;
+        let run_as_user_id = route.run_as_user_id.clone().ok_or_else(|| {
+            SharedAdapterError::Conflict(
+                "Loop has no approved run-as user; activate it first".to_string(),
+            )
+        })?;
+        let firing = Firing {
+            loop_id: id.to_string(),
+            adapter_config: serde_json::json!({"message": text, "runBy": ctx.user_id}),
+            text,
+            run_as_user_id,
+            requester: Some(ctx.user_id.clone()),
+            active: record.loop_.active,
+            event_id: format!("run:{id}:{}", uuid::Uuid::new_v4()),
+        };
+        ports.fire(&route, &firing, &self.store).await.map_err(|e| {
+            match e.downcast::<TaskOpenError>().map(|e| *e) {
+                Ok(refused @ TaskOpenError::Refused(_)) => {
+                    SharedAdapterError::Conflict(refused.to_string()).into()
+                }
+                Ok(e @ TaskOpenError::RepoNotFound(_)) => {
+                    SharedAdapterError::NotFound(e.to_string()).into()
+                }
+                Ok(e @ TaskOpenError::BadRequest(_)) => {
+                    SharedAdapterError::BadRequest(e.to_string()).into()
+                }
+                Ok(other) => SharedAdapterError::Internal(other.to_string()).into(),
+                Err(other) => SharedAdapterError::Internal(other.to_string()).into(),
+            }
+        })
     }
 
     /// Pause an administrator-visible Loop.

@@ -735,6 +735,15 @@ impl ApiClient {
             .await
     }
 
+    /// POST /api/v1/loops/{id}/run
+    pub async fn run_loop(
+        &self,
+        id: &str,
+        req: &moatless_api_schemas::loops::RunLoopRequest,
+    ) -> Result<moatless_api_schemas::loops::RunLoopResponse, ApiError> {
+        self.post(&format!("/api/v1/loops/{id}/run"), req).await
+    }
+
     /// POST /api/v1/loops/{id}/pause
     pub async fn pause_loop(
         &self,

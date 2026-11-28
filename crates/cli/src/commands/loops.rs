@@ -10,8 +10,8 @@ use moatless_api_schemas::enums::{AdapterKind, RoutingMode, Scope};
 use moatless_api_schemas::loops::{
     ActivateLoopRequest, CreateLoopConfig, CreateLoopRequest, CreateLoopSource, CreateSchedule,
     CreateSubscription, Loop, LoopConfigSource, LoopExecutionState, LoopKind, LoopRecentTaskItem,
-    LoopSource, UpdateLoopConfig, UpdateLoopRequest, UpdateLoopSource, UpdateSchedule,
-    UpdateSubscription,
+    LoopSource, RunLoopRequest, UpdateLoopConfig, UpdateLoopRequest, UpdateLoopSource,
+    UpdateSchedule, UpdateSubscription,
 };
 
 use super::adapters::{parse_adapter_kind, parse_json_opt, print_or_json};
@@ -232,6 +232,17 @@ pub enum LoopsAction {
         id: String,
         #[arg(long)]
         run_as_user_id: String,
+    },
+    /// Fire a loop now, as its schedule would: a Task with the loop's
+    /// workspace, run-as user and prompt, whose `--scope loop` memory is the
+    /// loop's. Administrators only; a paused loop still needs a run-as user
+    Run {
+        #[arg(long)]
+        id: String,
+        /// First message. Defaults to a schedule loop's message template;
+        /// required for any other loop
+        #[arg(long)]
+        message: Option<String>,
     },
     /// Pause a loop while preserving its selected execution user
     Pause {
@@ -526,6 +537,13 @@ pub async fn run_loops(
                 .activate_loop(&id, &ActivateLoopRequest { run_as_user_id })
                 .await?;
             print_or_json(&updated, json);
+        }
+        LoopsAction::Run { id, message } => {
+            let fired = client
+                .api()
+                .run_loop(&id, &RunLoopRequest { message })
+                .await?;
+            output::emit(json, &fired, || println!("{}", fired.task_id));
         }
         LoopsAction::Pause { id } => {
             let updated = client.api().pause_loop(&id).await?;

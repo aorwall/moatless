@@ -268,6 +268,10 @@ Notes:
   or Activate in the UI) naming the identity its tasks run as. `active` and
   `runAsUserId` in the frontmatter are ignored, and `sync-config` reports each
   one it saw as a warning.
+- To fire a loop without waiting for its schedule, an administrator runs
+  `moat loops run --id <id> [--message <text>]`. The task is a real firing:
+  `loop_id` set, so `moat memory put --scope loop` there seeds the loop's
+  memory. The loop needs a run-as user but may be paused.
 - That approval then **survives every later sync**. Once activated, a loop keeps
   running as its approved user while `sync-config` keeps its configuration
   current — re-approval is only needed for a loop nobody has activated yet, or

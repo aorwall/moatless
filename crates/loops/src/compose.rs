@@ -38,6 +38,7 @@ use crate::bindings::ports::BindingDirectory;
 use crate::bindings::reply::ExternalReplyService;
 use crate::bindings::runtime::RoutingService;
 use crate::loops::dao::LoopDao;
+use crate::loops::firing::loop_firing::FiringPorts;
 use crate::loops::firing::receipts_dao::EventReceipts;
 use crate::loops::firing::schedule_runner::ScheduleRunner;
 use crate::loops::operations::Loops;
@@ -142,11 +143,13 @@ impl LoopGraph {
     pub fn schedule_runner(&self, inputs: ScheduleRunnerInputs) -> ScheduleRunner {
         ScheduleRunner::new(
             self.loops.clone(),
-            inputs.tasks,
-            inputs.message_send,
-            inputs.adapters,
-            inputs.task_creation,
-            inputs.sandbox_waker,
+            FiringPorts {
+                tasks: inputs.tasks,
+                message_send: inputs.message_send,
+                adapters: inputs.adapters,
+                task_creation: inputs.task_creation,
+                sandbox_waker: inputs.sandbox_waker,
+            },
             inputs.worker_id,
         )
     }

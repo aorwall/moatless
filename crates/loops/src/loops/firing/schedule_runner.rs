@@ -8,74 +8,27 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use crate::loops::dao::LoopDao;
+use crate::loops::firing::loop_firing::{Firing, FiringPorts};
 use crate::loops::firing::metrics::record_schedule_firing;
-use crate::loops::models::LoopSpawnConfig;
 use crate::loops::models::Schedule;
 use crate::loops::schedule::next_fire_at;
-use moatless_adapter_model::registry::Adapters;
 use moatless_core::leader::LeaderGuard;
-use moatless_ports::sandbox::SandboxWaker;
-use moatless_ports::task::TaskReader;
-use moatless_ports::task::{
-    InboundTurn, MessageAcceptor, SandboxProvision, TaskOpenError, TaskOpener, TurnOrigin,
-};
-use moatless_types::access_control::ScopeContext;
-use moatless_types::adapter::{AdapterKind, Audience, InboundMessage, SCHEDULED_ORIGIN};
-use moatless_types::loops::LoopContext;
-use moatless_types::task::TaskStatus;
-
-/// Always prepended to the `append_system_prompt` of a task a schedule fires,
-/// so a Loop prompt does not have to restate that the run is unattended.
-///
-/// Without it a scheduled agent stops to ask a question nobody answers until
-/// someone opens the task.
-const SCHEDULE_ORIGIN_CONTEXT: &str = "\
-# Autonomous Run
-
-A schedule started this run, and no person is waiting on it. A question you ask
-here reaches somebody only when they open the task later.
-
-Do not ask for approval, for confirmation, or for a choice between options. Run
-the instructions that follow to their end, including every step that creates,
-changes, or assigns something.
-
-When the instructions cover the case in front of you, follow them. When they do
-not, take the most conservative action they allow. Say in your final message
-what you did and what you left undone.
-
-When a person does message this task, answer them and continue.";
 
 /// Durable schedule-firing runner: claims due schedules and fires each as an
 /// inbound message, holding the ports it needs rather than the whole
 /// `AppState`.
 pub struct ScheduleRunner {
     loops: Arc<LoopDao>,
-    tasks: Arc<dyn TaskReader>,
-    message_send: Arc<dyn MessageAcceptor>,
-    adapters: Option<Arc<Adapters>>,
-    task_creation: Arc<dyn TaskOpener>,
-    sandbox_waker: Arc<dyn SandboxWaker>,
+    ports: FiringPorts,
     worker_id: String,
 }
 
 impl ScheduleRunner {
     /// Assemble the runner from the ports it fires schedules through.
-    pub(crate) fn new(
-        loops: Arc<LoopDao>,
-        tasks: Arc<dyn TaskReader>,
-        message_send: Arc<dyn MessageAcceptor>,
-        adapters: Option<Arc<Adapters>>,
-        task_creation: Arc<dyn TaskOpener>,
-        sandbox_waker: Arc<dyn SandboxWaker>,
-        worker_id: String,
-    ) -> Self {
+    pub(crate) fn new(loops: Arc<LoopDao>, ports: FiringPorts, worker_id: String) -> Self {
         Self {
             loops,
-            tasks,
-            message_send,
-            adapters,
-            task_creation,
-            sandbox_waker,
+            ports,
             worker_id,
         }
     }
@@ -165,8 +118,6 @@ impl ScheduleRunner {
         schedule: &Schedule,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let route = self.loops.find_loop_spawn_config(&schedule.loop_id).await?;
-
-        let config = route_to_config(&route, schedule);
         let run_as_user_id = schedule
             .run_as_user_id
             .clone()
@@ -174,306 +125,20 @@ impl ScheduleRunner {
             .ok_or_else(|| {
                 std::io::Error::other("claimed schedule Loop has no approved run-as user")
             })?;
-        let msg = InboundMessage {
-            adapter_kind: AdapterKind::Webhook,
-            source_id: schedule.id.clone(),
-            thread_id: None,
-            message_thread_id: format!("scheduled:{}", schedule.id),
-            user_id: run_as_user_id,
-            // A schedule fires on its own; no external person authored it.
-            author: None,
-            sender_external_id: None,
-            requester: None,
+        let firing = Firing {
+            loop_id: schedule.id.clone(),
             text: schedule.message_template.clone(),
-            file_ids: vec![],
-            attachments: Vec::new(),
-            thread_properties: serde_json::json!({"schedule_id": schedule.id}),
-            adapter_context: serde_json::json!({"schedule_id": schedule.id}),
-            external_event_id: Some(format!(
-                "scheduled:{}:{}",
-                schedule.id,
-                Utc::now().timestamp()
-            )),
-            source_task_id: None,
-            audience: Audience::Everyone,
-            replies_to: Vec::new(),
-            event: None,
-        };
-
-        let mut is_new_task = false;
-        let task_id = if route.routing_mode == moatless_types::loops::RoutingMode::Ongoing {
-            if let Some(task_id) = route.ongoing_task_id.as_deref() {
-                #[expect(
-                    clippy::disallowed_methods,
-                    reason = "a schedule firing has no caller identity"
-                )]
-                let sys = ScopeContext::system();
-                match self.tasks.describe(task_id, &sys).await {
-                    Ok(Some(task)) if task.status == TaskStatus::Open => task.task_id,
-                    _ => {
-                        is_new_task = true;
-                        self.open_scheduled_task(&config, &msg).await?
-                    }
-                }
-            } else {
-                is_new_task = true;
-                self.open_scheduled_task(&config, &msg).await?
-            }
-        } else {
-            is_new_task = true;
-            self.open_scheduled_task(&config, &msg).await?
-        };
-
-        if is_new_task && route.routing_mode == moatless_types::loops::RoutingMode::Ongoing {
-            self.loops.set_ongoing_task(&route.id, &task_id).await?;
-        }
-
-        self.message_send
-            .accept(InboundTurn {
-                task_id: task_id.clone(),
-                text: schedule.message_template.clone(),
-                file_ids: Vec::new(),
-                resume: true,
-                origin: TurnOrigin {
-                    event_id: msg.external_event_id.clone(),
-                    adapter: Some(SCHEDULED_ORIGIN.to_string()),
-                    source_name: Some(schedule.id.clone()),
-                    ..TurnOrigin::default()
-                },
-                sent_by: None,
-                skills: config.skills.clone(),
-            })
-            .await?;
-
-        if !is_new_task {
-            self.sandbox_waker.wake(&task_id).await?;
-        }
-
-        Ok(())
-    }
-
-    async fn open_scheduled_task(
-        &self,
-        config: &LoopContext,
-        msg: &InboundMessage,
-    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        create_scheduled_task(
-            self.task_creation.as_ref(),
-            self.adapters.as_deref(),
-            config,
-            msg,
-        )
-        .await
-    }
-}
-
-/// Free rather than a method on [`ScheduleRunner`]: it reads two of the six
-/// ports, and a test drives it with a `TaskOpener` double and no `LoopDao`.
-async fn create_scheduled_task(
-    task_creation: &dyn TaskOpener,
-    adapters: Option<&Adapters>,
-    config: &LoopContext,
-    msg: &InboundMessage,
-) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    // Provisioning happens inside the creation service. Preserve the
-    // `provision_failed` metric using the provision outcome it reports back.
-    // Resolve the bound adapter's reply instructions from the registry and
-    // pass them to the firing entry point as a value.
-    let presentation =
-        adapters.and_then(|providers| providers.inbound_presentation_by_name(&config.adapter_kind));
-    let reply_instructions = match presentation {
-        Some(p) => p.reply_instructions().await,
-        None => None,
-    };
-    let outcome = match crate::loops::firing::inbound::create_task_for_external_message(
-        task_creation,
-        config,
-        msg,
-        None,
-        reply_instructions,
-        Some(SCHEDULE_ORIGIN_CONTEXT),
-    )
-    .await
-    {
-        Ok(outcome) => outcome,
-        // Permanent failure (e.g. bad GitHub token): already persisted as
-        // errored, with a `SandboxStatus::Error` event published. Record a
-        // distinct metric so a broken token is separable from a transient
-        // blip in the generic `execution_failed` counter; the per-tick cron
-        // retry is inherent, left to Loop auto-disable.
-        Err(e @ TaskOpenError::Refused(_)) => {
-            warn!(loop_id = %config.id, error = %e, "Scheduled task preflight failed");
-            record_schedule_firing("error", "preflight_failed", &config.id);
-            return Err(Box::new(e));
-        }
-        Err(e) => return Err(Box::new(e)),
-    };
-
-    if outcome.provision == SandboxProvision::Failed {
-        record_schedule_firing("error", "provision_failed", &config.id);
-    }
-
-    Ok(outcome.task_id)
-}
-
-fn route_to_config(route: &LoopSpawnConfig, schedule: &Schedule) -> LoopContext {
-    LoopContext {
-        id: schedule.id.clone(),
-        adapter_kind: SCHEDULED_ORIGIN.to_string(),
-        source_id: schedule.id.clone(),
-        source_name: Some(schedule.id.clone()),
-        workspace_id: route.workspace_id.clone(),
-        routing_mode: route.routing_mode,
-        prompt_template: route.prompt_template.clone(),
-        active: schedule.active,
-        allow_direct_send: false,
-        adapter_config: Some(serde_json::json!({
-            "message": schedule.message_template,
-            "schedule": schedule.cron_expression,
-            "timezone": schedule.timezone,
-        })),
-        ongoing_task_id: route.ongoing_task_id.clone(),
-        scope: route.scope,
-        task_name: route.task_name.clone(),
-        tag_ids: route.tag_ids.clone(),
-        memory_preload: route.memory_preload.clone(),
-        agent_properties: route.agent_properties.clone(),
-        skills: route.skills.clone(),
-        run_as_user_id: schedule
-            .run_as_user_id
-            .clone()
-            .or_else(|| route.run_as_user_id.clone()),
-        agent_profile: route.agent_profile,
-        model: route.model.clone(),
-        close_after_settled_days: route.close_after_settled_days,
-        settle_after_hours: route.settle_after_hours,
-        node_selector: route.node_selector.clone(),
-        stop_when_done: route.stop_when_done.unwrap_or(false),
-        room: route.room.clone(),
-        created_by: route.created_by.clone(),
-        created_at: route.created_at,
-        updated_at: route.updated_at,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::Mutex;
-
-    use moatless_ports::task::{NewTask, TaskOpened};
-    use moatless_types::access_control::Scope;
-    use moatless_types::agent::AgentProfile;
-    use moatless_types::loops::RoutingMode;
-
-    use super::*;
-
-    /// Captures the `NewTask` the runner opens, which is where the assembled
-    /// `append_system_prompt` becomes observable.
-    #[derive(Default)]
-    struct CapturingOpener(Mutex<Option<NewTask>>);
-
-    #[async_trait::async_trait]
-    impl TaskOpener for CapturingOpener {
-        async fn open(&self, req: NewTask) -> Result<TaskOpened, TaskOpenError> {
-            *self.0.lock().unwrap() = Some(req);
-            Ok(TaskOpened {
-                task_id: "task-1".to_string(),
-                provision: SandboxProvision::Started,
-            })
-        }
-    }
-
-    fn schedule_context(prompt_template: Option<&str>) -> LoopContext {
-        let now = Utc::now();
-        LoopContext {
-            id: "sch-1".to_string(),
-            adapter_kind: SCHEDULED_ORIGIN.to_string(),
-            source_id: "sch-1".to_string(),
-            source_name: Some("sch-1".to_string()),
-            workspace_id: "ws-1".to_string(),
-            routing_mode: RoutingMode::BySubject,
-            prompt_template: prompt_template.map(str::to_string),
-            active: true,
-            allow_direct_send: false,
-            adapter_config: None,
-            ongoing_task_id: None,
-            scope: Scope::User,
-            task_name: Some("Docs Improver".to_string()),
-            tag_ids: vec![],
-            memory_preload: Vec::new(),
-            agent_properties: Default::default(),
-            skills: vec![],
-            run_as_user_id: Some("user-1".to_string()),
-            agent_profile: AgentProfile::ClaudeCode,
-            model: None,
-            close_after_settled_days: None,
-            settle_after_hours: None,
-            created_by: "user-1".to_string(),
-            created_at: now,
-            updated_at: now,
-            node_selector: None,
-            stop_when_done: false,
-            room: None,
-        }
-    }
-
-    fn scheduled_message(text: &str) -> InboundMessage {
-        InboundMessage {
-            adapter_kind: AdapterKind::Webhook,
-            source_id: "sch-1".to_string(),
-            thread_id: None,
-            message_thread_id: "scheduled:sch-1".to_string(),
-            user_id: "user-1".to_string(),
-            author: None,
-            sender_external_id: None,
+            run_as_user_id,
             requester: None,
-            text: text.to_string(),
-            file_ids: vec![],
-            attachments: Vec::new(),
-            thread_properties: serde_json::Value::Null,
-            adapter_context: serde_json::Value::Null,
-            external_event_id: Some("scheduled:sch-1:1780000000".to_string()),
-            source_task_id: None,
-            audience: Audience::Everyone,
-            replies_to: Vec::new(),
-            event: None,
-        }
-    }
-
-    async fn opened_prompt(config: &LoopContext) -> Option<String> {
-        let opener = CapturingOpener::default();
-        create_scheduled_task(&opener, None, config, &scheduled_message("/docs-improver"))
-            .await
-            .expect("the opener accepts every task");
-        let captured = opener.0.lock().unwrap().take();
-        captured
-            .expect("the runner opened a task")
-            .append_system_prompt
-    }
-
-    /// The agent otherwise reads the same prompt an interactive one does. A
-    /// scheduled `docs-improver` run stopped at its assignment step and asked
-    /// the user to pick an option, which nobody was there to answer.
-    #[tokio::test]
-    async fn a_scheduled_task_is_told_that_nobody_is_waiting_on_it() {
-        let config = schedule_context(Some("Run the `docs-improver` skill."));
-
-        let prompt = opened_prompt(&config)
-            .await
-            .expect("a scheduled firing always has a prompt");
-
-        assert!(prompt.starts_with(SCHEDULE_ORIGIN_CONTEXT));
-        assert!(prompt.ends_with("Run the `docs-improver` skill."));
-    }
-
-    /// A Loop with no prompt of its own still gets the origin context.
-    #[tokio::test]
-    async fn the_origin_context_does_not_depend_on_a_loop_prompt() {
-        let config = schedule_context(None);
-
-        assert_eq!(
-            opened_prompt(&config).await.as_deref(),
-            Some(SCHEDULE_ORIGIN_CONTEXT)
-        );
+            active: schedule.active,
+            adapter_config: serde_json::json!({
+                "message": schedule.message_template,
+                "schedule": schedule.cron_expression,
+                "timezone": schedule.timezone,
+            }),
+            event_id: format!("scheduled:{}:{}", schedule.id, Utc::now().timestamp()),
+        };
+        self.ports.fire(&route, &firing, &self.loops).await?;
+        Ok(())
     }
 }

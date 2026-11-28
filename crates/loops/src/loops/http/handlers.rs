@@ -9,13 +9,14 @@ use moatless_api_schemas::bindings::TaskBindingResponse;
 use moatless_api_schemas::enums::TaskStatus;
 use moatless_api_schemas::loops::{
     ActivateLoopRequest, CreateLoopRequest, Loop, LoopRecentTaskItem, LoopRecentTaskSummary,
-    ResetGitLoopResponse, UpdateLoopRequest,
+    ResetGitLoopResponse, RunLoopRequest, RunLoopResponse, UpdateLoopRequest,
 };
 use serde::Deserialize;
 use utoipa::ToSchema;
 
 use crate::bindings::dao::LoopRecentTaskRow;
 use crate::bindings::operations::Bindings;
+use crate::loops::firing::loop_firing::FiringPorts;
 use crate::loops::http::projection::LoopFilter;
 use crate::loops::http::projection::loop_response;
 use crate::loops::models::LoopListFilter;
@@ -23,8 +24,11 @@ use crate::loops::operations::Loops;
 use crate::loops::sync::LoopSyncService;
 use moatless_adapter_model::connections::AdapterConnections;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
+use moatless_adapter_model::registry::Adapters;
 use moatless_core::http_auth::AuthUser;
 use moatless_ports::identity::UserResolver;
+use moatless_ports::sandbox::SandboxWaker;
+use moatless_ports::task::{MessageAcceptor, TaskOpener, TaskReader};
 use moatless_workspace_ports::{RepositoryReader, WorkspaceResolver};
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -264,6 +268,44 @@ pub async fn activate_loop(
         )
         .await?;
     updated_loop(loops.as_ref(), &auth.scope_context(), &id).await
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/loops/{id}/run",
+    tag = "loops",
+    request_body = RunLoopRequest,
+    responses(
+        (status = 200, description = "Loop fired", body = RunLoopResponse),
+        (status = 400, description = "No message to fire with", body = moatless_api_schemas::error::ErrorBody),
+        (status = 403, description = "Caller is not an administrator", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Loop, or its workspace repository, not found", body = moatless_api_schemas::error::ErrorBody),
+        (status = 409, description = "Loop has no approved run-as user", body = moatless_api_schemas::error::ErrorBody)
+    )
+)]
+#[expect(clippy::too_many_arguments, reason = "one extractor per firing port")]
+pub async fn run_loop(
+    State(loops): State<Arc<Loops>>,
+    State(tasks): State<Arc<dyn TaskReader>>,
+    State(message_send): State<Arc<dyn MessageAcceptor>>,
+    State(adapters): State<Option<Arc<Adapters>>>,
+    State(task_creation): State<Arc<dyn TaskOpener>>,
+    State(sandbox_waker): State<Arc<dyn SandboxWaker>>,
+    auth: AuthUser,
+    Path(id): Path<String>,
+    Json(req): Json<RunLoopRequest>,
+) -> Result<Json<RunLoopResponse>, AdapterError> {
+    let ports = FiringPorts {
+        tasks,
+        message_send,
+        adapters,
+        task_creation,
+        sandbox_waker,
+    };
+    let task_id = loops
+        .run_now(&ports, &auth.scope_context(), &id, req.message)
+        .await?;
+    Ok(Json(RunLoopResponse { task_id }))
 }
 
 #[utoipa::path(

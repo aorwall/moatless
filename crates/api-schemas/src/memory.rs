@@ -140,6 +140,10 @@ pub struct MemorySummaryResponse {
     pub tags: Vec<String>,
     pub version: i32,
     pub stale: bool,
+    /// When the entry is dropped unless verified or updated first; absent for
+    /// one written with `--no-expiry`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub claimed_by_task_id: Option<String>,
     pub updated_at: String,

@@ -2,9 +2,9 @@
 //! it serves from its own children.
 //!
 //! A successful parse here routes through `/api/v1/github/*` for task↔PR
-//! binding, the `Moatless task:` footer and webhook dedup. An unmodeled flag
-//! fails the parse and demotes the call to plain `gh`, which drops all three —
-//! [`warn_on_demotion`] says so on stderr rather than letting it pass silently.
+//! binding, the `Moatless task:` footer and webhook dedup. A write whose flags
+//! fail the parse is refused ([`TypedInvocation::Refused`]) rather than handed
+//! to plain `gh`, which would drop all three.
 
 use clap::Parser;
 use moatless_api_schemas::github::{
@@ -32,9 +32,7 @@ pub(super) struct PrCreateArgs {
     title: String,
     #[arg(long, short = 'b', conflicts_with = "body_file")]
     body: Option<String>,
-    /// Read the body from a file, as real `gh` does. Without this the flag is
-    /// unknown to the parser, which demotes the whole call to passthrough and
-    /// silently loses the task binding and the `Moatless task:` footer.
+    /// Read the body from a file, as real `gh` does.
     #[arg(long = "body-file", short = 'F')]
     body_file: Option<std::path::PathBuf>,
     /// Head branch. Defaults to the current git branch.
@@ -132,28 +130,44 @@ pub(super) enum TypedInvocation {
     PrEdit(PrEditArgs),
     RunLog(RunLogArgs),
     Stack(StackInvocation),
+    /// A proxied write moat cannot model. Exit with this message rather than
+    /// passing through: plain `gh` would create an unbound PR or comment with
+    /// no `Moatless task:` footer, so a CI hand-back never finds the task.
+    Refused(String),
+    /// `--help` on a proxied write: moat's own flags, since real `gh`'s help
+    /// lists flags (`--attach`, `--fill`) that this path refuses.
+    Help(String),
 }
 
-/// Classify the invocation: a successfully parsed typed subcommand goes down
-/// the typed path; anything else returns `None` → passthrough, silently
-/// dropping task binding, footer, and dedup.
-///
-/// `warn_on_demotion` reports that loss on stderr.
+/// Classify the invocation: a parsed typed subcommand goes down the typed path,
+/// an unparseable proxied write is [`TypedInvocation::Refused`], and `None`
+/// means passthrough to real `gh`.
 pub(super) fn parse_typed(args: &[String]) -> Option<TypedInvocation> {
     let first = args.first()?.as_str();
     let second = args.get(1)?.as_str();
     let rest = with_argv0(&args[2..]);
     match (first, second) {
-        ("pr", "create") => warn_on_demotion("pr create", PrCreateArgs::try_parse_from(rest))
-            .map(TypedInvocation::PrCreate),
-        ("pr", "comment") | ("issue", "comment") => {
-            warn_on_demotion("pr comment", CommentArgs::try_parse_from(rest))
-                .map(TypedInvocation::Comment)
-        }
-        ("pr", "reply") => warn_on_demotion("pr reply", ReplyArgs::try_parse_from(rest))
-            .map(TypedInvocation::PrReply),
-        // No demotion warning: a `pr view` this path declines is a read that
-        // real `gh` answers correctly, and nothing is bound or footered here.
+        ("pr", "create") => Some(typed_or_refused(
+            "pr create",
+            PrCreateArgs::try_parse_from(rest),
+            TypedInvocation::PrCreate,
+        )),
+        (noun @ ("pr" | "issue"), "comment") => Some(typed_or_refused(
+            if noun == "pr" {
+                "pr comment"
+            } else {
+                "issue comment"
+            },
+            CommentArgs::try_parse_from(rest),
+            TypedInvocation::Comment,
+        )),
+        ("pr", "reply") => Some(typed_or_refused(
+            "pr reply",
+            ReplyArgs::try_parse_from(rest),
+            TypedInvocation::PrReply,
+        )),
+        // Not refused: a `pr view` this path declines is a read that real
+        // `gh` answers correctly, and nothing is bound or footered here.
         ("pr", "view") => pr_view::parse(rest).map(TypedInvocation::PrView),
         ("pr", "edit") => pr_edit::parse(rest).map(TypedInvocation::PrEdit),
         ("run", "view") => run_logs::parse(rest).map(TypedInvocation::RunLog),
@@ -165,35 +179,34 @@ pub(super) fn parse_typed(args: &[String]) -> Option<TypedInvocation> {
     }
 }
 
-/// Unwrap a typed parse, and name what the demotion costs when it failed.
-///
-/// `--help`/`--version` are not demotions: clap reports them as errors, but
-/// real `gh` prints better text than we would.
-fn warn_on_demotion<T>(subcommand: &str, parsed: Result<T, clap::Error>) -> Option<T> {
+/// Wrap a typed parse, or refuse it with the flag that failed it.
+fn typed_or_refused<T>(
+    subcommand: &str,
+    parsed: Result<T, clap::Error>,
+    wrap: fn(T) -> TypedInvocation,
+) -> TypedInvocation {
+    use clap::error::ErrorKind;
     match parsed {
-        Ok(v) => Some(v),
-        Err(e) => {
-            use clap::error::ErrorKind;
-            if !matches!(
+        Ok(v) => wrap(v),
+        Err(e)
+            if matches!(
                 e.kind(),
-                ErrorKind::DisplayHelp
-                    | ErrorKind::DisplayVersion
-                    | ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
-            ) {
-                eprintln!(
-                    "moat gh: falling back to plain `gh` for `{subcommand}` — {}. \
-                     The PR or comment will NOT be bound to the task and will \
-                     carry no `Moatless task:` footer.",
-                    demotion_reason(&e)
-                );
-            }
-            None
+                ErrorKind::DisplayHelp | ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+            ) =>
+        {
+            TypedInvocation::Help(e.render().to_string())
         }
+        Err(e) => TypedInvocation::Refused(format!(
+            "moat gh {subcommand}: {}. Refusing rather than running plain `gh`, \
+             which would leave the PR or comment unbound to the task, with no \
+             `Moatless task:` footer. Drop the flag, or see `moat gh {subcommand} --help`.",
+            refusal_reason(&e)
+        )),
     }
 }
 
 /// The one line of a clap error worth putting in front of an agent.
-fn demotion_reason(e: &clap::Error) -> String {
+fn refusal_reason(e: &clap::Error) -> String {
     use clap::error::{ContextKind, ContextValue, ErrorKind};
     if let Some(ContextValue::String(arg)) = e.get(ContextKind::InvalidArg) {
         return match e.kind() {
@@ -201,6 +214,11 @@ fn demotion_reason(e: &clap::Error) -> String {
             ErrorKind::MissingRequiredArgument => format!("`{arg}` is required"),
             _ => format!("`{arg}` was rejected"),
         };
+    }
+    if let (ErrorKind::MissingRequiredArgument, Some(ContextValue::Strings(args))) =
+        (e.kind(), e.get(ContextKind::InvalidArg))
+    {
+        return format!("`{}` is required", args.join("`, `"));
     }
     match e.kind() {
         ErrorKind::MissingRequiredArgument => "a required flag is missing".to_string(),

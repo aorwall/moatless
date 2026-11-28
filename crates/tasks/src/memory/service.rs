@@ -566,6 +566,7 @@ pub(crate) fn summary_response(row: &MemoryEntryRow) -> MemorySummaryResponse {
         tags: row.tags.clone(),
         version: row.version,
         stale: row.stale,
+        expires_at: row.expires_at.map(rfc3339),
         claimed_by_task_id: row.claimed_by_task_id.clone(),
         updated_at: rfc3339(row.updated_at),
     }

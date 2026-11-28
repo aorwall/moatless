@@ -1998,6 +1998,238 @@
         }
       }
     },
+    "/api/v1/admin/users/{user_id}/provider-tokens/{provider}": {
+      "get": {
+        "tags": [
+          "git-host-access"
+        ],
+        "operationId": "admin_get_bot_provider_token",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "description": "The bot user's id or login",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "provider",
+            "in": "path",
+            "description": "The provider the credential is for",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/BotCredentialProvider"
+            }
+          },
+          {
+            "name": "host",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The bot's credential for the provider",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotProviderTokenStatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The user is not a bot, or the provider needs a host",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such user",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "git-host-access"
+        ],
+        "operationId": "admin_save_bot_provider_token",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "description": "The bot user's id or login",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "provider",
+            "in": "path",
+            "description": "The provider the credential is for",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/BotCredentialProvider"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveBotProviderTokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Token saved as the bot's credential",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotProviderTokenStatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The user is not a bot, the provider needs a host, or the provider rejected the token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such user",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "git-host-access"
+        ],
+        "operationId": "admin_delete_bot_provider_token",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "description": "The bot user's id or login",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "provider",
+            "in": "path",
+            "description": "The provider the credential is for",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/BotCredentialProvider"
+            }
+          },
+          {
+            "name": "host",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The bot's credential removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotProviderTokenStatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The user is not a bot, or the provider needs a host",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such user",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/agents": {
       "get": {
         "tags": [
@@ -4740,6 +4972,86 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Loop"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/loops/{id}/run": {
+      "post": {
+        "tags": [
+          "loops"
+        ],
+        "operationId": "run_loop",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunLoopRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Loop fired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunLoopResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No message to fire with",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Caller is not an administrator",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Loop, or its workspace repository, not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Loop has no approved run-as user",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
                 }
               }
             }
@@ -10481,7 +10793,7 @@
       },
       "AgentProfile": {
         "type": "string",
-        "description": "A catalog entry: a harness plus transport, default model and credentials (e.g. \"claude-code-tui\").",
+        "description": "A catalog entry: a harness plus transport, default model and credentials (e.g. \"claude-code-tui\").\nDeclaration order is the catalog's display order.",
         "enum": [
           "claude-code",
           "claude-code-tui",
@@ -10995,6 +11307,42 @@
             "items": {
               "type": "string"
             }
+          }
+        }
+      },
+      "BotCredentialProvider": {
+        "type": "string",
+        "description": "A provider an admin may set a bot user's credential for.",
+        "enum": [
+          "forgejo"
+        ]
+      },
+      "BotProviderTokenStatusResponse": {
+        "type": "object",
+        "description": "A bot user's credential for one provider.",
+        "required": [
+          "provider",
+          "connected"
+        ],
+        "properties": {
+          "authMethod": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`provider_tokens.auth_method`; `secret_ref` for a token set here."
+          },
+          "connected": {
+            "type": "boolean"
+          },
+          "host": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "provider": {
+            "$ref": "#/components/schemas/BotCredentialProvider"
           }
         }
       },
@@ -15042,6 +15390,13 @@
               "null"
             ]
           },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When the entry is dropped unless verified or updated first; absent for\none written with `--no-expiry`."
+          },
           "key": {
             "type": "string"
           },
@@ -16656,6 +17011,32 @@
           "by_subject"
         ]
       },
+      "RunLoopRequest": {
+        "type": "object",
+        "description": "Body of `POST /api/v1/loops/{id}/run`.",
+        "properties": {
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The firing's first message. Defaults to a schedule Loop's message\ntemplate; required for any other Loop."
+          }
+        }
+      },
+      "RunLoopResponse": {
+        "type": "object",
+        "description": "Response of `POST /api/v1/loops/{id}/run`.",
+        "required": [
+          "taskId"
+        ],
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "description": "The Task the firing opened, or the Ongoing Task it messaged."
+          }
+        }
+      },
       "RuntimeEvent": {
         "type": "object",
         "description": "A provider-agnostic runtime event associated with a sandbox.\n\nK8s mode sources these from K8s Event objects (`FailedScheduling`,\n`BackOff`, Pulling); Docker mode populates from `docker events`.",
@@ -16899,6 +17280,24 @@
           "system",
           "error"
         ]
+      },
+      "SaveBotProviderTokenRequest": {
+        "type": "object",
+        "required": [
+          "token"
+        ],
+        "properties": {
+          "host": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The instance, as a host or a URL, for a provider kept per instance."
+          },
+          "token": {
+            "type": "string"
+          }
+        }
       },
       "SaveCodexAgentHarnessCredentialRequest": {
         "type": "object",

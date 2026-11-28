@@ -13,6 +13,12 @@ import type { MemoryScope } from './memoryScope';
 export interface MemorySummaryResponse {
   /** @nullable */
   claimedByTaskId?: string | null;
+  /**
+     * When the entry is dropped unless verified or updated first; absent for
+     * one written with `--no-expiry`.
+     * @nullable
+     */
+  expiresAt?: string | null;
   key: string;
   scope: MemoryScope;
   stale: boolean;

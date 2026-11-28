@@ -3,6 +3,7 @@
 
 pub mod inbound;
 pub mod listen;
+pub mod loop_firing;
 pub mod metrics;
 pub mod schedule_runner;
 

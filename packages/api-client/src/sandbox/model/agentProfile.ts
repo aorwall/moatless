@@ -8,6 +8,7 @@
 
 /**
  * A catalog entry: a harness plus transport, default model and credentials (e.g. "claude-code-tui").
+ * Declaration order is the catalog's display order.
  */
 export type AgentProfile = typeof AgentProfile[keyof typeof AgentProfile];
 
