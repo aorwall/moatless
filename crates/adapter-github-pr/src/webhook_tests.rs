@@ -890,21 +890,7 @@ async fn partial_pr_payload_retains_observation_before_documented_no_effect_prim
 }
 
 #[tokio::test]
-async fn only_a_default_ignored_sender_suppresses_the_message() {
-    let payload = serde_json::json!({
-        "action": "opened",
-        "sender": {"login": "linear-code[bot]"},
-        "pull_request": {"number": 42}
-    });
-    let ignored_sender = normalize_payload("pull_request", &payload, &fake_rule()).await;
-    assert!(matches!(
-        ignored_sender.primary,
-        Ok(PrimaryWebhook::Ignore(IgnoredWebhook::IgnoredSender))
-    ));
-    assert!(ignored_sender.status_observations.is_empty());
-    assert!(ignored_sender.merge_conflict_candidate.is_none());
-
-    // A sender the loop accepts, so this half isolates event filtering.
+async fn an_event_filter_shapes_only_the_loops_own_inbox() {
     let accepted_sender = serde_json::json!({
         "action": "opened",
         "sender": {"login": "alice"},
@@ -1009,27 +995,21 @@ async fn allowlisting_only_post_merge_still_schedules_it() {
 async fn configured_sender_and_title_filters_preserve_opt_out_behavior() {
     let bot_comment = serde_json::json!({
         "action": "created",
-        "sender": {"login": "linear-code[bot]"},
+        "sender": {"login": "some-bot[bot]"},
         "issue": {"number": 42, "pull_request": {"url": "x"}},
         "comment": {"id": 123, "body": "Linked"}
     });
+    // An ignored sender mutes only the loop's own Tasks, matched without case;
+    // the message is still produced for every other Task.
     let mut custom_ignore = fake_rule();
-    custom_ignore.adapter_config =
-        Some(serde_json::json!({"ignored_senders": ["Linear-Code[Bot]"]}));
+    custom_ignore.adapter_config = Some(serde_json::json!({"ignored_senders": ["Some-Bot[Bot]"]}));
     let ignored = normalize_payload("issue_comment", &bot_comment, &custom_ignore).await;
-    assert!(matches!(
-        ignored.primary,
-        Ok(PrimaryWebhook::Ignore(IgnoredWebhook::IgnoredSender))
-    ));
+    assert!(matches!(ignored.primary, Ok(PrimaryWebhook::Message(_))));
+    let config = GithubPrRuleConfig::from_rule(&custom_ignore);
+    assert!(config.mutes(&FilterKey::new("issue_comment", "some-bot[bot]")));
 
-    let mut opt_out = fake_rule();
-    opt_out.adapter_config = Some(serde_json::json!({"ignored_senders": []}));
-    assert!(matches!(
-        normalize_payload("issue_comment", &bot_comment, &opt_out)
-            .await
-            .primary,
-        Ok(PrimaryWebhook::Message(_))
-    ));
+    let unlisted = GithubPrRuleConfig::from_rule(&fake_rule());
+    assert!(!unlisted.mutes(&FilterKey::new("issue_comment", "some-bot[bot]")));
 
     let dependency_pr = serde_json::json!({
         "action": "opened",

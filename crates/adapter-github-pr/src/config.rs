@@ -3,12 +3,6 @@
 use moatless_types::adapter::InboundEvent;
 use moatless_types::loops::SubscriptionMatch;
 
-/// Senders ignored by default when `adapter_config.ignored_senders` is not set.
-///
-/// `linear-code[bot]` posts `<!-- linear-linkback -->` metadata comments that
-/// no bound task wants delivered.
-const DEFAULT_IGNORED_SENDERS: &[&str] = &["linear-code[bot]"];
-
 /// Derived event name for a base-branch conflict, so a loop can include or
 /// ignore it like any other event.
 ///
@@ -314,13 +308,6 @@ impl FilterKey {
     pub(crate) fn is_unset(&self) -> bool {
         *self == Self::default()
     }
-
-    /// Whether `sender` is one no Task hears from, whatever loop it came from.
-    pub(super) fn sender_is_default_ignored(&self) -> bool {
-        DEFAULT_IGNORED_SENDERS
-            .iter()
-            .any(|s| s.eq_ignore_ascii_case(&self.sender))
-    }
 }
 
 /// Entries of `ignored_events` that are not strings, and of `ignored_senders`
@@ -351,10 +338,9 @@ pub(super) fn inert_filter_entries(
         .collect()
 }
 
-/// Parse `ignored_senders` from a `adapter_config` JSONB value: absent key,
-/// null config, or non-array value fall back to `DEFAULT_IGNORED_SENDERS`; an
-/// explicit array replaces the default verbatim (`[]` opts out). An entry that
-/// is neither a string nor an object with a string `login` is skipped.
+/// Parse `ignored_senders` from a `adapter_config` JSONB value: an absent key,
+/// null config, or non-array value ignores no sender. An entry that is neither
+/// a string nor an object with a string `login` is skipped.
 fn ignored_senders(adapter_config: Option<&serde_json::Value>) -> Vec<IgnoredSender> {
     let unscoped = |login: &str| IgnoredSender {
         login: login.to_string(),
@@ -364,10 +350,7 @@ fn ignored_senders(adapter_config: Option<&serde_json::Value>) -> Vec<IgnoredSen
         .and_then(|pc| pc.get("ignored_senders"))
         .and_then(|v| v.as_array())
     else {
-        return DEFAULT_IGNORED_SENDERS
-            .iter()
-            .map(|l| unscoped(l))
-            .collect();
+        return Vec::new();
     };
     entries
         .iter()
@@ -564,10 +547,10 @@ mod tests {
     }
 
     #[test]
-    fn null_adapter_config_uses_default_ignored_senders() {
+    fn null_adapter_config_ignores_no_sender() {
         let rule = rule_with(serde_json::json!([]), true, false);
         let cfg = GithubPrRuleConfig::from_rule(&rule);
-        assert_eq!(logins(&cfg), vec!["linear-code[bot]"]);
+        assert!(cfg.ignored_senders.is_empty());
     }
 
     fn logins(cfg: &GithubPrRuleConfig) -> Vec<&str> {
@@ -578,19 +561,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_ignored_senders_opts_out_of_default() {
-        let rule = rule_with_adapter_config(
-            serde_json::json!([]),
-            true,
-            false,
-            Some(serde_json::json!({"ignored_senders": []})),
-        );
-        let cfg = GithubPrRuleConfig::from_rule(&rule);
-        assert!(cfg.ignored_senders.is_empty());
-    }
-
-    #[test]
-    fn explicit_ignored_senders_replace_default() {
+    fn explicit_ignored_senders_are_kept() {
         let rule = rule_with_adapter_config(
             serde_json::json!([]),
             true,
@@ -602,15 +573,15 @@ mod tests {
     }
 
     #[test]
-    fn non_array_ignored_senders_falls_back_to_default() {
+    fn non_array_ignored_senders_ignores_no_sender() {
         let rule = rule_with_adapter_config(
             serde_json::json!([]),
             true,
             false,
-            Some(serde_json::json!({"ignored_senders": "linear-code[bot]"})),
+            Some(serde_json::json!({"ignored_senders": "dependabot[bot]"})),
         );
         let cfg = GithubPrRuleConfig::from_rule(&rule);
-        assert_eq!(logins(&cfg), vec!["linear-code[bot]"]);
+        assert!(cfg.ignored_senders.is_empty());
     }
 
     #[test]
@@ -829,9 +800,13 @@ mod tests {
 
     #[test]
     fn is_ignored_sender_empty_login_never_matches() {
-        let rule = rule_with(serde_json::json!([]), true, false);
+        let rule = rule_with_adapter_config(
+            serde_json::json!([]),
+            true,
+            false,
+            Some(serde_json::json!({"ignored_senders": ["dependabot[bot]"]})),
+        );
         let cfg = GithubPrRuleConfig::from_rule(&rule);
-        // default ignored senders is non-empty, but an empty login must not match.
         assert!(!cfg.is_ignored_sender(""));
     }
 
@@ -944,7 +919,7 @@ mod tests {
     fn unparsed_filter_entries_are_reported_as_inert() {
         let config = serde_json::json!({
             "ignored_senders": [
-                "linear-code[bot]",
+                "dependabot[bot]",
                 {"login": "github-actions[bot]", "events": ["issue_comment"]},
                 {"events": ["issue_comment"]},
             ],

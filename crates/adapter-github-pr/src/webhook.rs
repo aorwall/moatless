@@ -53,7 +53,6 @@ pub(super) enum PrimaryWebhook {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum IgnoredWebhook {
     EventFiltered,
-    IgnoredSender,
     UnsupportedEvent,
     UnsupportedAction,
     NonPullRequestIssue,
@@ -71,7 +70,6 @@ impl IgnoredWebhook {
     pub(super) fn as_str(self) -> &'static str {
         match self {
             Self::EventFiltered => "event_filtered",
-            Self::IgnoredSender => "ignored_sender",
             Self::UnsupportedEvent => "unsupported_event",
             Self::UnsupportedAction => "unsupported_action",
             Self::NonPullRequestIssue => "non_pull_request_issue",
@@ -200,17 +198,10 @@ pub(super) async fn normalize(
              they filter nothing"
         );
     }
-    // A default-ignored sender the loop did not opt back in to reaches no
-    // Task. Any other sender the loop ignores still reaches every other Task,
-    // so it gates only the loop's own effects: opening and closing its Tasks
-    // here, and its Tasks' inbox in `GithubPrInboundRouter::unmuted`.
+    // A sender the loop ignores still reaches every other Task, so it gates
+    // only the loop's own effects: opening and closing its Tasks here, and its
+    // Tasks' inbox in `GithubPrInboundRouter::unmuted`.
     let sender_ignored = config.is_ignored_sender(context.sender_login);
-    if sender_ignored
-        && super::config::FilterKey::new(event_type, context.sender_login)
-            .sender_is_default_ignored()
-    {
-        return ignored(IgnoredWebhook::IgnoredSender);
-    }
 
     let merge_conflict_candidate = super::merge_conflict::candidate(event_type, payload);
     let post_merge_candidate = super::post_merge::candidate(event_type, payload);
@@ -323,17 +314,6 @@ fn closed_candidate(
         sender_login: context.sender_login.to_string(),
         pr_author_login: context.pr_author_login.map(str::to_string),
     })
-}
-
-fn ignored(reason: IgnoredWebhook) -> NormalizedWebhook {
-    NormalizedWebhook {
-        status_observations: Vec::new(),
-        primary: Ok(PrimaryWebhook::Ignore(reason)),
-        merge_conflict_candidate: None,
-        post_merge_candidate: None,
-        merged_candidate: None,
-        closed_candidate: None,
-    }
 }
 
 const STATUS_ACTIONS: &[&str] = &[

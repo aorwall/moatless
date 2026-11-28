@@ -192,9 +192,9 @@ Notes:
 - An `ignored_senders` entry is a login, which filters every event from that
   sender, or `{login, events}`, which filters only those events from it:
   `{login: github-actions[bot], events: [issue_comment, pull_request_review]}`
-  silences a CI bot's comments while its pushes still wake the loop. An explicit
-  list replaces the `linear-code[bot]` default, so list it too. An entry that is
-  neither is logged as a warning and filters nothing.
+  silences a CI bot's comments while its pushes still wake the loop. No sender
+  is ignored by default. An entry that is neither is logged as a warning and
+  filters nothing.
 - `ignored_events` also takes `review_verdict`: an approval or change request
   with no body. Only the ignore list reads it, so an include list naming
   `pull_request_review` keeps them.
