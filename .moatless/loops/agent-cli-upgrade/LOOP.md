@@ -7,9 +7,10 @@ tags:
   - agent-cli-upgrade
 closeAfterSettledDays: 1
 schedule:
-  # 7 fields: sec min hour day-of-month month day-of-week year. 06:00 UTC, after
-  # the 03:00 Nightly E2E has released the cluster.
-  cron: "0 0 6 * * * *"
+  # 7 fields: sec min hour day-of-month month day-of-week year. 09:00 UTC, after
+  # the 03:00 Nightly E2E has released the cluster and after the hub's Codex
+  # quota resets (about 08:36-08:51 UTC); earlier, the Codex E2E hits its limit.
+  cron: "0 0 9 * * * *"
   timezone: UTC
   message: "Check npm for new Claude Code, Codex, and Pi CLI releases, upgrade the sandbox pins, and move the model catalogs to the current models."
 ---
@@ -279,10 +280,35 @@ file `moat feedback --category environment` so it gets repaired, unless
 `docs/deferred-changes.md` already records it. When the CLI itself broke, a
 real regression, quote the error in the run's report.
 
+**A Codex usage limit is a cooldown, not a failure.** When
+`test_spawn_agent_codex` fails with `You've hit your usage limit` and a `Try
+again at <time>`, the hub's Codex account is out of quota; the CLI and the
+credential are fine, so file no feedback. Read the time as UTC. When it is
+under 90 minutes away, rerun only the Codex test once after it, as the turn's
+last command, and end the turn; the sandbox wakes you when it exits:
+
+```bash
+moat cmd run --timeout <seconds-until-reset + 1800> "sleep <seconds-until-reset + 60> && \
+  unset CODEX_AUTH_JSON CLAUDE_CODE_OAUTH_TOKEN && \
+  CODEX_CLI_PATH=/tmp/cli-probe/node_modules/.bin/codex \
+  CLAUDE_SDK_E2E=1 CODEX_E2E=1 CODEX_TEST_MODEL=<codex-model> \
+  cargo test -p moatless-sandbox --test agent_transport_e2e test_spawn_agent_codex \
+  -- --ignored --nocapture --exact"
+```
+
+Keep the `unset` and `CODEX_CLI_PATH` inside the quoted command: `moat cmd run`
+starts it from the sandbox's environment, not this shell's. After the wake,
+check that `/tmp/cli-probe` still exists and the log names its `codex`. A pass on
+the rerun gates Codex like any pass. When the time is 90 minutes or more away,
+or the rerun hits the limit again, hold Codex as an unverified CLI: leave its
+pins and section 3's catalog changes out, ship every other CLI that passed, and
+write `Codex unverified until HH:MM UTC: usage limit` in the PR body's E2E
+results and the run's report. The next run retries it.
+
 Open no PR only when every CLI you set out to bump was held and no Claude model
 moved. Then report each one's failure.
 
-**Never end this run by asking a question.** Nobody is watching a 06:00 schedule,
+**Never end this run by asking a question.** Nobody is watching a 09:00 schedule,
 so a run that stops for an answer stops until a person finds it. Decide with the
 rules above and finish: open the PR, or report the failure and open none.
 
@@ -311,7 +337,8 @@ The body carries what a reviewer cannot get from the diff:
   alias the probe flagged but this run left, and why: `minCli` or `routable`.
 - Every price corrected without a model move, old → new.
 - The E2E result per transport: passed, failed, or not run for an explicitly
-  named reason. A failure holds only its own CLI (section 4).
+  named reason. A failure holds only its own CLI (section 4). A Codex usage
+  limit is the line `Codex unverified until HH:MM UTC: usage limit`.
 
 Create it with `moat gh pr create`, never bare `gh`.
 

@@ -53,6 +53,25 @@ and the root `AGENTS.md`.
 CI runs the checks in root `AGENTS.md` → "Verifying a change", so the reviewer
 builds and tests nothing locally; `pr-review` reads the result before approving.
 
+## Skipped CI is not passing CI
+
+`pr-review` approves when every check passed or was skipped. Here a skip can
+mean nothing ran: for a PR a bot outside `vars.TRUSTED_AGENT_BOTS` triggered,
+`ci.yml` skips `Detect changes`, every job gated on it, and `Rust clippy`,
+`Rust tests` and `Rust architecture`. So this Loop adds two conditions to
+`pr-review`'s § "Approving", read from `moat gh pr checks <number>` on the
+reviewed head, on the first pass and again on the wake that ends a CI wait:
+
+- `Detect changes` passed.
+- On a diff the `rust` paths filter in `ci.yml` matches (`crates/**`,
+  `Cargo.toml`, `Cargo.lock`, `.sqlx/**`, …), `Rust clippy` and `Rust tests`
+  passed.
+
+When either fails, post the report as a comment instead of an `APPROVE`, ending
+with `Not approved: CI skipped <check names>, so nothing built this head. A
+person re-running the workflow gets full CI.` Record the run as `commented`
+with `ci` `skipped`.
+
 ## General Code Quality
 
 Apply to every changed file, on top of the domain rules.
@@ -143,7 +162,8 @@ Write `/tmp/review-run.json` with this shape:
 - `outcome`: `approved` when you submitted `APPROVE`, `waiting-ci` while the
   CI wait runs, else `commented`. The wake that ends a CI wait saves the same
   key again with its outcome.
-- `ci`: `passing`, `failing` or `pending`.
+- `ci`: `passing`, `failing`, `pending`, or `skipped` when § "Skipped CI is not
+  passing CI" held approval.
 - `checks`: one entry per checklist item of a touched domain, by the ids below,
   with `status` `pass`, `fail` or `n/a`, and `file`/`line`/`comment` on a `fail`.
   Add an entry with id `general` for each Additional Feedback finding that got an
