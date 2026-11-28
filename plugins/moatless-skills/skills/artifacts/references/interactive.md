@@ -27,7 +27,7 @@ moat artifact publish scratchpad/review.html --title "API naming review" --data 
 Each call resolves to records shaped `{ key, data, submittedBy, writer,
 createdAt, updatedAt }`, where `writer` is `"agent"` for a record you wrote
 with `moat artifact data` and `"page"` for a reader's. A key is up to 200 characters of `/`-separated segments, each
-letters, digits, `-`, `_`, `.` or `:`. A record is JSON of at most 64 KiB, and
+letters, digits, `-`, `_`, `.` or `:`. A record is JSON of at most 256 KiB, and
 an Artifact holds at most 10000 records, list items included.
 
 Pick the call by what readers do:

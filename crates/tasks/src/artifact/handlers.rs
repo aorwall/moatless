@@ -477,7 +477,7 @@ fn page_token(
 // can open any URL on this origin with the reader's session: every route here
 // serving agent-written HTML must send its own `sandbox` policy, as this one
 // and `crates/t3code/src/assets.rs` do.
-const PAGE_CSP: &str = "sandbox allow-scripts allow-forms allow-popups \
+const PAGE_CSP: &str = "sandbox allow-scripts allow-forms allow-popups allow-downloads \
     allow-popups-to-escape-sandbox; frame-ancestors 'self'; \
     default-src 'none'; base-uri 'none'; form-action 'none'; \
     script-src 'unsafe-inline' https://cdn.jsdelivr.net; \
@@ -624,7 +624,7 @@ mod tests {
         let csp = page_csp("https://moatless.example.com");
         assert_eq!(
             directive(&csp, "sandbox"),
-            "sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
+            "sandbox allow-scripts allow-forms allow-popups allow-downloads allow-popups-to-escape-sandbox"
         );
         assert_eq!(directive(&csp, "default-src"), "default-src 'none'");
         assert_eq!(

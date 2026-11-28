@@ -7,13 +7,14 @@
  * `moat messages reply` to that notice lands on the open page as a record.
  *
  * Chain:
- *   ART-01 → ART-02 → ART-03 → ART-04
+ *   ART-01 → ART-02 → ART-03 → ART-04 → ART-05
  *
  * Scenarios:
  *   ART-01: The page is served under the page CSP, configured for its reader
  *   ART-02: The page's record socket opens and sends a snapshot
  *   ART-03: Five saves from the page queue one notice that lists them all
  *   ART-04: A reply to the notice is saved as a record the open page receives
+ *   ART-05: A page published with --private is reopened by --public
  */
 
 import { writeFileSync } from 'node:fs'
@@ -156,6 +157,7 @@ test.describe('Chain: Artifact records', () => {
     expect(csp, 'the page may reach hosts other than the CDNs and the backend').toContain(
       "default-src 'none'",
     )
+    expect(csp, "the page's download links do nothing").toContain('allow-downloads')
     expect(csp, 'the page cannot reach the backend over http').toContain(origin.origin)
     const socketScheme = origin.protocol === 'https:' ? 'wss:' : 'ws:'
     expect(csp, "the page cannot open the backend's record socket").toContain(
@@ -227,5 +229,23 @@ test.describe('Chain: Artifact records', () => {
       text: 'Thanks, counted.',
       messageId: noticeId,
     })
+  })
+
+  // ─── ART-05: --public reopens a private page ────────────────────────
+
+  test('ART-05: A page published with --private is reopened by --public', async ({ api }) => {
+    const reopened = scopedSlug('reopened')
+    const path = test.info().outputPath('reopened.html')
+    writeFileSync(path, '<!doctype html><html><head><title>Reopened</title></head></html>')
+    const page = { title: 'Reopened', slug: reopened }
+
+    const closed = await api.publishArtifact(taskId!, path, { ...page, visibility: 'private' })
+    expect(closed.visibility, '--private did not close the page').toBe('private')
+    const kept = await api.publishArtifact(taskId!, path, page)
+    expect(kept.visibility, 'a republish naming no visibility reopened it').toBe('private')
+    await api.publishArtifact(taskId!, path, { ...page, visibility: 'public' })
+
+    const listed = (await api.listArtifacts(taskId!)).find((a) => a.slug === reopened)
+    expect(listed?.visibility, 'the listing does not show the page public').toBe('public')
   })
 })

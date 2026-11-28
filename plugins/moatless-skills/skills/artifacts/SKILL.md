@@ -53,9 +53,10 @@ page looks; this skill owns how it is published and how it saves data.
    On a public page any signed-in user can list and
    save records, and with `--notify` message you; use `--rules` to limit
    what they may write. The
-   visibility covers every version, and a publish without `--private` keeps
-   it; a person who can change the task can switch it in the thread's
-   Artifacts panel or the bar above the page.
+   visibility covers every version, and a publish naming neither `--private`
+   nor `--public` keeps it. `--public` reopens a private page; a person who
+   can change the task can also switch it in the thread's Artifacts panel or
+   the bar above the page.
 
 Publish finished work meant for other people, such as a report for a team or
 the case for a decision, and pages the person asks to view or share. Advice

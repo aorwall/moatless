@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use clap::Subcommand;
 use moatless_api_client::{ArtifactData, InlineArtifact, PageOptions};
 use moatless_api_schemas::artifact::{MAX_PAGE_BYTES, WriteArtifactRecordRequest};
+use moatless_api_schemas::enums::Visibility;
 
 use crate::client::MoatClient;
 use crate::config::Config;
@@ -57,8 +58,12 @@ pub enum ArtifactAction {
         /// Let only users who can see the task open the page and its records.
         /// Without it a new page is open to any signed-in user, even when the
         /// task is private, and a republished page keeps its visibility
-        #[arg(long)]
+        #[arg(long, conflicts_with = "public")]
         private: bool,
+        /// Open the page and its records to any signed-in user, as a new page
+        /// is; use it to reopen a page published with --private
+        #[arg(long)]
+        public: bool,
         /// Task to publish on; defaults to `$TASK_ID`
         #[arg(long)]
         task: Option<String>,
@@ -201,7 +206,7 @@ under a key; keys are `/`-separated, so a list is the keys under one prefix:
                                                   every change; returns stop()
   moatless.artifact.viewer                        the reader's login
   moatless.artifact.viewerId                      the reader's user id
-Records are JSON of at most 64 KiB, at most 10000 per artifact, and survive
+Records are JSON of at most 256 KiB, at most 10000 per artifact, and survive
 republishing. The object is missing when the page is opened as a local file
 or downloaded, so disable the page's controls without it.
 
@@ -270,6 +275,7 @@ pub async fn run(
             rules,
             collections,
             private,
+            public,
             task,
         } => {
             let task_id = task.map_or_else(|| cfg.require_task_id(), Ok)?;
@@ -288,7 +294,11 @@ pub async fn run(
                     rules,
                     collections,
                 },
-                private,
+                visibility: if private {
+                    Some(Visibility::Private)
+                } else {
+                    public.then_some(Visibility::Public)
+                },
             };
             let resp = moat
                 .api()
@@ -561,5 +571,23 @@ mod tests {
         file.set_len(MAX_PAGE_BYTES as u64 + 1).unwrap();
         let err = read_page(&path).unwrap_err().to_string();
         assert!(err.contains("exceeds"), "{err}");
+    }
+
+    #[test]
+    fn publish_takes_public_or_private_but_not_both() {
+        use clap::Parser as _;
+        let parse = |flags: &[&str]| {
+            let mut args = vec!["moat", "publish", "page.html", "--title", "T"];
+            args.extend_from_slice(flags);
+            TestCli::try_parse_from(args).map(|cli| match cli.action {
+                ArtifactAction::Publish {
+                    private, public, ..
+                } => (private, public),
+                _ => panic!("expected publish"),
+            })
+        };
+        assert_eq!(parse(&["--public"]).unwrap(), (false, true));
+        assert_eq!(parse(&["--private"]).unwrap(), (true, false));
+        assert!(parse(&["--private", "--public"]).is_err());
     }
 }

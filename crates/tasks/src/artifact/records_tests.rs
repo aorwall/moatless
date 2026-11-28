@@ -197,6 +197,28 @@ async fn a_write_past_the_cap_is_refused_unless_it_replaces_a_key() {
 }
 
 #[tokio::test]
+async fn a_spec_sized_record_saves_and_one_past_the_cap_names_both_sizes() {
+    let artifacts = artifacts(writable_store(0));
+    let (tasks, scope) = (tasks(), ScopeContext::user("user-1"));
+    let write = |req| write_as_user(&tasks, &artifacts, &scope, "art-1", req);
+    let sized = |len: usize| WriteArtifactRecordRequest::Save {
+        key: "spec".to_string(),
+        data: serde_json::json!({"spec": "x".repeat(len)}),
+    };
+    assert_eq!(write(sized(100 * 1000)).await.unwrap().key, "spec");
+    let err = write(sized(MAX_RECORD_BYTES)).await.unwrap_err();
+    let ArtifactError::PayloadTooLarge(message) = &err else {
+        panic!("{err:?}");
+    };
+    let size = MAX_RECORD_BYTES + r#"{"spec":""}"#.len();
+    assert!(message.contains(&format!("{size} bytes")), "{message}");
+    assert!(
+        message.contains(&format!("at most {MAX_RECORD_BYTES} bytes")),
+        "{message}"
+    );
+}
+
+#[tokio::test]
 async fn an_append_saves_under_a_new_key_in_its_list_in_order() {
     let artifacts = artifacts(writable_store(0));
     let scope = ScopeContext::user("user-1");

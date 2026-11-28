@@ -184,8 +184,9 @@ A single self-contained HTML page that an agent publishes from a Task with
 and the Task's pod. A public Artifact, the default, is readable by any signed-in
 user whatever the Task's visibility; one published with `--private` only by
 whoever can read the Task. Each publish under the same slug adds an immutable
-version; the visibility covers all of them, and a publish without `--private`
-keeps it. Whoever can change the Task can switch it from T3's Artifacts panel.
+version; the visibility covers all of them, and a publish naming neither
+`--private` nor `--public` keeps it. Whoever can change the Task can also
+switch it from T3's Artifacts panel.
 Its link opens the latest version, which a browser shows below a bar for its
 versions, visibility and Task. A version published with `--inline` is also
 shown in the Task's thread as the page itself.
@@ -535,7 +536,8 @@ same agent through the same list and `SkillSource` (`crates/api-schemas/src/skil
 is already on the wire:
 
 - **Plugin skill** — sourced from a registered Plugin. Delivered to whoever the
-  Activations say, in whichever Workspaces they do not exclude it from.
+  Activations say, in whichever Workspaces they do not exclude it from; the
+  Artifact skills the system prompt names reach every task (see **Activation**).
 - **Repository skill** — sourced from one Repository's own `.claude/skills` and
   `.agents/skills` trees, which are listed and merged; a skill exposed in both
   (typically a `.claude/skills` symlink into `.agents/skills`) resolves to one
@@ -576,7 +578,10 @@ then everyone, the same order run configuration and credentials resolve in — s
 Workspace can add a Skill nobody turned on and keep out one everybody has, and a
 person cannot re-admit what their Workspace excluded. Clearing a record hands the
 subject back to the next reach down, which is not the same as setting it off.
-Nothing is delivered without a record.
+Nothing is delivered without a record, except `moatless-skills`' `artifacts`,
+`artifact-design` and `artifact-diagramming`, which every task gets whatever the
+records say because its system prompt names them
+(`plugin::activation::with_prompt_skills`).
 
 Writing one takes the reach's own authority: an admin for everyone's, your own or
 an admin acting for you for a person's, and write to that one Workspace — its

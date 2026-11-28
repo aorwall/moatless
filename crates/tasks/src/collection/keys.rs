@@ -79,9 +79,10 @@ fn valid_data(data: &serde_json::Value) -> Result<(), InvalidRecord> {
     if data.is_null() {
         return Err(InvalidRecord::Invalid("data is required".to_string()));
     }
-    if serde_json::to_vec(data).map_or(0, |v| v.len()) > MAX_RECORD_BYTES {
+    let size = serde_json::to_vec(data).map_or(0, |v| v.len());
+    if size > MAX_RECORD_BYTES {
         return Err(InvalidRecord::TooLarge(format!(
-            "a record is at most {MAX_RECORD_BYTES} bytes"
+            "this record is {size} bytes of JSON; a record is at most {MAX_RECORD_BYTES} bytes"
         )));
     }
     Ok(())

@@ -100,7 +100,7 @@ pub struct PublishArtifactBody {
 }
 
 /// Largest JSON document one Artifact record may hold, serialized.
-pub const MAX_RECORD_BYTES: usize = 64 * 1024;
+pub const MAX_RECORD_BYTES: usize = 256 * 1024;
 
 /// One Artifact record: JSON saved under a key on an Artifact, kept across
 /// its versions.

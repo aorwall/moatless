@@ -202,7 +202,56 @@ pub fn resolve_rows(
         })
         .collect();
 
-    resolve(&plugin_skills, &activations)
+    let mut resolved = resolve(&plugin_skills, &activations);
+    with_prompt_skills(&plugin_skills, plugins, &mut resolved);
+    resolved
+}
+
+/// The plugin holding the skills every task's system prompt tells the agent
+/// to load (`crates/tasks/src/agent/prompt.rs`).
+const PROMPT_SKILLS_PLUGIN: &str = "moatless-skills";
+const PROMPT_SKILLS: [&str; 3] = ["artifacts", "artifact-design", "artifact-diagramming"];
+
+/// Add [`PROMPT_SKILLS`] to [`PROMPT_SKILLS_PLUGIN`]'s picks whatever the
+/// records say, deliberately: the prompt names them unconditionally, so a
+/// workspace that picks other skills would otherwise get "Unknown skill".
+fn with_prompt_skills(
+    plugin_skills: &[PluginSkills],
+    plugins: &[crate::plugin::models::Plugin],
+    resolved: &mut Vec<ResolvedPlugin>,
+) {
+    let Some(plugin) = plugins
+        .iter()
+        .find(|p| p.name == PROMPT_SKILLS_PLUGIN)
+        .and_then(|p| plugin_skills.iter().find(|s| s.plugin_id == p.id))
+    else {
+        return;
+    };
+    let index = if let Some(index) = resolved
+        .iter()
+        .position(|r| r.plugin_id == plugin.plugin_id)
+    {
+        index
+    } else {
+        resolved.push(ResolvedPlugin {
+            plugin_id: plugin.plugin_id.clone(),
+            skills: PickedSkills {
+                names: Vec::new(),
+                frontloaded: Vec::new(),
+            },
+        });
+        resolved.len() - 1
+    };
+    let names = &mut resolved[index].skills.names;
+    *names = plugin
+        .skill_names
+        .iter()
+        .filter(|s| names.contains(s) || PROMPT_SKILLS.contains(&s.as_str()))
+        .cloned()
+        .collect();
+    if names.is_empty() {
+        resolved.remove(index);
+    }
 }
 
 /// Which reach a stored row speaks with.
@@ -769,19 +818,9 @@ mod tests {
 
     #[test]
     fn a_plugin_is_deselected_only_when_it_has_stored_skills_and_none_picked() {
-        let registered: Vec<crate::plugin::models::Plugin> = ["picked", "dropped", "unread"]
+        let registered: Vec<_> = ["picked", "dropped", "unread"]
             .into_iter()
-            .map(|id| crate::plugin::models::Plugin {
-                id: id.to_string(),
-                name: id.to_string(),
-                git_url: format!("https://github.com/acme/{id}"),
-                source: moatless_workspace_types::plugin::PluginSource::Manual,
-                synced_version: None,
-                synced_at: None,
-                disabled_at: None,
-                created_at: None,
-                updated_at: None,
-            })
+            .map(registered_plugin)
             .collect();
         let skills: Vec<crate::plugin::models::PluginSkill> = ["picked", "dropped"]
             .into_iter()
@@ -810,6 +849,74 @@ mod tests {
             vec!["dropped"],
             "`unread` has no stored skills, so leaving it out says nothing \
              about whether anybody turned it off"
+        );
+    }
+
+    fn registered_plugin(id: &str) -> crate::plugin::models::Plugin {
+        crate::plugin::models::Plugin {
+            id: id.to_string(),
+            name: id.to_string(),
+            git_url: format!("https://github.com/acme/{id}"),
+            source: moatless_workspace_types::plugin::PluginSource::Manual,
+            synced_version: None,
+            synced_at: None,
+            disabled_at: None,
+            created_at: None,
+            updated_at: None,
+        }
+    }
+
+    fn stored(plugin_id: &str, names: &[&str]) -> Vec<crate::plugin::models::PluginSkill> {
+        names
+            .iter()
+            .map(|name| crate::plugin::models::PluginSkill {
+                plugin_id: plugin_id.to_string(),
+                name: (*name).to_string(),
+                description: String::new(),
+                path: format!("skills/{name}/SKILL.md"),
+            })
+            .collect()
+    }
+
+    fn workspace_row(plugin_id: &str, skill: &str) -> crate::plugin::models::ActivationRow {
+        crate::plugin::models::ActivationRow {
+            plugin_id: plugin_id.to_string(),
+            skill_name: Some(skill.to_string()),
+            user_id: None,
+            workspace_id: Some("ws-1".to_string()),
+            enabled: true,
+            always: false,
+            frontload: false,
+        }
+    }
+
+    #[test]
+    fn a_workspace_that_picks_another_plugin_still_gets_the_prompts_skills() {
+        let registered = vec![
+            registered_plugin("general"),
+            registered_plugin(PROMPT_SKILLS_PLUGIN),
+        ];
+        let mut skills = stored("general", &["linear", "notion"]);
+        skills.extend(stored(
+            PROMPT_SKILLS_PLUGIN,
+            &["artifact-design", "artifacts", "code-review", "pr-review"],
+        ));
+
+        let only_linear = resolve_rows(&registered, &skills, &[workspace_row("general", "linear")]);
+        assert_eq!(names(&only_linear, "general"), vec!["linear"]);
+        assert_eq!(
+            names(&only_linear, PROMPT_SKILLS_PLUGIN),
+            vec!["artifact-design", "artifacts"]
+        );
+
+        let with_review = resolve_rows(
+            &registered,
+            &skills,
+            &[workspace_row(PROMPT_SKILLS_PLUGIN, "pr-review")],
+        );
+        assert_eq!(
+            names(&with_review, PROMPT_SKILLS_PLUGIN),
+            vec!["artifact-design", "artifacts", "pr-review"]
         );
     }
 }

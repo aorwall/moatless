@@ -47,8 +47,9 @@ const MAX_SUBSCRIPTIONS: usize = 16;
 /// A page sends only small control frames.
 const MAX_INBOUND_BYTES: usize = 16 * 1024;
 /// Records per `Chunk`, so a snapshot of a full Artifact is many frames
-/// rather than one of hundreds of megabytes.
-const RECORDS_PER_CHUNK: usize = 100;
+/// rather than one of hundreds of megabytes. Times `MAX_RECORD_BYTES` it
+/// bounds one frame, at about 6 MiB.
+const RECORDS_PER_CHUNK: usize = 25;
 
 /// Upgrade a page's request to its record socket, once its token names a
 /// reader who can still read the Artifact.

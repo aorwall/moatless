@@ -24,6 +24,7 @@ import type {
   GithubCreatePrRequest,
   GithubCreatePrResponse,
   GithubReplyRequest,
+  ListArtifactsResponse,
   ListFeedbackResponse,
   Loop,
   LoopRecentTaskItem,
@@ -622,13 +623,31 @@ export class MoatApi {
   async publishArtifact(
     taskId: string,
     path: string,
-    options: { title: string; slug: string; data?: boolean; notify?: boolean },
+    options: {
+      title: string
+      slug: string
+      data?: boolean
+      notify?: boolean
+      visibility?: 'public' | 'private'
+    },
   ): Promise<ArtifactResponse> {
     const args = ['artifact', 'publish', path, '--task', taskId]
     args.push('--title', options.title, '--slug', options.slug)
     if (options.data) args.push('--data')
     if (options.notify) args.push('--notify')
+    if (options.visibility) args.push(`--${options.visibility}`)
     return this.moat.json<ArtifactResponse>(args)
+  }
+
+  /** The Artifacts published on `taskId`, as `moat artifact list` reads them. */
+  async listArtifacts(taskId: string): Promise<ArtifactResponse[]> {
+    const listed = await this.moat.json<ListArtifactsResponse>([
+      'artifact',
+      'list',
+      '--task',
+      taskId,
+    ])
+    return listed.items
   }
 
   /** The record saved under `key`, read as the Task's agent reads it. */

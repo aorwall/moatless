@@ -373,7 +373,8 @@ async fn under_cap(artifacts: &Artifacts, row: &Artifact, key: &str) -> Result<(
 fn parse_write(body: &[u8]) -> Result<WriteArtifactRecordRequest, ArtifactError> {
     if body.len() > MAX_RECORD_BYTES + 1024 {
         return Err(ArtifactError::PayloadTooLarge(format!(
-            "a record is at most {MAX_RECORD_BYTES} bytes"
+            "this write is {} bytes; a record is at most {MAX_RECORD_BYTES} bytes",
+            body.len()
         )));
     }
     let req = serde_json::from_slice(body).map_err(|e| {

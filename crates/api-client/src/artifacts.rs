@@ -9,8 +9,8 @@ pub struct PageOptions {
     /// Show the page in the Task's thread.
     pub inline: Option<InlineArtifact>,
     pub data: ArtifactData,
-    /// Limit the page to readers of the Task rather than any signed-in user.
-    pub private: bool,
+    /// `None` keeps the Artifact's current visibility, `public` for a new one.
+    pub visibility: Option<moatless_api_schemas::enums::Visibility>,
 }
 
 /// The inline fields of [`PageOptions`].
@@ -71,8 +71,8 @@ impl ApiClient {
         for collection in &options.data.collections {
             form = form.text("collection", collection.clone());
         }
-        if options.private {
-            form = form.text("visibility", "private");
+        if let Some(visibility) = options.visibility {
+            form = form.text("visibility", visibility.as_str());
         }
         form = form.part(
             "file",

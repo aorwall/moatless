@@ -43,11 +43,11 @@ page opened only from its link may paint `body` with its own background token.
 Write host tokens with a fallback (`var(--radius, 10px)`) so a local preview
 without the host stylesheet still renders.
 
-**Frame.** The page runs in a sandboxed frame without `allow-same-origin`,
-`allow-modals` or `allow-downloads`:
+**Frame.** The page runs in a sandboxed frame without `allow-same-origin` or
+`allow-modals`:
 
 - `alert()`, `confirm()` and `prompt()` do nothing. Build any confirmation step into the page.
-- A download link or a script-driven save does nothing. Show the content as selectable text.
+- A download link works on the page opened from its link, including a `data:` or `blob:` URL with a `download` attribute; shown inline it may do nothing, so also show the content as selectable text.
 - `navigator.clipboard.writeText` can reject. Call it in the click handler, catch the rejection, and select the text instead.
 - `localStorage`, `sessionStorage` and cookies throw `SecurityError`. Keep state in memory, or in the `artifacts` skill's records when it must survive a reload.
 - Links open in a new tab through the host. Use real `<a href>` links.
