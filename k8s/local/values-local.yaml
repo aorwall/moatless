@@ -7,26 +7,9 @@
 # Install:
 #   helm install moatless ./k8s/helm/moatless -n moatless -f k8s/local/values-local.yaml
 
-# --- Images: use locally built :dev images, never pull from Docker Hub ---------
-# Chart defaults are pullPolicy: Always + tag: latest, which forces a registry
-# pull and silently ignores the images built by ./docker/build-*.sh --local.
+# The backend, sandbox and T3 inherit the published images from the chart.
 backend:
-  # One replica: a single-node cluster gains nothing from two, and it halves the
-  # rollout time on every `task dev:backend`.
   replicas: 1
-  image:
-    pullPolicy: IfNotPresent
-    tag: "dev"
-sandboxImage:
-  pullPolicy: IfNotPresent
-  tag: "dev"
-
-# --- T3 Code UI ----------------------------------------------------------------
-# Built locally, with the CSP that admits `*.preview.moatless.localhost` frames.
-t3:
-  image:
-    pullPolicy: IfNotPresent
-    tag: "dev"
 
 # --- Bundled data stores (first-party templates) -------------------------------
 postgres:

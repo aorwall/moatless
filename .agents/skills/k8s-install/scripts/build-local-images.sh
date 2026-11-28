@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the host-arch images that k8s/local/values-local.yaml expects.
+# Build host-architecture :dev images for local Kubernetes development.
 # Usage: build-local-images.sh [backend|sandbox|t3]...   (default: all)
 # K3D_CLUSTER=<name> also imports each built image into that k3d cluster.
 set -euo pipefail

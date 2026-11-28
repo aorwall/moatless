@@ -5,7 +5,8 @@ own the schema. `moat k8s init` generates the starting file; review it before ap
 
 | Setting | Check |
 |---|---|
-| `backend.image.tag`, `sandboxImage.tag`, `t3.image.tag` | Use the same selected release; do not upgrade only some of them. |
+| `backend.image.tag`, `sandboxImage.tag` | Use `latest` or pin both to the same Moatless release tag, such as `moat-cli-v0.1.1`. Docker Hub release images support Linux AMD64 and ARM64. |
+| `t3.image.repository`, `t3.image.tag` | Use `aorwall/moatless-t3:latest` for Linux AMD64 or ARM64. T3 publishes separately, so verify any alternate tag independently. |
 | `t3.enabled`, `t3.host` | Keep T3 enabled with an empty host, so T3 Code serves the app hostname. |
 | `ingress` | Installed class, correct hosts, TLS termination, provider annotations. |
 | `proxyIngress` | Wildcard host and target Traefik service in the release namespace. |

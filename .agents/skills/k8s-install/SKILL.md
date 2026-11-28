@@ -21,16 +21,21 @@ The [CLI parser](../../../crates/cli/src/commands/k8s/mod.rs) owns flags and def
    moat k8s init --context <context> --provider <aks|eks|generic> \
      --namespace <namespace> --sandbox-namespace <sandbox-namespace> \
      --domain <app-domain> --proxy-domain <preview-domain> \
-     --tag <release-tag> --auth <local|github_app|auth0> --output values.local.yaml
+     --tag latest --auth <local|github_app|auth0> --output values.local.yaml
    ```
 
    Supply the requested values for automation; omitted choices may prompt.
    An existing output file requires `--force` to overwrite. For provisioned
-   Fargate infrastructure, use `--infrastructure-handoff <file>` and retain its
-   context, namespace, and compute/storage constraints.
+   Fargate infrastructure, use `--infrastructure-handoff <file>` and omit
+   `--tag` to inherit the handoff's image tag. Retain its context, namespace,
+   and compute/storage constraints.
 3. Review [values](references/values-schema.md), including every image tag,
    storage, data stores, auth URLs, and both ingress paths. Render locally before
-   applying. The provider examples require real domains, TLS, and infrastructure.
+   applying. `--tag` sets the backend, sandbox, and T3 tags together. To pin a
+   Moatless release, set the backend and sandbox tags in the values file and
+   select a T3 image separately. Verify the images support the node
+   architecture. The provider examples require real domains, TLS, and
+   infrastructure.
 4. Bootstrap [secrets](references/secrets.md) from a local file or masked CLI
    prompts, then inspect key names:
 

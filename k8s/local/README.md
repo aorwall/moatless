@@ -1,29 +1,23 @@
 # Moatless on a local Kubernetes cluster
 
-Run Moatless on a single-node Kubernetes cluster on your machine, using
-locally built images and the chart's first-party Postgres. This is the
-supported local path — no Docker Hub pull, no private registry mirror, no cloud.
+Run Moatless on a single-node Kubernetes cluster with the published
+`aorwall` images and the chart's bundled Postgres. The backend, sandbox, and
+T3 images support Linux AMD64 and ARM64.
 
 `values-local.yaml` in this directory is the committed local config. It contains
 **no secrets** — you create the Secret by hand (step 3 below).
 
 ## Prerequisites
 
-Both paths need about **16GB memory** for the cluster and at least **40GB free
-host disk**: a full disk stops the Docker daemon in the middle of a build. They
-also need a checkout of `soaplabs/t3code` beside this repository (or
-`T3CODE_DIR` set to its path), up to date with its `main`, because the image is
-built from whatever it holds, and `kubectl`, `helm` and `jq`.
+Allow about **16 GB of memory** for the cluster and **40 GB of free disk**
+for images and workspaces. Install `kubectl`, `helm`, and `jq`. The cluster
+needs access to Docker Hub.
 
 | | macOS (Apple Silicon) | Linux (x86_64 or arm64) |
 |---|---|---|
 | Cluster | Docker Desktop 4.74+, Kubernetes in **kubeadm** mode | [k3d](https://k3d.io) 5.9+ on Docker Engine (rootful) |
 | Context | `docker-desktop` | `k3d-moatless` |
-| Images reach pods | shared Docker image store | `k3d image import` into the node's containerd |
 | Install | Docker Desktop settings | Arch: `pacman -S kubectl helm jq` and AUR `rancher-k3d-bin`; elsewhere the [k3d install script](https://k3d.io/stable/#installation) |
-
-Docker Desktop's kind mode does not share the image store, and Docker Desktop
-for Linux runs its own VM, so neither sees images built on the host.
 
 **Pass the context explicitly.** Your current context may be a remote cluster.
 Every command below names `$CTX`:
@@ -58,27 +52,17 @@ If it prints nothing, add `myhostname` to the `hosts:` line of
 `fs.inotify.max_user_instances` to 512 and `fs.inotify.max_user_watches` to
 524288 under `/etc/sysctl.d/`.
 
-## 1. Build the images (host arch, tagged `:dev`)
+## 1. Use the Docker Hub images
 
-```bash
-.agents/skills/k8s-install/scripts/build-local-images.sh            # all
-.agents/skills/k8s-install/scripts/build-local-images.sh backend    # or one: backend, sandbox, t3
-```
+The local values inherit the chart's `aorwall/moatless-backend:latest`,
+`aorwall/moatless-sandbox:latest`, and `aorwall/moatless-t3:latest` images.
+Kubernetes pulls the backend and T3 images during install, and the sandbox
+image when a task starts. The published T3 image allows HTTP preview frames at
+`*.preview.moatless.localhost`.
 
-On Linux, prefix each call with `K3D_CLUSTER=moatless` so it imports every
-image it builds. An import copies the whole image through a tarball and stores
-it a second time inside the node: the 11GB sandbox image takes about 5 minutes.
-`PLATFORM=linux/arm64` overrides the host arch.
-
-The script compiles Rust inside Linux containers, on the `rust-toolchain.toml`
-version. On arm64, `task build:backend` and `docker/build-sandbox.sh`
-cross-compile with zig, which rejects the `--fix-cortex-a53-843419` linker
-argument of rustc 1.100 (seen with zig 0.15.2 and 0.16.0).
-
-`docker image prune -a` deletes any of these images that no container uses.
-Kubelet image GC can also evict an imported image under node disk pressure;
-a sandbox pod then fails with `ErrImageNeverPull` or `ErrImagePull`. Re-run the
-build with `K3D_CLUSTER` set, or `k3d image import -c moatless <image>`.
+To pin a Moatless release, set both `backend.image.tag` and
+`sandboxImage.tag` to the same release tag, such as `moat-cli-v0.1.1`.
+T3 publishes separately and can stay on `:latest`.
 
 ## 2. Traefik + namespace
 
@@ -203,23 +187,39 @@ curl "${H[@]}" localhost/api/orchestration/scripts/<task id>/preview/run \
 A ready sandbox has cloned the repository into
 `/opt/moatless/workspace/<repo>` and connected to the backend over gRPC.
 
-## 7. Rebuild and redeploy
+## 7. Refresh released images or use local builds
+
+For `:latest`, restart the backend and T3 Deployments to pull the current
+images. New sandbox pods pull the current sandbox image when they start.
+For a pinned release, change both tags and run the Helm upgrade with the
+updated values.
 
 ```bash
-K3D_CLUSTER=moatless .agents/skills/k8s-install/scripts/build-local-images.sh backend   # drop K3D_CLUSTER on macOS
-kubectl --context "$CTX" -n moatless rollout restart deploy/moatless-backend
+kubectl --context "$CTX" -n moatless rollout restart deploy/moatless-backend deploy/moatless-t3
 kubectl --context "$CTX" -n moatless rollout status deploy/moatless-backend
+kubectl --context "$CTX" -n moatless rollout status deploy/moatless-t3
 ```
 
-For `t3`, restart `deploy/moatless-t3`. A new sandbox pod picks up a new
-sandbox image. `pullPolicy: IfNotPresent` with a reused `:dev` tag keeps the old
-image running until the restart.
+To test a local change, pass `backend`, `sandbox`, or `t3` to
+`.agents/skills/k8s-install/scripts/build-local-images.sh`. On Linux, set
+`K3D_CLUSTER=moatless` so the script imports the image into k3d. For a local
+T3 build, set `T3CODE_DIR` if the checkout of `soaplabs/t3code` is outside
+the default sibling directory. The backend and sandbox build in Linux
+containers using the workspace's Rust version.
 
-After a chart or values change:
+Select `:dev` and `IfNotPresent` for the image you built. For a local backend:
 
 ```bash
-helm --kube-context "$CTX" upgrade moatless ./k8s/helm/moatless -n moatless -f k8s/local/values-local.yaml
+helm --kube-context "$CTX" upgrade moatless ./k8s/helm/moatless \
+  -n moatless -f k8s/local/values-local.yaml \
+  --set backend.image.tag=dev --set backend.image.pullPolicy=IfNotPresent
 ```
+
+For a local sandbox or T3, use `sandboxImage.tag=dev` and
+`sandboxImage.pullPolicy=IfNotPresent`, or `t3.image.tag=dev` and
+`t3.image.pullPolicy=IfNotPresent`. Keep the corresponding overrides on
+subsequent upgrades while using local images. After rebuilding a reused `:dev` tag,
+restart the backend or T3 Deployment, or create a new sandbox pod.
 
 ## Upgrading an old release
 
@@ -240,7 +240,6 @@ kubectl --context "$CTX" -n moatless exec deploy/postgres -- pg_dump -U moatless
 
 | Setting | Why |
 |---|---|
-| `backend.image`, `sandboxImage`, `t3.image`: `pullPolicy: IfNotPresent`, tag `dev` | The chart defaults to `latest`, mostly with `Always`, which forces a Docker Hub pull and silently ignores locally built images. |
 | `kubernetes.imagePrepull.enabled: false` | Pre-pulls the full 5-8GB sandbox image with `pullPolicy: Always`. |
 | `kubernetes.sandboxStorage.defaultPvc: true`, `defaultS3: false` | The S3 snapshot needs a real bucket a local install does not have, so the per-task PVC alone carries the workspace. The cluster's default StorageClass backs it (Docker Desktop's hostpath, k3s's `local-path`), so workspaces survive pod replacement and retained close/reopen without any cloud storage. |
 | `kubernetes.sandboxSysctls` — drop `tcp_keepalive_*` | Some kubelets reject them as unsafe → block sandbox pod admission. |
@@ -261,6 +260,6 @@ kubectl --context "$CTX" -n moatless exec deploy/postgres -- pg_dump -U moatless
   `--set backend.image.tag=...`), so it renders chart defaults. It is not the local path —
   use the `helm install ... -f k8s/local/values-local.yaml` above.
 - **Docker Desktop Kubernetes can reset on restart** on some versions. If the
-  cluster comes back empty, re-run steps 2-4 (the images are still in the store).
+  cluster comes back empty, re-run steps 2–4.
 - **`k3d cluster delete moatless`** removes the cluster and its imported
   images; the host's Docker images stay. Recreate it from step 0 and re-import.
