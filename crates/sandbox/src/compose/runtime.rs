@@ -76,7 +76,7 @@ pub(crate) async fn compose_runtime(config: &Config) -> (SandboxState, Superviso
 
     // One workspace-upload baseline for the pod, shared by the coordinator's
     // turn-boundary uploads and every path that reaches it through SandboxState.
-    let workspace_sync = crate::workspace_sync::WorkspaceSyncTracker::new();
+    let workspace_sync = crate::workspace_sync::WorkspaceSyncTracker::until_placed();
 
     let task_contexts = Arc::new(RwLock::new(std::collections::HashMap::new()));
     let task_context_registration = Arc::new(tokio::sync::Mutex::new(()));

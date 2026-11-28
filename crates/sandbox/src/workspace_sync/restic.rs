@@ -24,12 +24,13 @@ use sandbox_proto::{RESTIC_CACHE_DIR, SNAPSHOT_ROOT};
 use tracing::{debug, info, warn};
 
 use super::file_set;
+use super::notices::report_skipped_unreadable_snapshot;
 use super::phases::Phases;
 use super::sync::{
     Capture, NotStored, RestoreAttempt, RestoreDecision, SyncOutcome, clear_dir_contents,
-    fingerprint_now, is_feature_disabled, report_skipped_unreadable_snapshot,
+    fingerprint_now, is_feature_disabled,
 };
-use super::volume::primary_repo_is_usable;
+use super::volume::{primary_repo_is_usable, set_aside_damaged_checkout};
 use crate::backend_client::BackendClient;
 use crate::config::Config;
 use crate::state::SandboxState;
@@ -597,6 +598,7 @@ pub(super) async fn restore_on_start(state: &SandboxState) -> RestoreAttempt {
                 })
             } else {
                 debug!(task_id = %task_id, "Restored tree has no usable primary repo; will clone");
+                set_aside_damaged_checkout(state, workspace_dir.clone(), repo_dir.clone()).await;
                 RestoreAttempt::Absent
             }
         }

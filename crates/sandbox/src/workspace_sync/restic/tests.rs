@@ -1083,3 +1083,80 @@ fn the_first_snapshot_after_a_restore_reads_no_unchanged_file() {
         "restored files were read as new or changed"
     );
 }
+
+/// The production walk and backup options, round-tripped: the primary
+/// checkout comes back on its branch with `git status` working, a sibling
+/// clone keeps its `.git`, and a file at the workspace root survives.
+#[test]
+fn a_restore_brings_back_every_checkout_s_git_and_the_workspace_root() {
+    let _snapshotting = SNAPSHOTTING.blocking_lock();
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let source = tmp.path().join("source");
+    let into = tmp.path().join("into");
+    let backend = map_repo();
+
+    let primary = source.join("soap-frontend");
+    std::fs::create_dir_all(primary.join("src")).expect("primary");
+    std::fs::write(primary.join(".gitignore"), "node_modules/\n").expect("gitignore");
+    std::fs::write(primary.join("src/app.ts"), "export {}").expect("source");
+    init_repo(&primary);
+    git(&primary, &["add", "-A"]);
+    git(&primary, &["commit", "-q", "-m", "init"]);
+    git(&primary, &["checkout", "-q", "-b", "review/pr-2411"]);
+    std::fs::write(primary.join("src/app.ts"), "export const x = 1").expect("dirty");
+    std::fs::create_dir_all(primary.join("node_modules/dep")).expect("deps");
+    std::fs::write(primary.join("node_modules/dep/index.js"), "").expect("dep");
+
+    let sibling = source.join("sf-clone");
+    std::fs::create_dir_all(&sibling).expect("sibling");
+    std::fs::write(sibling.join("lib.ts"), "export {}").expect("sibling source");
+    init_repo(&sibling);
+    git(&sibling, &["add", "-A"]);
+    git(&sibling, &["commit", "-q", "-m", "init"]);
+
+    std::fs::write(source.join("review-scope.md"), "# scope").expect("root file");
+
+    write_glob_file(&source).expect("glob file");
+    let repo = Repository::new(&map_options(), &map_backends(&backend))
+        .expect("repository")
+        .open(&RepoCredentials::password(MAP_PASSWORD))
+        .expect("open")
+        .to_indexed_ids()
+        .expect("index");
+    let paths = PathList::from_string(&source.to_string_lossy()).expect("paths");
+    let snapshot = SnapshotOptions::default()
+        .label(Some(SNAPSHOT_LABEL.to_string()))
+        .to_snapshot()
+        .expect("metadata");
+    repo.backup(&backup_options(), &paths, snapshot)
+        .expect("backup");
+    map_restore(&backend, &into, UnreadableSnapshot::Refuse)
+        .expect("restore")
+        .expect("a snapshot");
+
+    let restored = into.join("soap-frontend");
+    assert_eq!(
+        git(&restored, &["status", "--porcelain"]),
+        Some("M src/app.ts".to_string()),
+        "the primary checkout came back without a readable `.git`"
+    );
+    assert_eq!(
+        git(&restored, &["rev-parse", "--abbrev-ref", "HEAD"]),
+        Some("review/pr-2411".to_string()),
+        "the primary checkout came back on a different branch"
+    );
+    assert!(
+        !restored.join("node_modules").exists(),
+        "ignored output is not stored"
+    );
+    assert_eq!(
+        git(&into.join("sf-clone"), &["rev-parse", "HEAD"]),
+        git(&sibling, &["rev-parse", "HEAD"]),
+        "the sibling clone lost its `.git`"
+    );
+    assert_eq!(
+        std::fs::read_to_string(into.join("review-scope.md")).ok(),
+        Some("# scope".to_string()),
+        "the workspace-root file did not come back"
+    );
+}

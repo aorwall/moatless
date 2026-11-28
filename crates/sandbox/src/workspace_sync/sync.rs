@@ -22,6 +22,7 @@ use moatless_types::http::HttpTimeouts;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
+use super::notices::publish_workspace_event;
 use super::phases::Phases;
 use super::volume::volume_is_usable;
 use super::{file_set, restic};
@@ -96,6 +97,8 @@ pub struct WorkspaceSyncTracker {
     pub(super) repository_access: Arc<restic::AccessCache>,
     /// Written by [`Self::hold_uploads`], read by [`Self::upload_if_changed`].
     uploads_held: Arc<AtomicBool>,
+    /// Set by [`Self::until_placed`], cleared by [`Self::mark_placed`].
+    placing: Arc<AtomicBool>,
     turn_upload: Arc<TurnUpload>,
     /// Snapshots this pod may still write before it prunes. See
     /// [`PRUNE_EVERY_SNAPSHOTS`] for why `0` — the `Default` — is the start.
@@ -122,6 +125,21 @@ struct TurnUpload {
 impl WorkspaceSyncTracker {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// A tracker refusing every upload until [`Self::mark_placed`]. The
+    /// pre-stop RPC and shutdown flush reach a pod mid-init, and a snapshot of
+    /// a half-restored `.git` becomes the newest one the next pod restores.
+    pub fn until_placed() -> Self {
+        let tracker = Self::default();
+        tracker.placing.store(true, Ordering::Relaxed);
+        tracker
+    }
+
+    /// Accept uploads: the restore, the clone and the overlay are done, or the
+    /// pod kept a volume that already holds the tree.
+    pub fn mark_placed(&self) {
+        self.placing.store(false, Ordering::Relaxed);
     }
 
     /// Adopt the current workspace as the baseline without uploading it.
@@ -168,6 +186,10 @@ impl WorkspaceSyncTracker {
     ) -> SyncOutcome {
         if self.uploads_held.load(Ordering::Relaxed) {
             warn!(task_id = %config.task_id, "Upload held: the stored snapshot could not be read on start, and this tree would overwrite it");
+            return SyncOutcome::default();
+        }
+        if self.placing.load(Ordering::Relaxed) {
+            info!(task_id = %config.task_id, "Upload skipped: init is still placing the workspace, and a partial tree must not become the newest snapshot");
             return SyncOutcome::default();
         }
 
@@ -449,42 +471,6 @@ fn hold_for_unread_snapshot(state: &SandboxState) -> RestoreDecision {
     RestoreDecision::CloneOnly
 }
 
-/// Report that the restore left out a snapshot object it could not read.
-///
-/// Says only that one was skipped: its time is inside the object that will not
-/// read, so whether the tree is behind what the task last stored is unknown.
-pub(super) fn report_skipped_unreadable_snapshot(state: &SandboxState) {
-    error!(
-        task_id = %state.config.task_id,
-        format = restic::FORMAT,
-        "Skipped a stored workspace snapshot that would not read; restored the newest one that would"
-    );
-    publish_workspace_event(
-        state,
-        "workspace_snapshot_unreadable",
-        "A stored workspace snapshot could not be read, so this pod restored the newest one it could read. If the unreadable snapshot was the newer one, work saved after the restored snapshot is not in this workspace.",
-    );
-}
-
-/// Queue one sandbox event carrying `message` under `sub_type`.
-fn publish_workspace_event(state: &SandboxState, sub_type: &str, message: &str) {
-    let payload = serde_json::json!({ "format": restic::FORMAT, "message": message });
-    match serde_json::to_string(&payload) {
-        Ok(payload_json) => {
-            state.events.enqueue(sandbox_proto::PublishEventRequest {
-                task_id: state.config.task_id.clone(),
-                event_type: sandbox_proto::EventType::Sandbox as i32,
-                sub_type: sub_type.to_string(),
-                payload_json,
-                event_id: String::new(),
-                sequence: 0,
-                run_id: String::new(),
-            });
-        }
-        Err(e) => warn!(error = %e, sub_type, "Failed to serialize a workspace sync event"),
-    }
-}
-
 /// Delete every git lock the tree this pod starts on carries.
 ///
 /// A lock arrives from a snapshot older than the exclusion or from a volume
@@ -522,6 +508,9 @@ pub async fn restore_on_start(state: &SandboxState) -> RestoreDecision {
     // OOM kill). The snapshot is behind it, so extracting it reverts work.
     if volume_is_usable(&state.config).await {
         info!(task_id = %task_id, dir = %repo_dir.display(), "Volume already holds the workspace; keeping it and skipping the S3 restore");
+        // The kept volume is ahead of every snapshot, so a pre-stop sync during
+        // the rest of init must store it.
+        state.workspace_sync.mark_placed();
         return RestoreDecision::UseExistingVolume;
     }
 

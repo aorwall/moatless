@@ -1,9 +1,14 @@
 //! Whether a volume the pod kept already holds the task's tree, which decides
-//! if a restore may extract over it.
+//! if a restore may extract over it, and whether a restored checkout is one
+//! `git` can read.
 
 use std::path::{Path, PathBuf};
 
+use tracing::error;
+
+use super::notices::publish_workspace_event;
 use crate::config::Config;
+use crate::state::SandboxState;
 
 /// Whether the local volume already holds the tree the task works in: a usable
 /// primary repo, or, for a task that clones nothing, any entry at all.
@@ -40,6 +45,94 @@ pub(crate) async fn primary_repo_is_usable(repo_dir: &Path) -> bool {
         .status()
         .await
         .is_ok_and(|status| status.success())
+}
+
+/// What [`set_aside_checkout`] did with a restored primary checkout.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum DamagedCheckout {
+    /// `git` reads the checkout, an unborn `HEAD` included, or nothing is
+    /// there.
+    Readable,
+    /// Moved to this path, so the clone gets an empty directory.
+    SetAside(PathBuf),
+    /// Damaged and left in place: it is the workspace dir itself, or the
+    /// rename failed.
+    LeftInPlace,
+}
+
+/// Move a restored primary checkout that `git` cannot read out of the clone's
+/// way, keeping its working tree for the agent to recover from.
+///
+/// Left in place, a damaged `.git` is still a `.git`, so
+/// `init::git::clone_repositories` skips the checkout and the agent starts in
+/// a directory where every `git` command fails. Blocks on `std::fs` and `git`.
+pub(super) fn set_aside_checkout(workspace_dir: &Path, repo_dir: &Path) -> DamagedCheckout {
+    if !repo_dir.exists() || checkout_is_readable(repo_dir) {
+        return DamagedCheckout::Readable;
+    }
+    if repo_dir == workspace_dir || !repo_dir.starts_with(workspace_dir) {
+        return DamagedCheckout::LeftInPlace;
+    }
+    let Some(name) = repo_dir.file_name() else {
+        return DamagedCheckout::LeftInPlace;
+    };
+    let stamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ");
+    let aside = repo_dir.with_file_name(format!("{}.unreadable-{stamp}", name.to_string_lossy()));
+    match std::fs::rename(repo_dir, &aside) {
+        Ok(()) => DamagedCheckout::SetAside(aside),
+        Err(_) => DamagedCheckout::LeftInPlace,
+    }
+}
+
+/// Whether `git status` succeeds in `repo_dir` on its own `.git`.
+///
+/// Not `rev-parse HEAD`, which also fails on the unborn `HEAD` of a clone of
+/// an empty repository. `GIT_CEILING_DIRECTORIES` stops a broken `.git` from
+/// sending discovery up to a repository above the checkout.
+fn checkout_is_readable(repo_dir: &Path) -> bool {
+    if !repo_dir.join(".git").exists() {
+        return false;
+    }
+    let mut command = std::process::Command::new("git");
+    command
+        .arg("-C")
+        .arg(repo_dir)
+        .args(["status", "--porcelain"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    if let Some(parent) = repo_dir.parent() {
+        command.env("GIT_CEILING_DIRECTORIES", parent);
+    }
+    command.status().is_ok_and(|status| status.success())
+}
+
+/// Move a restored primary checkout `git` cannot read aside so init reclones
+/// it, and say where its working tree went; see
+/// [`set_aside_checkout`].
+pub(super) async fn set_aside_damaged_checkout(
+    state: &SandboxState,
+    workspace_dir: PathBuf,
+    repo_dir: PathBuf,
+) {
+    let dir = repo_dir.clone();
+    let outcome =
+        tokio::task::spawn_blocking(move || set_aside_checkout(&workspace_dir, &repo_dir))
+            .await
+            .unwrap_or(DamagedCheckout::LeftInPlace);
+    let message = match outcome {
+        DamagedCheckout::Readable => return,
+        DamagedCheckout::SetAside(aside) => format!(
+            "The restored checkout at {} had a `.git` that git cannot read, so it was moved to {} and the repository was cloned again. Uncommitted work from before the restart is in the moved copy.",
+            dir.display(),
+            aside.display()
+        ),
+        DamagedCheckout::LeftInPlace => format!(
+            "The restored checkout at {} has a `.git` that git cannot read, and it could not be moved aside, so git commands there fail.",
+            dir.display()
+        ),
+    };
+    error!(task_id = %state.config.task_id, dir = %dir.display(), "{message}");
+    publish_workspace_event(state, "workspace_checkout_unreadable", &message);
 }
 
 #[cfg(test)]
@@ -104,5 +197,68 @@ mod tests {
 
         std::fs::write(tmp.path().join("notes.md"), "work").unwrap();
         assert!(volume_is_usable(&config).await);
+    }
+
+    /// The shape a snapshot taken mid-restore leaves: a `.git` holding some of
+    /// its files, which the clone would skip as already cloned.
+    #[test]
+    fn a_checkout_git_cannot_read_is_set_aside_with_its_working_tree() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        std::fs::create_dir_all(repo.join(".git/objects")).unwrap();
+        std::fs::write(repo.join("edited.rs"), "work").unwrap();
+
+        let outcome = set_aside_checkout(tmp.path(), &repo);
+
+        let DamagedCheckout::SetAside(aside) = outcome else {
+            panic!("a damaged checkout was not set aside: {outcome:?}");
+        };
+        assert!(!repo.exists(), "the clone needs the directory free");
+        assert_eq!(
+            std::fs::read_to_string(aside.join("edited.rs")).unwrap(),
+            "work"
+        );
+    }
+
+    #[test]
+    fn a_working_tree_with_no_git_at_all_is_set_aside() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        std::fs::write(repo.join("a.txt"), "hello").unwrap();
+
+        assert!(matches!(
+            set_aside_checkout(tmp.path(), &repo),
+            DamagedCheckout::SetAside(_)
+        ));
+    }
+
+    /// A clone of an empty repository has no commit, and its work is real.
+    #[test]
+    fn an_unborn_head_is_readable_and_stays() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        git(&repo, &["init", "-q"]);
+        std::fs::write(repo.join("draft.md"), "work").unwrap();
+
+        assert_eq!(
+            set_aside_checkout(tmp.path(), &repo),
+            DamagedCheckout::Readable
+        );
+        assert!(repo.join("draft.md").exists());
+    }
+
+    /// Renaming the workspace dir would take every sibling with it.
+    #[test]
+    fn a_damaged_checkout_at_the_workspace_root_is_left_in_place() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join(".git")).unwrap();
+
+        assert_eq!(
+            set_aside_checkout(tmp.path(), tmp.path()),
+            DamagedCheckout::LeftInPlace
+        );
+        assert!(tmp.path().join(".git").is_dir());
     }
 }

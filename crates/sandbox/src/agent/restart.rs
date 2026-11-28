@@ -19,6 +19,8 @@ pub(crate) async fn open_for_work(state: &SandboxState, workspace_origin: Worksp
     // Before the Ready flip: this container's own `pod_ready` ends the search.
     let stop_cause = look_up_stop_cause(state, workspace_origin).await;
 
+    // Init has placed the tree, so an upload now stores the task's own.
+    state.workspace_sync.mark_placed();
     // Adopt whatever the restore or clone produced as the upload baseline,
     // unless a file was consumed: the take deleted it here but S3 still
     // carries it, so adopting now would let an untouched turn skip the

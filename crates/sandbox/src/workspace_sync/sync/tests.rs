@@ -2,6 +2,7 @@
 
 use super::*;
 
+mod held;
 mod symlinks;
 mod worktree;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -427,35 +428,6 @@ async fn an_in_place_restart_keeps_the_live_empty_dir_volume() {
     );
     assert_eq!(backend.repository_access_calls(), 0, "nothing was fetched");
     assert!(repo_dir.join("node_modules").is_dir());
-}
-
-/// A restore that failed against a snapshot that exists leaves this pod holding
-/// a tree that never held the work; uploading it would replace the only copy.
-#[tokio::test]
-async fn a_held_upload_never_overwrites_the_snapshot() {
-    let tmp = tempfile::tempdir().unwrap();
-    let repo = tmp.path().join("repo");
-    init_repo(&repo);
-    std::fs::write(repo.join("a.txt"), "hello").unwrap();
-    git_add(&repo, &["a.txt"]);
-    git_commit(&repo, "init");
-
-    let config = sync_config(tmp.path(), true, true);
-    let backend = CountingBackend::default();
-    let tracker = WorkspaceSyncTracker::new();
-
-    // Unheld, this tree is new to the backend and ships.
-    upload_after_turn(&config, &backend, &tracker).await;
-    assert_eq!(backend.attempts(), 1, "an unheld tracker uploads");
-
-    tracker.hold_uploads();
-    std::fs::write(repo.join("a.txt"), "edited after the failed restore").unwrap();
-    upload_after_turn(&config, &backend, &tracker).await;
-    assert_eq!(
-        backend.attempts(),
-        1,
-        "a held tracker ships nothing, whatever changed on disk"
-    );
 }
 
 /// The gate every upload path shares: nothing travels twice.
