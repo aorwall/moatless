@@ -810,6 +810,14 @@ async fn shared_sandbox_create_joins_before_first_message_and_skips_provisioning
 /// Creates `child-1` into `sandbox-1` under `parent-1`, whose own Sandbox is
 /// `parent_sandbox`, expecting `cuts` cuts at the parent's head.
 async fn create_child(parent_sandbox: &'static str, cuts: usize) {
+    create_child_with(parent_sandbox, cuts, |_| {}).await;
+}
+
+async fn create_child_with(
+    parent_sandbox: &'static str,
+    cuts: usize,
+    adjust: impl FnOnce(&mut NewTaskRequest),
+) {
     let mut tasks = MockTaskDao::new();
     tasks.expect_exists_by_short_id().returning(|_| Ok(false));
     tasks.expect_insert_task().returning(|_, _| Ok(()));
@@ -851,6 +859,7 @@ async fn create_child(parent_sandbox: &'static str, cuts: usize) {
         parent_task_id: "parent-1".to_string(),
         context: serde_json::json!({ "via": "create_task_request" }),
     });
+    adjust(&mut req);
     svc.create(req, empty_payload, |_, _| async { Ok(()) })
         .await
         .expect("child creation succeeds");
@@ -864,6 +873,22 @@ async fn a_child_joining_its_parents_sandbox_is_cut_at_the_parents_head() {
 #[tokio::test]
 async fn a_child_joining_another_sandbox_is_not_cut() {
     create_child("sandbox-2", 0).await;
+}
+
+#[tokio::test]
+async fn a_child_with_its_own_checkout_is_not_cut() {
+    create_child_with("sandbox-1", 0, |req| {
+        req.checkout_mode = Some(moatless_types::task::CheckoutMode::Isolated);
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn a_child_whose_harness_resumes_only_by_id_is_not_cut() {
+    create_child_with("sandbox-1", 0, |req| {
+        req.agent_profile = moatless_types::agent::AgentProfile::MiniSwe;
+    })
+    .await;
 }
 
 #[tokio::test]

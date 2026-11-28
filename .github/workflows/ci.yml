@@ -86,7 +86,7 @@ jobs:
           RUN pip install --no-cache-dir "mini-swe-agent==$MINI_SWE_VERSION" "litellm==$MINI_SWE_LITELLM_VERSION" "mcp==$MINI_SWE_MCP_VERSION"
           RUN pip uninstall -y datasets pandas pyarrow numpy
           WORKDIR /bridge
-          COPY bridge.py test_bridge.py ./
+          COPY bridge.py mini.yaml test_bridge.py ./
           RUN python test_bridge.py
           DOCKERFILE
 

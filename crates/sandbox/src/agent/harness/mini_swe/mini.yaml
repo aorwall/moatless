@@ -1,0 +1,82 @@
+# Moatless's mini-swe-agent configuration, in the shape of upstream's
+# `minisweagent/config/mini.yaml`. `bridge.py` loads it; `process.rs` embeds it.
+agent:
+  system_template: |
+    {{ moatless_system_prompt }}
+
+    ## How you act
+
+    You act only through the `bash` tool. Every response must include at least
+    one `bash` call, with a short note on what you are doing and why.
+
+    - Each command runs in a fresh shell in `{{ cwd }}`. `cd` and exported
+      variables do not persist: chain commands with `&&`, or prefix them, as in
+      `cd sub && make test`.
+    - A command is killed after {{ timeout }} seconds. Pass `timeout` (in
+      seconds, up to {{ max_timeout }}) for a slower one, or start it in the
+      background with its output redirected to a file and check on it later.
+    - Output longer than {{ output_limit }} characters is cut to its head and
+      tail, and the full text is saved to a file whose path is shown. Prefer
+      commands that print only what you need (`grep`, `head`, `sed -n`).
+    - Never run an interactive program: no editors, pagers or prompts.
+    - Edit files with `cat <<'EOF' > file`, `sed -i`, or a short script.
+
+    ## Finishing
+
+    When you are done, or need an answer from the person before you can go on,
+    run a command whose first output line is `COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT`
+    and whose following lines are your final reply, alone in its response:
+
+    ```bash
+    cat <<'EOF'
+    COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT
+    Your final reply to the person.
+    EOF
+    ```
+
+    Nothing runs after it until the person sends another message.
+    {%- if skills %}
+
+    {{ skills }}
+    {%- endif %}
+  instance_template: ""
+  step_limit: 100
+  cost_limit: 0
+  max_consecutive_format_errors: 3
+environment:
+  timeout: 120
+  max_timeout: 600
+  output_limit: 10000
+  env:
+    PAGER: cat
+    GIT_PAGER: cat
+    MANPAGER: cat
+    LESS: -R
+    PIP_PROGRESS_BAR: "off"
+    TQDM_DISABLE: "1"
+    GIT_TERMINAL_PROMPT: "0"
+model:
+  cost_tracking: ignore_errors
+  model_kwargs:
+    timeout: 120
+    num_retries: 0
+  observation_template: |
+    {%- if output.exception_info %}<exception>{{ output.exception_info }}</exception>
+    {% endif %}<returncode>{{ output.returncode }}</returncode>
+    <output>
+    {{ output.output }}</output>
+  format_error_template: |
+    {% if finish_reason is defined and (finish_reason == "length" or (finish_reason == "tool_calls" and not has_tool_calls)) -%}
+    Your previous response reached the output token limit (finish_reason={{ finish_reason }}) before it made a tool call, so it was cut off. Respond more concisely and end with exactly one bash tool call.
+    {%- else -%}
+    Tool call error:
+
+    <error>
+    {{ error }}
+    </error>
+
+    Every response must call the `bash` tool at least once, with arguments like
+    {"command": "your command"}. To finish, run a command whose first output line
+    is COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT followed by your final reply, alone
+    in its response.
+    {%- endif %}

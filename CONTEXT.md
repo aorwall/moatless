@@ -172,9 +172,10 @@ error notifications skip it. Runs in its own Sandbox or, with `sameSandbox`, in 
 shared checkout.
 _Avoid_: "child" for a Fork when the distinction from a `created_by` subtask
 matters — a Fork is a parent-edged Task, not a spawned subagent Task.
-A `created_by` subtask that joins its parent's Sandbox also gets a `task_forks`
+A `created_by` subtask that shares its parent's checkout in its Sandbox, under
+a harness that resumes its last session (Claude Code), also gets a `task_forks`
 row, cut at the parent's head, so its first Turn opens a Session of its own
-holding the parent's context. It is still not a Fork: it has no `forked_from`
+holding the parent's context. Any other subtask starts with no prior context. It is still not a Fork: it has no `forked_from`
 edge and inherits no projected conversation.
 
 **Artifact**:

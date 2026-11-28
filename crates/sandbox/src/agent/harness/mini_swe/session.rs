@@ -56,18 +56,20 @@ pub(super) fn usage(message: &Value) -> Usage {
         .as_u64()
         .or_else(|| u["prompt_tokens_details"]["cached_tokens"].as_u64())
         .unwrap_or(0);
+    let written = u["cache_creation_input_tokens"].as_u64().unwrap_or(0);
+    // litellm's `prompt_tokens` counts cache reads and writes as input too.
     Usage {
         input_tokens: u["input_tokens"]
             .as_u64()
             .or_else(|| u["prompt_tokens"].as_u64())
             .unwrap_or(0)
-            .saturating_sub(cached),
+            .saturating_sub(cached + written),
         output_tokens: u["output_tokens"]
             .as_u64()
             .or_else(|| u["completion_tokens"].as_u64())
             .unwrap_or(0),
         cache_read_tokens: cached,
-        cache_write_tokens: u["cache_creation_input_tokens"].as_u64().unwrap_or(0),
+        cache_write_tokens: written,
     }
 }
 
@@ -119,7 +121,11 @@ impl SessionFormat for MiniSweSessionFormat {
                 usage: (m["object"] == "response" || m["extra"]["response"].is_object())
                     .then(|| usage(m)),
                 ends_turn: m["role"] == "exit" || v["ends_turn"] == true,
-                api_error: m["role"] == "exit" && m["extra"]["exit_status"] != "Submitted",
+                api_error: m["role"] == "exit"
+                    && !matches!(
+                        m["extra"]["exit_status"].as_str(),
+                        Some("Submitted" | "LimitsExceeded")
+                    ),
                 ..EventContent::default()
             },
             derived: false,
@@ -196,6 +202,38 @@ mod tests {
                 .read_line(&exit.to_string())
                 .content
                 .ends_turn
+        );
+    }
+
+    #[test]
+    fn anthropic_cache_writes_are_not_also_counted_as_input() {
+        let message = json!({"role":"assistant","extra":{"response":{"usage":{
+            "prompt_tokens":64727,"completion_tokens":508,"cache_creation_input_tokens":64723,
+            "prompt_tokens_details":{"cached_tokens":0}}}}});
+        let u = usage(&message);
+        assert_eq!(
+            (u.input_tokens, u.cache_write_tokens, u.cache_read_tokens),
+            (4, 64723, 0)
+        );
+    }
+
+    #[test]
+    fn a_step_limit_pause_is_not_an_api_error() {
+        let exit = |status: &str| {
+            json!({"type":"message","message":{"role":"exit","content":"x","extra":{"exit_status":status}}})
+                .to_string()
+        };
+        assert!(
+            !MiniSweSessionFormat
+                .read_line(&exit("LimitsExceeded"))
+                .content
+                .api_error
+        );
+        assert!(
+            MiniSweSessionFormat
+                .read_line(&exit("BadRequestError"))
+                .content
+                .api_error
         );
     }
 

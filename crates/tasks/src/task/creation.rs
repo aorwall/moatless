@@ -90,8 +90,8 @@ pub struct NewTaskRequest {
     pub memory_preload: Vec<String>,
     /// See [`Task::agent_properties`].
     pub agent_properties: moatless_types::agent::AgentProperties,
-    /// Optional `created_by` parent relation to record after insert. A child
-    /// joining its parent's Sandbox is also cut at the parent's head; see
+    /// Optional `created_by` parent relation to record after insert. A Claude
+    /// child sharing its parent's checkout is also cut at the parent's head; see
     /// `TaskCreationService::continue_parent_session`.
     pub parent: Option<CreatedByParent>,
     /// Set when this Task is a fork. Records the `forked_from` relation, and
@@ -455,7 +455,8 @@ impl TaskCreationService {
             }
         }
         if req.forked_from.is_none() {
-            self.continue_parent_session(&task_id, &req).await?;
+            self.continue_parent_session(&task_id, &req, join_checkout_mode)
+                .await?;
         }
 
         // Join before delivering the first message: the membership row must
@@ -606,18 +607,25 @@ impl TaskCreationService {
         Ok(())
     }
 
-    /// Cuts a `created_by` child joining its parent's Sandbox at the parent's
-    /// trajectory head, as a fork. Not best-effort: without the cut, a Claude
-    /// child's first turn runs `--continue` in the shared project dir, resumes
-    /// the parent's session, and every append it makes is refused as foreign.
+    /// Cuts a Claude `created_by` child sharing its parent's checkout at the
+    /// parent's head, as a fork: uncut, its `--continue` resumes the parent's
+    /// session and every append is refused as foreign. Any other child is
+    /// deliberately uncut: the cut hands it the parent's whole conversation,
+    /// and it acts as the parent rather than on its own message.
     async fn continue_parent_session(
         &self,
         task_id: &str,
         req: &NewTaskRequest,
+        checkout_mode: Option<moatless_types::task::CheckoutMode>,
     ) -> Result<(), TaskCreationError> {
         let (Some(parent), Some(sandbox_id)) = (&req.parent, &req.sandbox_id) else {
             return Ok(());
         };
+        if checkout_mode != Some(moatless_types::task::CheckoutMode::Shared)
+            || !req.agent_profile.harness().resumes_last_session()
+        {
+            return Ok(());
+        }
         // reason: the parent is read for its Sandbox alone, and the caller
         // already chose to join that Sandbox under its own access check.
         #[allow(clippy::disallowed_methods)]

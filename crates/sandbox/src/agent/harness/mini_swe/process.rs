@@ -103,9 +103,11 @@ impl MiniSweProcess {
         }
         let config = Arc::clone(&self.cfg.config);
         let home = config.mini_swe_home_dir();
-        tokio::fs::create_dir_all(home.join("sessions"))
-            .await
-            .map_err(|e| error(ErrorClass::InvalidConfiguration, e))?;
+        for dir in ["sessions", "logs", "outputs"] {
+            tokio::fs::create_dir_all(home.join(dir))
+                .await
+                .map_err(|e| error(ErrorClass::InvalidConfiguration, e))?;
+        }
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -192,6 +194,11 @@ impl MiniSweProcess {
             base.trim_end_matches('/'),
             if provider == "openai" { "/v1" } else { "" }
         );
+        let log = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(home.join("logs").join(format!("{}.log", self.session)))
+            .map_err(|e| error(ErrorClass::InvalidConfiguration, e))?;
         let mut command = Command::new("mini-swe-python");
         if let Some(env) = &input.env {
             command.envs(env);
@@ -217,7 +224,7 @@ impl MiniSweProcess {
             .args(["-u", "-c", include_str!("bridge.py")])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::from(log))
             .kill_on_drop(true);
         #[cfg(unix)]
         command.process_group(0);
@@ -227,19 +234,19 @@ impl MiniSweProcess {
         self.stdin = child.stdin.take();
         self.stdout = child.stdout.take().map(BufReader::new);
         self.child = Some(child);
-        let prompt = format!(
-            "{}\nUse the bash tool for actions. Every response must include a bash call. To finish, execute a command whose first output line is COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT and put your final answer on the following lines. Each command runs in a fresh shell.\n{}",
-            input
-                .system_prompt
-                .as_deref()
-                .unwrap_or("You are a coding agent."),
-            crate::agent::skills::catalog_prompt(&config).await
-        );
-        self.send(
-            json!({"journal":session_path,"session":self.session,"resume":resume.is_some(),
-            "model":model,"api_base":api_base,"token_path":config.persisted_user_token_path(),
-            "cwd":config.workspace_dir,"system_prompt":prompt}),
-        )
+        self.send(json!({
+            "journal": session_path,
+            "session": self.session,
+            "resume": resume.is_some(),
+            "model": model,
+            "api_base": api_base,
+            "token_path": config.persisted_user_token_path(),
+            "cwd": config.workspace_dir,
+            "config": include_str!("mini.yaml"),
+            "output_dir": home.join("outputs"),
+            "system_prompt": input.system_prompt.as_deref().unwrap_or("You are a coding agent."),
+            "skills": crate::agent::skills::catalog_prompt(&config).await,
+        }))
         .await?;
         let cancelled = self.cancelled.clone();
         let response = tokio::select! {
@@ -415,7 +422,10 @@ impl AgentProcess for MiniSweProcess {
             match self.read().await {
                 Ok(event) if event["type"] == "finished" => {
                     self.close().await;
-                    if event["exit_status"] != "Submitted" && self.failure.is_none() {
+                    // A step limit pauses the Turn: its exit message says so,
+                    // and the session resumes on the next message.
+                    let paused = event["exit_status"] == "LimitsExceeded";
+                    if event["exit_status"] != "Submitted" && !paused && self.failure.is_none() {
                         self.failure = Some(error(
                             match event["exit_status"].as_str() {
                                 Some("AuthenticationError" | "PermissionDeniedError") => {
@@ -429,7 +439,10 @@ impl AgentProcess for MiniSweProcess {
                                 Some("RepeatedFormatError") => ErrorClass::NativeProtocol,
                                 _ => ErrorClass::ProcessExit,
                             },
-                            format!("mini-swe ended: {}", event["exit_status"]),
+                            match event["error"].as_str() {
+                                Some(detail) => format!("mini-swe ended: {detail}"),
+                                None => format!("mini-swe ended: {}", event["exit_status"]),
+                            },
                         ));
                     }
                     let termination = self

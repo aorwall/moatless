@@ -654,6 +654,7 @@ of its own.
 |---|---|---|
 | Token streaming, plan mode, reasoning controls, and interactive approvals | `crates/sandbox/src/agent/harness/mini_swe/bridge.py` uses synchronous model queries and automatic sandbox command execution; T3 publishes no reasoning options | When the product needs these controls for mini-swe-agent and its bridge protocol can represent them |
 | OpenRouter and other model backends | `MINI_SWE` in `crates/core/src/agent_catalog.rs` and `MiniSweProcess::open` accept Anthropic and OpenAI only | When a requested provider has a tested gateway route and native-history conversion |
+| Spilled tool outputs are never pruned | `Environment.cap` in `crates/sandbox/src/agent/harness/mini_swe/bridge.py` writes each output over `output_limit` to `~/.mini-swe/outputs/`, and nothing deletes them, so a Task that prints many large outputs grows its home directory | When a sandbox's home disk use shows up in eviction or snapshot size. Then prune outputs older than the session's last Turn when the bridge starts |
 
 ## ACP harness capabilities
 
