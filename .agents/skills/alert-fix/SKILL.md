@@ -12,9 +12,10 @@ what the alert's thread ends with.
 
 ## 0. Read the Loop's deployment values
 
-This skill names no deployment. The Loop's `LOOP.md` prompt carries a
-`## Deployment` section with these values; read them from your first message and
-use them wherever the steps below name one in angle brackets:
+This skill names no deployment. The Loop's `LOOP.md` prompt has a
+`## Deployment` section that either lists these values or names the deployment
+skill that holds them. Read them before your first reply and use them wherever
+the steps below name one in angle brackets:
 
 | Value | Example |
 |---|---|
