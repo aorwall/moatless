@@ -308,10 +308,10 @@ fn parse_field_or_variant(line: &str) -> Option<String> {
             rest = r.trim_start();
         }
     }
-    if let Some(r) = rest.strip_prefix("pub") {
-        if r.is_empty() || r.starts_with(char::is_whitespace) {
-            rest = r.trim_start();
-        }
+    if let Some(r) = rest.strip_prefix("pub")
+        && (r.is_empty() || r.starts_with(char::is_whitespace))
+    {
+        rest = r.trim_start();
     }
     let ident: String = rest
         .chars()

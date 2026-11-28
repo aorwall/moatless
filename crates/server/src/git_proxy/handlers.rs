@@ -474,10 +474,10 @@ async fn forward(
     }
     let mut out = Response::builder().status(status);
     for name in FORWARDED_RESPONSE_HEADERS {
-        if let Some(value) = response.headers().get(&name) {
-            if let Ok(value) = HeaderValue::from_bytes(value.as_bytes()) {
-                out = out.header(name, value);
-            }
+        if let Some(value) = response.headers().get(&name)
+            && let Ok(value) = HeaderValue::from_bytes(value.as_bytes())
+        {
+            out = out.header(name, value);
         }
     }
     let mut body = WatchedBody::new(

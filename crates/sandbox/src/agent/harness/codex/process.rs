@@ -581,12 +581,12 @@ impl AgentProcess for CodexProcess {
         // rollout and the Session stays resumable. Only possible once both ids
         // are known; before that, tearing the process down is the whole of it.
         if let Some(session) = self.session.as_ref() {
-            if let (Some(thread_id), Some(turn_id)) = (&self.thread_id, &self.turn_id) {
-                if let Err(error) = session.interrupt(thread_id, turn_id).await {
-                    // The Turn is ending regardless; the interrupt is a courtesy
-                    // and its failure must not stop the teardown below.
-                    warn!(%error, "turn/interrupt failed; tearing the session down anyway");
-                }
+            if let (Some(thread_id), Some(turn_id)) = (&self.thread_id, &self.turn_id)
+                && let Err(error) = session.interrupt(thread_id, turn_id).await
+            {
+                // The Turn is ending regardless; the interrupt is a courtesy
+                // and its failure must not stop the teardown below.
+                warn!(%error, "turn/interrupt failed; tearing the session down anyway");
             }
             // The stream then reaches EOF/terminal and the driver maps it to a
             // cancelled outcome. Idempotent — the token cancel is a no-op if set.
@@ -612,10 +612,10 @@ impl AgentProcess for CodexProcess {
                 break self.pending.pop_front();
             }
         };
-        if matches!(event, None | Some(ProcessEvent::Terminated { .. })) {
-            if let Some(trajectory) = &self.trajectory {
-                trajectory.flush().await;
-            }
+        if matches!(event, None | Some(ProcessEvent::Terminated { .. }))
+            && let Some(trajectory) = &self.trajectory
+        {
+            trajectory.flush().await;
         }
         event
     }

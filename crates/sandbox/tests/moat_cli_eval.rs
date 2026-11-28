@@ -878,11 +878,11 @@ fn redact_argv(argv: &[String]) -> Vec<String> {
             redact_next = false;
             continue;
         }
-        if let Some((flag, _)) = arg.split_once('=') {
-            if credential_flag(flag) {
-                redacted.push(format!("{flag}=<redacted>"));
-                continue;
-            }
+        if let Some((flag, _)) = arg.split_once('=')
+            && credential_flag(flag)
+        {
+            redacted.push(format!("{flag}=<redacted>"));
+            continue;
         }
         redacted.push(arg.clone());
         redact_next = credential_flag(arg);

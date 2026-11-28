@@ -487,10 +487,10 @@ impl RecordingBackend {
 impl BackendClient for RecordingBackend {
     async fn publish_event(&self, req: PublishEventRequest) -> Result<(), tonic::Status> {
         self.publish_attempts.fetch_add(1, Ordering::SeqCst);
-        if let Some(cancel) = self.lifecycle.lock().unwrap().as_ref() {
-            if cancel.is_cancelled() {
-                self.published_after_cancel.fetch_add(1, Ordering::SeqCst);
-            }
+        if let Some(cancel) = self.lifecycle.lock().unwrap().as_ref()
+            && cancel.is_cancelled()
+        {
+            self.published_after_cancel.fetch_add(1, Ordering::SeqCst);
         }
         if self.fail_first.swap(0, Ordering::SeqCst) > 0 {
             return Err(tonic::Status::unavailable("transient"));

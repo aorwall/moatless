@@ -79,7 +79,13 @@ fn scrub_parent_session_env() {
             "CLAUDE_CONFIG_DIR",
             "CODEX_HOME",
         ] {
-            std::env::remove_var(key);
+            #[expect(unsafe_code, reason = "the CLI inherits the process env")]
+            // SAFETY: every test enters through `RealEnv::new`, which blocks in
+            // this `call_once` until it returns, so no other test thread reads
+            // the env meanwhile.
+            unsafe {
+                std::env::remove_var(key);
+            }
         }
         let _ = tracing_subscriber::fmt()
             .with_env_filter(

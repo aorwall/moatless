@@ -90,10 +90,10 @@ pub async fn run(
                 } else {
                     format_messages(&response.messages);
                 }
-                if response.has_more {
-                    if let Some(cursor) = response.next_before_id {
-                        println!("\nolder messages exist — rerun with --before-id {cursor}");
-                    }
+                if response.has_more
+                    && let Some(cursor) = response.next_before_id
+                {
+                    println!("\nolder messages exist — rerun with --before-id {cursor}");
                 }
             }
         }
@@ -186,13 +186,13 @@ fn format_transcript(messages: &[UiMessage]) -> String {
                     }
                     body.push_str(text);
                 }
-            } else if block.block_type == "tool_use" {
-                if let Some(ref name) = block.tool_name {
-                    if !body.is_empty() {
-                        body.push('\n');
-                    }
-                    let _ = write!(body, "  [tool: {name}]");
+            } else if block.block_type == "tool_use"
+                && let Some(ref name) = block.tool_name
+            {
+                if !body.is_empty() {
+                    body.push('\n');
                 }
+                let _ = write!(body, "  [tool: {name}]");
             }
         }
         if !msg.tool_results.is_empty() {
@@ -227,15 +227,15 @@ fn format_transcript(messages: &[UiMessage]) -> String {
 /// Build a short preview string for a message.
 fn message_preview(msg: &UiMessage) -> String {
     for block in &msg.content {
-        if let Some(ref text) = block.text {
-            if !text.is_empty() {
-                return text.chars().take(80).collect();
-            }
+        if let Some(ref text) = block.text
+            && !text.is_empty()
+        {
+            return text.chars().take(80).collect();
         }
-        if block.block_type == "tool_use" {
-            if let Some(ref name) = block.tool_name {
-                return format!("[{name}]");
-            }
+        if block.block_type == "tool_use"
+            && let Some(ref name) = block.tool_name
+        {
+            return format!("[{name}]");
         }
     }
     if !msg.tool_results.is_empty() {

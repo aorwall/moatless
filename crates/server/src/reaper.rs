@@ -375,10 +375,10 @@ fn group_members(sandbox_ids: &[String], members: Vec<(String, String)>) -> Vec<
         .map(|id| (id.as_str(), vec![id.clone()]))
         .collect();
     for (task_id, sandbox_id) in members {
-        if let Some(entry) = by_sandbox.get_mut(sandbox_id.as_str()) {
-            if !entry.contains(&task_id) {
-                entry.push(task_id);
-            }
+        if let Some(entry) = by_sandbox.get_mut(sandbox_id.as_str())
+            && !entry.contains(&task_id)
+        {
+            entry.push(task_id);
         }
     }
     sandbox_ids
@@ -1405,8 +1405,8 @@ impl TaskReaper {
     /// Projected directly, since a lost terminal event is exactly the failure
     /// this path guards against.
     async fn close_orphaned_turn_as_completed(&self, turn: &UnclosedTurn) {
-        if let Some(turn_number) = turn.turn_number {
-            if let Err(e) = self
+        if let Some(turn_number) = turn.turn_number
+            && let Err(e) = self
                 .task_turns
                 .project_turn(
                     &turn.task_id,
@@ -1416,13 +1416,12 @@ impl TaskReaper {
                     Utc::now(),
                 )
                 .await
-            {
-                warn!(
-                    task_id = %turn.task_id,
-                    error = %e,
-                    "reconcile: failed to project orphaned turn as completed"
-                );
-            }
+        {
+            warn!(
+                task_id = %turn.task_id,
+                error = %e,
+                "reconcile: failed to project orphaned turn as completed"
+            );
         }
 
         // Reopens unless closed mid-run, mirroring the agent terminal

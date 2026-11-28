@@ -324,10 +324,10 @@ impl AcpProcess {
         let cwd = config.workspace_dir.clone();
         let meta = self.agent.session_meta(input.system_prompt.as_deref());
         let mut bound = bound_session(&existing, self.agent.name());
-        if let Some(session) = &bound {
-            if !self.agent.has_session(&config, session).await {
-                bound = None;
-            }
+        if let Some(session) = &bound
+            && !self.agent.has_session(&config, session).await
+        {
+            bound = None;
         }
         let loaded = match bound {
             Some(session) => self

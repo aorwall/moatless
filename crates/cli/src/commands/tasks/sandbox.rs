@@ -346,34 +346,33 @@ pub(super) async fn run_diagnose(
     if let Some(rt_events) = status
         .get("runtimeEvents")
         .and_then(serde_json::Value::as_array)
+        && !rt_events.is_empty()
     {
-        if !rt_events.is_empty() {
-            println!("\nRuntime Events:");
-            for e in rt_events {
-                let reason = e
-                    .get("reason")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("?");
-                let message = e
-                    .get("message")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("");
-                let severity = e
-                    .get("severity")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("normal");
-                let count = e
-                    .get("count")
-                    .and_then(serde_json::Value::as_i64)
-                    .unwrap_or(1);
-                let ts = e
-                    .get("lastTimestamp")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("-");
-                let ts = if ts.len() > 19 { &ts[..19] } else { ts };
-                let sev_tag = if severity == "warning" { " [WARN]" } else { "" };
-                println!("  {ts}  {reason}{sev_tag} (x{count})  {message}");
-            }
+        println!("\nRuntime Events:");
+        for e in rt_events {
+            let reason = e
+                .get("reason")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("?");
+            let message = e
+                .get("message")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
+            let severity = e
+                .get("severity")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("normal");
+            let count = e
+                .get("count")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or(1);
+            let ts = e
+                .get("lastTimestamp")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("-");
+            let ts = if ts.len() > 19 { &ts[..19] } else { ts };
+            let sev_tag = if severity == "warning" { " [WARN]" } else { "" };
+            println!("  {ts}  {reason}{sev_tag} (x{count})  {message}");
         }
     }
 

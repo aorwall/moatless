@@ -94,7 +94,7 @@ fn build_otel_layer<S>(
     endpoint: &str,
 ) -> Result<
     (
-        impl tracing_subscriber::Layer<S> + Send + Sync + 'static,
+        impl tracing_subscriber::Layer<S> + Send + Sync + 'static + use<S>,
         SdkTracerProvider,
     ),
     opentelemetry_otlp::ExporterBuildError,

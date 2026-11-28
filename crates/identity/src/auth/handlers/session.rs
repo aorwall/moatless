@@ -102,30 +102,29 @@ pub(super) async fn authenticate_request(
     if let Some(auth_header) = headers
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
+        && auth_header.starts_with("Bearer mvk_")
     {
-        if auth_header.starts_with("Bearer mvk_") {
-            let key = &auth_header[7..]; // strip "Bearer "
-            if let Some(payload) = api_key::validate_key_cached(
-                state.api_keys.clone(),
-                state.users.as_ref(),
-                key,
-                &state.cache,
-            )
-            .await?
-            {
-                let user_id = payload
-                    .user_id
-                    .parse::<uuid::Uuid>()
-                    .map_err(|_| AuthError::InvalidApiKey)?;
-                return Ok(AuthIdentity {
-                    user_id,
-                    login: payload.user_login,
-                    role: payload.role,
-                    provider: payload.provider,
-                });
-            }
-            return Err(AuthError::InvalidApiKey);
+        let key = &auth_header[7..]; // strip "Bearer "
+        if let Some(payload) = api_key::validate_key_cached(
+            state.api_keys.clone(),
+            state.users.as_ref(),
+            key,
+            &state.cache,
+        )
+        .await?
+        {
+            let user_id = payload
+                .user_id
+                .parse::<uuid::Uuid>()
+                .map_err(|_| AuthError::InvalidApiKey)?;
+            return Ok(AuthIdentity {
+                user_id,
+                login: payload.user_login,
+                role: payload.role,
+                provider: payload.provider,
+            });
         }
+        return Err(AuthError::InvalidApiKey);
     }
 
     let tokens = cookie::get_all_cookie_values(headers, &state.config.auth.session_cookie_name);

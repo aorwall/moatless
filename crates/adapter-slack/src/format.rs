@@ -80,20 +80,19 @@ pub fn extract_text_from_blocks(blocks: &[serde_json::Value]) -> String {
                     .get("text")
                     .and_then(|t| t.get("text"))
                     .and_then(|t| t.as_str())
+                    && !text.is_empty()
                 {
-                    if !text.is_empty() {
-                        parts.push(text.to_string());
-                    }
+                    parts.push(text.to_string());
                 }
                 // A `section` may also carry a `fields[]` array of two-column
                 // key/value objects (`{ "type": "mrkdwn", "text": "..." }`) —
                 // AWS Chatbot puts the alarm's detail rows here. Pull each one.
                 if let Some(fields) = block.get("fields").and_then(|f| f.as_array()) {
                     for field in fields {
-                        if let Some(text) = field.get("text").and_then(|t| t.as_str()) {
-                            if !text.is_empty() {
-                                parts.push(text.to_string());
-                            }
+                        if let Some(text) = field.get("text").and_then(|t| t.as_str())
+                            && !text.is_empty()
+                        {
+                            parts.push(text.to_string());
                         }
                     }
                 }
@@ -103,10 +102,10 @@ pub fn extract_text_from_blocks(blocks: &[serde_json::Value]) -> String {
                 // before storing it, so this arm does not fire on our own
                 // messages. It is here for a source that stores one unexpanded.
                 // Its `text` is a bare string, not a text object.
-                if let Some(text) = block.get("text").and_then(|t| t.as_str()) {
-                    if !text.is_empty() {
-                        parts.push(text.to_string());
-                    }
+                if let Some(text) = block.get("text").and_then(|t| t.as_str())
+                    && !text.is_empty()
+                {
+                    parts.push(text.to_string());
                 }
             }
             // Reached two ways: a `table` we posted ourselves, and the table a
@@ -145,10 +144,10 @@ pub fn extract_text_from_blocks(blocks: &[serde_json::Value]) -> String {
             "context" => {
                 if let Some(elements) = block.get("elements").and_then(|e| e.as_array()) {
                     for element in elements {
-                        if let Some(text) = element.get("text").and_then(|t| t.as_str()) {
-                            if !text.is_empty() {
-                                parts.push(text.to_string());
-                            }
+                        if let Some(text) = element.get("text").and_then(|t| t.as_str())
+                            && !text.is_empty()
+                        {
+                            parts.push(text.to_string());
                         }
                     }
                 }
@@ -232,23 +231,23 @@ pub fn extract_text_from_attachments(attachments: &[serde_json::Value]) -> Strin
 
     for attachment in attachments {
         // pretext appears above the attachment
-        if let Some(pretext) = attachment.get("pretext").and_then(|v| v.as_str()) {
-            if !pretext.is_empty() {
-                parts.push(pretext.to_string());
-            }
+        if let Some(pretext) = attachment.get("pretext").and_then(|v| v.as_str())
+            && !pretext.is_empty()
+        {
+            parts.push(pretext.to_string());
         }
 
         // title (often the alert name)
-        if let Some(title) = attachment.get("title").and_then(|v| v.as_str()) {
-            if !title.is_empty() {
-                parts.push(title.to_string());
-            }
+        if let Some(title) = attachment.get("title").and_then(|v| v.as_str())
+            && !title.is_empty()
+        {
+            parts.push(title.to_string());
         }
 
-        if let Some(text) = attachment.get("text").and_then(|v| v.as_str()) {
-            if !text.is_empty() {
-                parts.push(text.to_string());
-            }
+        if let Some(text) = attachment.get("text").and_then(|v| v.as_str())
+            && !text.is_empty()
+        {
+            parts.push(text.to_string());
         }
 
         // fields (key-value pairs like severity: critical)
@@ -263,12 +262,11 @@ pub fn extract_text_from_attachments(attachments: &[serde_json::Value]) -> Strin
         }
 
         // fallback — only if nothing else was found for this attachment
-        if parts.is_empty() {
-            if let Some(fallback) = attachment.get("fallback").and_then(|v| v.as_str()) {
-                if !fallback.is_empty() {
-                    parts.push(fallback.to_string());
-                }
-            }
+        if parts.is_empty()
+            && let Some(fallback) = attachment.get("fallback").and_then(|v| v.as_str())
+            && !fallback.is_empty()
+        {
+            parts.push(fallback.to_string());
         }
     }
 

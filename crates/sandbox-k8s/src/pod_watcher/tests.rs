@@ -233,13 +233,13 @@ fn deps_with_fallback(fallback: Arc<dyn StorageFallback>) -> WatcherDeps {
     }
 }
 
-fn pending_state_with_generation(gen: Option<i64>) -> PodObservedState {
+fn pending_state_with_generation(generation: Option<i64>) -> PodObservedState {
     let mut state = extract_pod_observed_state(
         &pod_with_phase_and_containers("Pending", vec![]),
         "pod-1",
         "task-1",
     );
-    state.operation_generation = gen.map(OperationGeneration);
+    state.operation_generation = generation.map(OperationGeneration);
     state
 }
 

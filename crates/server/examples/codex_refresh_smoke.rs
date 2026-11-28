@@ -35,10 +35,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .get("tokens")
         .and_then(|t| t.get("access_token"))
         .and_then(serde_json::Value::as_str)
+        && let Ok(Some(exp)) = parse_jwt_exp(at)
     {
-        if let Ok(Some(exp)) = parse_jwt_exp(at) {
-            println!("old access_token exp: {exp}");
-        }
+        println!("old access_token exp: {exp}");
     }
 
     let refresh_token = blob

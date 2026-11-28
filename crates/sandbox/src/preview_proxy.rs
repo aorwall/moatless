@@ -279,10 +279,10 @@ fn rewrite_request(headers: &mut HeaderMap, upstream_host: &str) {
     }
     // Only when already present: adding either would turn a same-origin request
     // into a cross-origin one, which is a check some servers apply.
-    if headers.contains_key(ORIGIN) {
-        if let Ok(value) = HeaderValue::from_str(&format!("http://{upstream_host}")) {
-            headers.insert(ORIGIN, value);
-        }
+    if headers.contains_key(ORIGIN)
+        && let Ok(value) = HeaderValue::from_str(&format!("http://{upstream_host}"))
+    {
+        headers.insert(ORIGIN, value);
     }
     if let Some(referer) = headers
         .get(REFERER)

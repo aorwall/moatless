@@ -36,18 +36,17 @@ impl<'ast> Visit<'ast> for Constructors {
                     .map(|s| s.ident.to_string())
                     .collect(),
             );
-            if p.path.segments.last().is_some_and(|s| s.ident == "new") {
-                if let Some(q) = &p.qself {
-                    if let syn::Type::Path(p) = &*q.ty {
-                        self.paths.push(
-                            p.path
-                                .segments
-                                .iter()
-                                .map(|s| s.ident.to_string())
-                                .collect(),
-                        );
-                    }
-                }
+            if p.path.segments.last().is_some_and(|s| s.ident == "new")
+                && let Some(q) = &p.qself
+                && let syn::Type::Path(p) = &*q.ty
+            {
+                self.paths.push(
+                    p.path
+                        .segments
+                        .iter()
+                        .map(|s| s.ident.to_string())
+                        .collect(),
+                );
             }
         }
         syn::visit::visit_expr_call(self, c);

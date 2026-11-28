@@ -294,7 +294,7 @@ mod tests {
     use moatless_sandbox_runtime::operation::{IntentEffect, RuntimeEffect};
     use moatless_sandbox_runtime::outcome::LifecycleOutcome;
 
-    fn gen(n: i64) -> OperationGeneration {
+    fn op_gen(n: i64) -> OperationGeneration {
         OperationGeneration(n)
     }
 
@@ -307,7 +307,7 @@ mod tests {
     ) -> EventContext {
         EventContext {
             op,
-            generation: gen(5),
+            generation: op_gen(5),
             intent_changed,
             runtime_applied,
             observed,
@@ -321,15 +321,15 @@ mod tests {
     #[test]
     fn event_id_is_deterministic_and_generation_scoped() {
         assert_eq!(
-            event_id("task-1", gen(5), EventFact::Removed),
+            event_id("task-1", op_gen(5), EventFact::Removed),
             "sandbox:task-1:5:removed"
         );
         assert_eq!(
-            event_id("task-1", gen(6), EventFact::Removed),
+            event_id("task-1", op_gen(6), EventFact::Removed),
             "sandbox:task-1:6:removed"
         );
         assert_eq!(
-            event_id("task-1", gen(5), EventFact::Error),
+            event_id("task-1", op_gen(5), EventFact::Error),
             "sandbox:task-1:5:error"
         );
     }
@@ -580,14 +580,14 @@ mod tests {
 
     #[test]
     fn error_fact_is_generation_scoped() {
-        let e = error_event("t", gen(5), timeout_failure());
+        let e = error_event("t", op_gen(5), timeout_failure());
         assert_eq!(e.fact, EventFact::Error);
         assert_eq!(e.event_id, "sandbox:t:5:error");
     }
 
     #[test]
     fn error_payload_names_the_operation_cause_and_reason() {
-        let payload = error_event("t", gen(5), timeout_failure()).payload();
+        let payload = error_event("t", op_gen(5), timeout_failure()).payload();
         // The feed and the Linear activity read `message`; it must name the
         // operation and cause.
         assert!(
@@ -614,11 +614,11 @@ mod tests {
     #[test]
     fn recovery_exhausted_does_not_collide_with_the_error_fact() {
         let failure = FailureDetail::new(OperationKind::Start, "recovery_exhausted", "5 attempts");
-        let exhausted = recovery_exhausted_event("t", gen(5), failure);
+        let exhausted = recovery_exhausted_event("t", op_gen(5), failure);
         assert_eq!(exhausted.event_id, "sandbox:t:5:recovery_exhausted");
         assert_ne!(
             exhausted.event_id,
-            error_event("t", gen(5), timeout_failure()).event_id
+            error_event("t", op_gen(5), timeout_failure()).event_id
         );
         // Same sub_type as Error so existing error consumers surface it.
         assert_eq!(exhausted.sub_type(), "error");
@@ -653,7 +653,7 @@ mod tests {
     // ---- Publish/persist translation ----
 
     fn built(fact: EventFact, reason: Option<SandboxStopReason>) -> LifecycleEvent {
-        LifecycleEvent::new("t", gen(1), fact, reason)
+        LifecycleEvent::new("t", op_gen(1), fact, reason)
     }
 
     #[test]
@@ -685,7 +685,7 @@ mod tests {
         );
         let c = EventContext::from_outcome(
             OperationKind::Stop,
-            gen(9),
+            op_gen(9),
             &outcome,
             false,
             Some(SandboxStopReason::User),

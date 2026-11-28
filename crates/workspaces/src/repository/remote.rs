@@ -115,10 +115,10 @@ fn parse_hosted(provider: RepositoryProvider, remote_url: &str) -> Option<GitHos
 pub(crate) fn ensure_remote_url_scheme_allowed(
     remote_url: &str,
 ) -> Result<(), super::error::RepositoryError> {
-    if let Ok(parsed) = url::Url::parse(remote_url.trim()) {
-        if matches!(parsed.scheme(), "http" | "https") {
-            return Ok(());
-        }
+    if let Ok(parsed) = url::Url::parse(remote_url.trim())
+        && matches!(parsed.scheme(), "http" | "https")
+    {
+        return Ok(());
     }
     Err(super::error::RepositoryError::BadRequest(format!(
         "Remote URL '{remote_url}' is not allowed: only https and http remotes are \

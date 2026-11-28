@@ -689,10 +689,10 @@ impl SessionFormat for CodexSessionFormat {
         };
         let mut fields = Vec::new();
         collect_thread_ids(&value, &mut fields);
-        if str_at(&value, &["type"]) == Some("session_meta") {
-            if let Some(old) = str_at(&value, &["payload", "id"]) {
-                fields.push(("id", old.to_string()));
-            }
+        if str_at(&value, &["type"]) == Some("session_meta")
+            && let Some(old) = str_at(&value, &["payload", "id"])
+        {
+            fields.push(("id", old.to_string()));
         }
         replace_fields(payload, &fields, id)
     }
@@ -711,10 +711,10 @@ fn collect_thread_ids(value: &Value, out: &mut Vec<(&'static str, String)>) {
     match value {
         Value::Object(map) => {
             for key in ["thread_id", "session_id"] {
-                if let Some(Value::String(old)) = map.get(key) {
-                    if !out.iter().any(|(k, o)| *k == key && o == old) {
-                        out.push((key, old.clone()));
-                    }
+                if let Some(Value::String(old)) = map.get(key)
+                    && !out.iter().any(|(k, o)| *k == key && o == old)
+                {
+                    out.push((key, old.clone()));
                 }
             }
             map.values().for_each(|v| collect_thread_ids(v, out));

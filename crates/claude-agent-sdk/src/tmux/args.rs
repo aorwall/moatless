@@ -97,17 +97,17 @@ impl TmuxArgs {
     }
 
     fn push_joined<T: ToString>(&mut self, flag: &str, values: Option<&[T]>) {
-        if let Some(values) = values {
-            if !values.is_empty() {
-                self.push_pair(
-                    flag,
-                    values
-                        .iter()
-                        .map(ToString::to_string)
-                        .collect::<Vec<_>>()
-                        .join(","),
-                );
-            }
+        if let Some(values) = values
+            && !values.is_empty()
+        {
+            self.push_pair(
+                flag,
+                values
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(","),
+            );
         }
     }
 

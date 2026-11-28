@@ -381,12 +381,12 @@ fn format_workspace_detail(w: &WorkspaceResponse) {
             }
         );
     }
-    if let Some(ref cmds) = w.setup_commands {
-        if !cmds.is_empty() {
-            println!("Setup commands:");
-            for cmd in cmds {
-                println!("  - {cmd}");
-            }
+    if let Some(ref cmds) = w.setup_commands
+        && !cmds.is_empty()
+    {
+        println!("Setup commands:");
+        for cmd in cmds {
+            println!("  - {cmd}");
         }
     }
 }

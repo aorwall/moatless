@@ -363,10 +363,10 @@ async fn name_mentioned_users(text: &str, ctx: &NormalizeContext<'_>) -> String 
                 continue;
             }
         }
-        if let Ok(Some(info)) = ctx.api.get_user_info(&id).await {
-            if let Some(handle) = info.handle {
-                names.insert(id, handle);
-            }
+        if let Ok(Some(info)) = ctx.api.get_user_info(&id).await
+            && let Some(handle) = info.handle
+        {
+            names.insert(id, handle);
         }
     }
 

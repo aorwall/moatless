@@ -1,8 +1,5 @@
-//! What the environment parses into: CSRF origins, `AuthProvider`, `env_bool`,
+//! What the environment parses into: CSRF origins, `AuthProvider`, `parse_bool`,
 //! validation, and the `Debug` redaction that keeps secrets out of logs.
-
-use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
-use std::sync::{Mutex, PoisonError};
 
 use super::*;
 
@@ -10,65 +7,26 @@ use super::*;
 // CSRF trusted origins
 // =========================================================================
 
-/// Restore whatever the process had, so this test does not leak into the others
-/// sharing the environment.
-const ORIGIN_VARS: [&str; 2] = ["CSRF_TRUSTED_ORIGINS", "T3_UI_RPC_ALLOWED_ORIGINS"];
-
-/// The environment is process-wide and `cargo test` runs a binary's tests on
-/// several threads, so the two tests below would otherwise interleave: one sets
-/// `CSRF_TRUSTED_ORIGINS` while the other asserts it is absent.
-static ORIGIN_ENV_LOCK: Mutex<()> = Mutex::new(());
-
-fn apply_origin_vars(values: [Option<String>; 2]) {
-    for (name, value) in ORIGIN_VARS.into_iter().zip(values) {
-        match value {
-            Some(value) => std::env::set_var(name, value),
-            None => std::env::remove_var(name),
-        }
-    }
-}
-
-/// Run `check` with the two variables set, restoring what the process had.
-///
-/// Restores through a panic too — a leaked variable would fail an unrelated
-/// test later, far from the cause.
-fn with_origin_vars(csrf: Option<&str>, websocket: Option<&str>, check: impl FnOnce()) {
-    // A failing test poisons the lock. The guarded data is `()`, so there is
-    // no torn state to protect the next test from.
-    let _guard = ORIGIN_ENV_LOCK
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner);
-
-    let previous = ORIGIN_VARS.map(|name| std::env::var(name).ok());
-    apply_origin_vars([csrf.map(str::to_string), websocket.map(str::to_string)]);
-
-    let outcome = catch_unwind(AssertUnwindSafe(check));
-
-    apply_origin_vars(previous);
-    if let Err(panic) = outcome {
-        resume_unwind(panic);
-    }
-}
-
 /// The WebSocket allow-list must not reach the CSRF check: it carries wildcard
 /// preview origins, and a preview serves agent-authored code.
 #[test]
 fn the_websocket_allow_list_is_not_a_source_of_csrf_trust() {
-    with_origin_vars(
-        None,
-        Some("https://*.preview.example,https://t3.example"),
-        || assert!(csrf_trusted_origins_from_env().is_empty()),
-    );
+    let origins = csrf_trusted_origins(|name| {
+        (name == "T3_UI_RPC_ALLOWED_ORIGINS")
+            .then(|| "https://*.preview.example,https://t3.example".to_string())
+    });
+    assert!(origins.is_empty());
 }
 
 #[test]
 fn csrf_trust_is_read_from_its_own_variable() {
-    with_origin_vars(Some("https://t3.example"), None, || {
-        assert_eq!(
-            csrf_trusted_origins_from_env(),
-            vec![AllowedOrigin::Exact("https://t3.example".into())]
-        );
+    let origins = csrf_trusted_origins(|name| {
+        (name == "CSRF_TRUSTED_ORIGINS").then(|| "https://t3.example".to_string())
     });
+    assert_eq!(
+        origins,
+        vec![AllowedOrigin::Exact("https://t3.example".into())]
+    );
 }
 
 // =========================================================================
@@ -106,68 +64,25 @@ fn auth_provider_display() {
     assert_eq!(AuthProvider::Oidc.to_string(), "oidc");
 }
 
-#[test]
-fn config_defaults_codex_model_to_gpt_56_sol() {
-    let previous = std::env::var("DEFAULT_CODEX_MODEL").ok();
-    std::env::remove_var("DEFAULT_CODEX_MODEL");
-    let model = env_str("DEFAULT_CODEX_MODEL", DEFAULT_CODEX_MODEL);
-    match previous {
-        Some(value) => std::env::set_var("DEFAULT_CODEX_MODEL", value),
-        None => std::env::remove_var("DEFAULT_CODEX_MODEL"),
-    }
-    assert_eq!(model, DEFAULT_CODEX_MODEL);
-}
-
 // =========================================================================
 // env_bool logic
 // =========================================================================
 
 #[test]
-fn env_bool_default_false_recognises_true_values() {
-    // With default=false, only "true" and "1" return true
-    std::env::set_var("_TEST_BOOL_1", "true");
-    assert!(env_bool("_TEST_BOOL_1", false));
-
-    std::env::set_var("_TEST_BOOL_2", "1");
-    assert!(env_bool("_TEST_BOOL_2", false));
-
-    std::env::set_var("_TEST_BOOL_3", "false");
-    assert!(!env_bool("_TEST_BOOL_3", false));
-
-    std::env::set_var("_TEST_BOOL_4", "anything");
-    assert!(!env_bool("_TEST_BOOL_4", false));
-
-    std::env::remove_var("_TEST_BOOL_MISSING");
-    assert!(!env_bool("_TEST_BOOL_MISSING", false));
-
-    for k in [
-        "_TEST_BOOL_1",
-        "_TEST_BOOL_2",
-        "_TEST_BOOL_3",
-        "_TEST_BOOL_4",
-    ] {
-        std::env::remove_var(k);
-    }
+fn parse_bool_default_false_recognises_true_values() {
+    assert!(parse_bool(Some("true"), false));
+    assert!(parse_bool(Some("1"), false));
+    assert!(!parse_bool(Some("false"), false));
+    assert!(!parse_bool(Some("anything"), false));
+    assert!(!parse_bool(None, false));
 }
 
 #[test]
-fn env_bool_default_true_recognises_false_values() {
-    // With default=true, only "false" and "0" return false
-    std::env::set_var("_TEST_BOOL_T1", "false");
-    assert!(!env_bool("_TEST_BOOL_T1", true));
-
-    std::env::set_var("_TEST_BOOL_T2", "0");
-    assert!(!env_bool("_TEST_BOOL_T2", true));
-
-    std::env::set_var("_TEST_BOOL_T3", "anything");
-    assert!(env_bool("_TEST_BOOL_T3", true));
-
-    std::env::remove_var("_TEST_BOOL_T_MISSING");
-    assert!(env_bool("_TEST_BOOL_T_MISSING", true));
-
-    for k in ["_TEST_BOOL_T1", "_TEST_BOOL_T2", "_TEST_BOOL_T3"] {
-        std::env::remove_var(k);
-    }
+fn parse_bool_default_true_recognises_false_values() {
+    assert!(!parse_bool(Some("false"), true));
+    assert!(!parse_bool(Some("0"), true));
+    assert!(parse_bool(Some("anything"), true));
+    assert!(parse_bool(None, true));
 }
 
 // =========================================================================

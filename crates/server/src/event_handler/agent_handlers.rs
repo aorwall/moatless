@@ -331,18 +331,15 @@ pub async fn handle_agent_session_init(state: &AppState, event: &AgentEvent) {
         .get("agent_turn_id")
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty());
-    if let Some(agent_turn_id) = agent_turn_id {
-        if let Some(turn_number) =
+    if let Some(agent_turn_id) = agent_turn_id
+        && let Some(turn_number) =
             resolve_turn_number(state, &event.task_id, event.turn_number).await
-        {
-            if let Err(e) = state
-                .task_turns
-                .set_agent_turn_id(&event.task_id, turn_number, agent_turn_id)
-                .await
-            {
-                tracing::warn!(task_id = %event.task_id, error = %e, "Failed to record agent turn id");
-            }
-        }
+        && let Err(e) = state
+            .task_turns
+            .set_agent_turn_id(&event.task_id, turn_number, agent_turn_id)
+            .await
+    {
+        tracing::warn!(task_id = %event.task_id, error = %e, "Failed to record agent turn id");
     }
 }
 

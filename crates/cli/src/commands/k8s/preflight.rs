@@ -303,12 +303,12 @@ async fn detect_ingress_controllers(target: &KubeTarget) -> Result<Vec<String>, 
     let classes = target
         .kubectl_json(&["get", "ingressclass", "-o", "json"])
         .await?;
-    if let Some(v) = classes {
-        if let Some(items) = v.get("items").and_then(|i| i.as_array()) {
-            for item in items {
-                if let Some(name) = item.pointer("/metadata/name").and_then(|n| n.as_str()) {
-                    found.push(name.to_string());
-                }
+    if let Some(v) = classes
+        && let Some(items) = v.get("items").and_then(|i| i.as_array())
+    {
+        for item in items {
+            if let Some(name) = item.pointer("/metadata/name").and_then(|n| n.as_str()) {
+                found.push(name.to_string());
             }
         }
     }
@@ -323,27 +323,25 @@ async fn detect_storage_classes(
     let classes = target
         .kubectl_json(&["get", "storageclass", "-o", "json"])
         .await?;
-    if let Some(v) = classes {
-        if let Some(items) = v.get("items").and_then(|i| i.as_array()) {
-            for item in items {
-                let Some(name) = item.pointer("/metadata/name").and_then(|n| n.as_str()) else {
-                    continue;
-                };
-                all.push(name.to_string());
-                let annotations = item
-                    .pointer("/metadata/annotations")
-                    .and_then(|a| a.as_object());
-                if let Some(annotations) = annotations {
-                    let is_default = annotations
-                        .get("storageclass.kubernetes.io/is-default-class")
-                        .or_else(|| {
-                            annotations.get("storageclass.beta.kubernetes.io/is-default-class")
-                        })
-                        .and_then(|v| v.as_str())
-                        == Some("true");
-                    if is_default && default.is_none() {
-                        default = Some(name.to_string());
-                    }
+    if let Some(v) = classes
+        && let Some(items) = v.get("items").and_then(|i| i.as_array())
+    {
+        for item in items {
+            let Some(name) = item.pointer("/metadata/name").and_then(|n| n.as_str()) else {
+                continue;
+            };
+            all.push(name.to_string());
+            let annotations = item
+                .pointer("/metadata/annotations")
+                .and_then(|a| a.as_object());
+            if let Some(annotations) = annotations {
+                let is_default = annotations
+                    .get("storageclass.kubernetes.io/is-default-class")
+                    .or_else(|| annotations.get("storageclass.beta.kubernetes.io/is-default-class"))
+                    .and_then(|v| v.as_str())
+                    == Some("true");
+                if is_default && default.is_none() {
+                    default = Some(name.to_string());
                 }
             }
         }

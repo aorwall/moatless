@@ -620,60 +620,55 @@ impl SandboxRuntime for K8sSandboxAdapter {
         // Observe every runtime resource absent before deleting archives or
         // publishing Removed. Skip waits when a delete failed; the caller
         // retries the whole cleanup.
-        if first_err.is_none() {
-            if let Err(e) = wait_absent(
+        if first_err.is_none()
+            && let Err(e) = wait_absent(
                 "Deployment",
                 deployment::wait_for_deployment_deleted(&self.k8s, task_id),
             )
             .await
-            {
-                warn!(task_id = %task_id, error = %e, "Deployment did not vanish after delete");
-                first_err.get_or_insert(e);
-            }
+        {
+            warn!(task_id = %task_id, error = %e, "Deployment did not vanish after delete");
+            first_err.get_or_insert(e);
         }
-        if first_err.is_none() {
-            if let Err(e) = wait_absent(
+        if first_err.is_none()
+            && let Err(e) = wait_absent(
                 "pods",
                 deployment::wait_for_all_pods_deleted(&self.k8s, task_id),
             )
             .await
-            {
-                warn!(task_id = %task_id, error = %e, "Pods did not terminate before PVC delete");
-                first_err.get_or_insert(e);
-            }
+        {
+            warn!(task_id = %task_id, error = %e, "Pods did not terminate before PVC delete");
+            first_err.get_or_insert(e);
         }
-        if first_err.is_none() {
-            if let Err(e) = wait_absent(
+        if first_err.is_none()
+            && let Err(e) = wait_absent(
                 "Service",
                 service::wait_for_sandbox_service_deleted(&self.k8s, task_id),
             )
             .await
-            {
-                warn!(task_id = %task_id, error = %e, "Service did not vanish after delete");
-                first_err.get_or_insert(e);
-            }
+        {
+            warn!(task_id = %task_id, error = %e, "Service did not vanish after delete");
+            first_err.get_or_insert(e);
         }
-        if first_err.is_none() {
-            if let Err(e) = wait_absent(
+        if first_err.is_none()
+            && let Err(e) = wait_absent(
                 "IngressRoutes",
                 ingress::wait_for_task_ingress_routes_deleted(&self.k8s, task_id),
             )
             .await
-            {
-                warn!(task_id = %task_id, error = %e, "IngressRoutes did not vanish after delete");
-                first_err.get_or_insert(e);
-            }
+        {
+            warn!(task_id = %task_id, error = %e, "IngressRoutes did not vanish after delete");
+            first_err.get_or_insert(e);
         }
-        if first_err.is_none() {
-            if let Err(e) = wait_absent(
+        if first_err.is_none()
+            && let Err(e) = wait_absent(
                 "NetworkPolicy",
                 networkpolicy::wait_for_task_preview_network_policy_deleted(&self.k8s, task_id),
             )
             .await
-            {
-                warn!(task_id = %task_id, error = %e, "Preview NetworkPolicy did not vanish after delete");
-                first_err.get_or_insert(e);
-            }
+        {
+            warn!(task_id = %task_id, error = %e, "Preview NetworkPolicy did not vanish after delete");
+            first_err.get_or_insert(e);
         }
         if let Err(e) = pvc::delete_task_pvc(&self.k8s, task_id).await {
             warn!(task_id = %task_id, error = %e, "Failed to delete PVC");
@@ -681,12 +676,11 @@ impl SandboxRuntime for K8sSandboxAdapter {
         }
         // Strict absence: a delete request returns before reclaim completes, so
         // await the PVC actually vanishing before reporting success.
-        if first_err.is_none() {
-            if let Err(e) = wait_absent("PVC", pvc::wait_for_pvc_deleted(&self.k8s, task_id)).await
-            {
-                warn!(task_id = %task_id, error = %e, "PVC did not vanish after delete");
-                first_err.get_or_insert(e);
-            }
+        if first_err.is_none()
+            && let Err(e) = wait_absent("PVC", pvc::wait_for_pvc_deleted(&self.k8s, task_id)).await
+        {
+            warn!(task_id = %task_id, error = %e, "PVC did not vanish after delete");
+            first_err.get_or_insert(e);
         }
 
         if retain_storage {
@@ -945,10 +939,8 @@ impl StorageFallback for K8sSandboxAdapter {
         .await
         {
             Ok(()) => {
-                if !pvc_bound {
-                    if let Err(e) = pvc::delete_task_pvc(&self.k8s, task_id).await {
-                        warn!(task_id, error = %e, "attach-failure fallback: failed to delete orphaned unbound PVC");
-                    }
+                if !pvc_bound && let Err(e) = pvc::delete_task_pvc(&self.k8s, task_id).await {
+                    warn!(task_id, error = %e, "attach-failure fallback: failed to delete orphaned unbound PVC");
                 }
                 info!(
                     task_id,
@@ -1214,8 +1206,9 @@ impl K8sSandboxAdapter {
         // the proxy's. Admitting the script ports themselves would leave every
         // script preview on the task unanswerable whenever the policy went
         // missing alongside the Service.
-        if self.config.proxy.domain.is_some() && !script_ports.is_empty() {
-            if let Err(e) = networkpolicy::admit_preview_port(
+        if self.config.proxy.domain.is_some()
+            && !script_ports.is_empty()
+            && let Err(e) = networkpolicy::admit_preview_port(
                 &self.k8s,
                 task_id,
                 SANDBOX_PREVIEW_PROXY_PORT,
@@ -1223,9 +1216,8 @@ impl K8sSandboxAdapter {
                 owner.as_ref(),
             )
             .await
-            {
-                warn!(task_id = %task_id, error = %e, "Failed to recreate preview NetworkPolicy");
-            }
+        {
+            warn!(task_id = %task_id, error = %e, "Failed to recreate preview NetworkPolicy");
         }
         info!(task_id = %task_id, "Recreated missing sandbox Service");
     }

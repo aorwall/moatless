@@ -826,10 +826,10 @@ impl GitHostTokenIssuer for GitHostTokens {
         let provider = account.provider();
         // No GitHub pin: a Workspace cannot name the account GitHub work acts
         // as, which would bypass the App authoring it.
-        if provider != RepositoryProvider::Github {
-            if let Some(pinned) = self.pinned_token(actor, provider).await? {
-                return Ok(pinned);
-            }
+        if provider != RepositoryProvider::Github
+            && let Some(pinned) = self.pinned_token(actor, provider).await?
+        {
+            return Ok(pinned);
         }
         match account {
             GitHostAccount::Github { owner, repository } => {

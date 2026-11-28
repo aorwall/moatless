@@ -200,10 +200,10 @@ fn root_fields(
                 else {
                     continue;
                 };
-                if let Some(inner) = fragments.get(&name) {
-                    if seen.insert(name) {
-                        root_fields(inner, fragments, seen, out);
-                    }
+                if let Some(inner) = fragments.get(&name)
+                    && seen.insert(name)
+                {
+                    root_fields(inner, fragments, seen, out);
                 }
             }
         }
@@ -279,17 +279,17 @@ pub(super) fn check(document: &Document, scope: Option<&PolicyScope>) -> Result<
     if document.mutations.is_empty() {
         return Ok(());
     }
-    if let Some((owner, name)) = &document.repository {
-        if !scope.allows(&repo_key(GITHUB_HOST, owner, name)) {
-            return Err(Refusal::new(
-                "repo_scope",
-                format!(
-                    "{owner}/{name} is not one of this workspace's repositories: place it in the \
+    if let Some((owner, name)) = &document.repository
+        && !scope.allows(&repo_key(GITHUB_HOST, owner, name))
+    {
+        return Err(Refusal::new(
+            "repo_scope",
+            format!(
+                "{owner}/{name} is not one of this workspace's repositories: place it in the \
                      workspace, or add it to `githubPolicy.extraRepos` in its \
                      WORKSPACE_IDENTITY_GRANTS entry"
-                ),
-            ));
-        }
+            ),
+        ));
     }
     for mutation in &document.mutations {
         let name = mutation.name.as_str();

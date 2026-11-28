@@ -395,16 +395,16 @@ impl ExternalReplyService {
         subject_key: Option<&str>,
     ) -> Result<TaskBinding, AdapterError> {
         let mut candidates: Vec<String> = vec![adapter_key.to_string()];
-        if let Some(providers) = self.adapters.as_ref() {
-            if let Some(provider) = providers.identity_by_name(adapter_key) {
-                let provider_key = provider.provider_key().to_string();
-                let connection_key = provider.connection_provider_key().to_string();
-                if !candidates.contains(&provider_key) {
-                    candidates.push(provider_key);
-                }
-                if !candidates.contains(&connection_key) {
-                    candidates.push(connection_key);
-                }
+        if let Some(providers) = self.adapters.as_ref()
+            && let Some(provider) = providers.identity_by_name(adapter_key)
+        {
+            let provider_key = provider.provider_key().to_string();
+            let connection_key = provider.connection_provider_key().to_string();
+            if !candidates.contains(&provider_key) {
+                candidates.push(provider_key);
+            }
+            if !candidates.contains(&connection_key) {
+                candidates.push(connection_key);
             }
         }
 
@@ -450,21 +450,20 @@ fn select_binding_for_reply<'a>(
             .filter(on_candidate)
             .any(|b| b.origin == ADAPTER_EVENT_BINDING_ORIGIN && b.subject_key == sk)
     };
-    if subject_key.is_none_or(names_ingress) {
-        if let Some(room) = rows
+    if subject_key.is_none_or(names_ingress)
+        && let Some(room) = rows
             .iter()
             .filter(on_candidate)
             .find(|b| b.active && b.origin == ROOM_BINDING_ORIGIN)
-        {
-            return Some(room);
-        }
+    {
+        return Some(room);
     }
-    if let Some(sk) = subject_key {
-        if let Some(binding) = rows.iter().find(|b| {
+    if let Some(sk) = subject_key
+        && let Some(binding) = rows.iter().find(|b| {
             candidates.iter().any(|c| c == b.adapter_kind.as_str()) && b.subject_key == sk
-        }) {
-            return Some(binding);
-        }
+        })
+    {
+        return Some(binding);
     }
 
     let provider_rows: Vec<&TaskBinding> = rows

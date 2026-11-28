@@ -36,12 +36,12 @@ pub async fn create_plugin(
     };
 
     if let Err(e) = plugins.insert(&row).await {
-        if let sqlx::Error::Database(ref db_err) = e {
-            if db_err.constraint().is_some() {
-                return Err(PluginError::Conflict(
-                    "A plugin with that name already exists".to_string(),
-                ));
-            }
+        if let sqlx::Error::Database(ref db_err) = e
+            && db_err.constraint().is_some()
+        {
+            return Err(PluginError::Conflict(
+                "A plugin with that name already exists".to_string(),
+            ));
         }
         return Err(e.into());
     }

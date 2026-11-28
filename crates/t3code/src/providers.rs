@@ -227,10 +227,10 @@ fn capabilities(instance: &str, catalog_model: &str) -> Value {
 /// turn reports the API id, and T3 silently runs its default for a selection
 /// it matches against nothing.
 fn published_slug(instance: &str, catalog_model: &str) -> String {
-    if instance == CLAUDE_INSTANCE {
-        if let Some(id) = claude_model_id(catalog_model) {
-            return id.to_string();
-        }
+    if instance == CLAUDE_INSTANCE
+        && let Some(id) = claude_model_id(catalog_model)
+    {
+        return id.to_string();
     }
     catalog_model.to_string()
 }
@@ -406,10 +406,8 @@ pub fn providers(
                 provider["workspaceSnapshots"] = json!(workspace_snapshots);
             }
 
-            if !is_installed {
-                if let Some(hint) = missing_hint(agents, instance) {
-                    provider["message"] = json!(hint);
-                }
+            if !is_installed && let Some(hint) = missing_hint(agents, instance) {
+                provider["message"] = json!(hint);
             }
             provider
         })

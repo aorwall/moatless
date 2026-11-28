@@ -188,10 +188,10 @@ fn resolve_pr_target(
         Err(_) => return Ok(None),
     };
     let value: serde_json::Value = serde_json::from_slice(&out)?;
-    if let Some(url) = value.get("url").and_then(serde_json::Value::as_str) {
-        if let Some(pr) = parse_pull_request_url(url) {
-            return Ok(Some(pr));
-        }
+    if let Some(url) = value.get("url").and_then(serde_json::Value::as_str)
+        && let Some(pr) = parse_pull_request_url(url)
+    {
+        return Ok(Some(pr));
     }
     let Some(number) = value.get("number").and_then(serde_json::Value::as_u64) else {
         return Ok(None);

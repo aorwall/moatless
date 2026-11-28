@@ -448,12 +448,16 @@ pub struct RescueConfig {
 
 impl RescueConfig {
     pub fn from_env() -> Result<Self, String> {
+        Self::from_vars(|key| env::var(key).ok())
+    }
+
+    pub(crate) fn from_vars(var: impl Fn(&str) -> Option<String>) -> Result<Self, String> {
         Ok(Self {
-            task_id: env::var("TASK_ID").map_err(|_| "SANDBOX_ONESHOT=sync requires TASK_ID")?,
-            workspace_dir: env::var("WORKSPACE_DIR").unwrap_or_else(|_| "/workspace".to_string()),
-            put_url: env::var("WORKSPACE_SYNC_PUT_URL")
-                .map_err(|_| "SANDBOX_ONESHOT=sync requires WORKSPACE_SYNC_PUT_URL")?,
-            http: SandboxHttpConfig::from_vars(|key| env::var(key).ok()),
+            task_id: var("TASK_ID").ok_or("SANDBOX_ONESHOT=sync requires TASK_ID")?,
+            workspace_dir: var("WORKSPACE_DIR").unwrap_or_else(|| "/workspace".to_string()),
+            put_url: var("WORKSPACE_SYNC_PUT_URL")
+                .ok_or("SANDBOX_ONESHOT=sync requires WORKSPACE_SYNC_PUT_URL")?,
+            http: SandboxHttpConfig::from_vars(&var),
         })
     }
 }
@@ -490,10 +494,13 @@ fn env_flag_enabled(name: &str) -> bool {
 ///
 /// Distinct from [`env_flag_enabled`], which folds "unset" into `false`.
 fn env_flag_override(name: &str) -> Option<bool> {
-    match env::var(name) {
-        Ok(value) if !value.is_empty() => Some(env_flag_value_enabled(&value)),
-        _ => None,
-    }
+    flag_override(env::var(name).ok().as_deref())
+}
+
+fn flag_override(value: Option<&str>) -> Option<bool> {
+    value
+        .filter(|value| !value.is_empty())
+        .map(env_flag_value_enabled)
 }
 
 impl Config {
@@ -920,9 +927,9 @@ fn parse_language_servers(ids: Option<Vec<String>>) -> Vec<LanguageServer> {
 mod tests {
     use super::test_support::minimal_config;
     use super::{
-        PermissionMode, RepoConfigFile, default_upload_dir, env_flag_override,
-        env_flag_value_enabled, is_safe_mount_name, parse_permission_mode, parse_repo_checkouts,
-        primary_checkout, resolve_agent_config, route_through_proxy, tool_list,
+        PermissionMode, RepoConfigFile, default_upload_dir, env_flag_value_enabled, flag_override,
+        is_safe_mount_name, parse_permission_mode, parse_repo_checkouts, primary_checkout,
+        resolve_agent_config, route_through_proxy, tool_list,
     };
     use moatless_workspace_types::workspace::{LanguageServer, RepoCheckout};
     use std::collections::HashMap;
@@ -965,29 +972,14 @@ mod tests {
     /// Unset and empty are "no opinion", so a default-on setting falls through
     /// to the next source instead of being switched off by absence.
     #[test]
-    fn env_flag_override_is_none_when_unset_or_empty() {
-        // A name no other test touches, so the parallel test runner can't race it.
-        const PROBE: &str = "SANDBOX_TEST_FRONTLOAD_OVERRIDE_PROBE";
-        std::env::remove_var(PROBE);
-        assert_eq!(env_flag_override(PROBE), None);
-
-        std::env::set_var(PROBE, "");
-        assert_eq!(env_flag_override(PROBE), None);
-
-        std::env::set_var(PROBE, "false");
-        assert_eq!(env_flag_override(PROBE), Some(false));
-
-        std::env::set_var(PROBE, "true");
-        assert_eq!(env_flag_override(PROBE), Some(true));
-
-        std::env::set_var(PROBE, "1");
-        assert_eq!(env_flag_override(PROBE), Some(true));
-
+    fn flag_override_is_none_when_unset_or_empty() {
+        assert_eq!(flag_override(None), None);
+        assert_eq!(flag_override(Some("")), None);
+        assert_eq!(flag_override(Some("false")), Some(false));
+        assert_eq!(flag_override(Some("true")), Some(true));
+        assert_eq!(flag_override(Some("1")), Some(true));
         // Anything not truthy reads as an explicit off, not as "unset".
-        std::env::set_var(PROBE, "0");
-        assert_eq!(env_flag_override(PROBE), Some(false));
-
-        std::env::remove_var(PROBE);
+        assert_eq!(flag_override(Some("0")), Some(false));
     }
 
     /// An id this build does not know drops alone rather than discarding the

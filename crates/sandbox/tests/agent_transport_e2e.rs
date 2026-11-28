@@ -310,7 +310,16 @@ fn spawn_test_agent_in(
     // must resolve the same dir. Set it here, different from $HOME/.claude,
     // deliberately: that's what catches the SDK polling the wrong directory
     // and timing out with JsonlNotFound.
-    std::env::set_var("CLAUDE_CONFIG_DIR", &config.claude_config_dir);
+    #[expect(
+        unsafe_code,
+        reason = "the SDK and the CLI read CLAUDE_CONFIG_DIR from the process env"
+    )]
+    // SAFETY: sound only under `--test-threads=1`, which every documented run
+    // of these `#[ignore]`d tests passes; a parallel run races another test's
+    // env read. See `docs/deferred-changes.md`.
+    unsafe {
+        std::env::set_var("CLAUDE_CONFIG_DIR", &config.claude_config_dir);
+    }
     let agent_state = Arc::new(AgentState::new());
     let credentials = Arc::new(RwLock::new(HashMap::new()));
 

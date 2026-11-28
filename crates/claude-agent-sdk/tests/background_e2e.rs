@@ -352,14 +352,14 @@ async fn monitor_retriggers_turn_under_tmux() {
         match msg {
             SdkMessage::Assistant(a) => {
                 for block in &a.message.content {
-                    if let ContentBlock::ToolUse { name, .. } = block {
-                        if name == "Monitor" {
-                            saw_monitor_tool_use = true;
-                            eprintln!(
-                                "[{:>5.1}s] agent invoked Monitor",
-                                started.elapsed().as_secs_f64()
-                            );
-                        }
+                    if let ContentBlock::ToolUse { name, .. } = block
+                        && name == "Monitor"
+                    {
+                        saw_monitor_tool_use = true;
+                        eprintln!(
+                            "[{:>5.1}s] agent invoked Monitor",
+                            started.elapsed().as_secs_f64()
+                        );
                     }
                 }
             }
@@ -462,10 +462,10 @@ async fn monitor_disallowed_in_subprocess() {
             }
             SdkMessage::Assistant(a) => {
                 for block in &a.message.content {
-                    if let ContentBlock::ToolUse { id, name, .. } = block {
-                        if name == "Monitor" {
-                            monitor_use_ids.insert(id.clone());
-                        }
+                    if let ContentBlock::ToolUse { id, name, .. } = block
+                        && name == "Monitor"
+                    {
+                        monitor_use_ids.insert(id.clone());
                     }
                 }
             }
@@ -476,10 +476,10 @@ async fn monitor_disallowed_in_subprocess() {
                         is_error,
                         ..
                     } = block
+                        && monitor_use_ids.contains(tool_use_id)
+                        && is_error != &Some(true)
                     {
-                        if monitor_use_ids.contains(tool_use_id) && is_error != &Some(true) {
-                            monitor_succeeded = true;
-                        }
+                        monitor_succeeded = true;
                     }
                 }
             }

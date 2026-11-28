@@ -162,17 +162,16 @@ pub(in crate::auth) async fn create_session(
     // A credential the person can still fix from Settings is not worth failing
     // a login over, so this warns where `connect` — whose whole purpose is the
     // write — propagates.
-    if provider_id == "github_app" {
-        if let Err(e) =
+    if provider_id == "github_app"
+        && let Err(e) =
             user_credential::persist(provider_tokens, secrets, &user_id_str, tokens, user_info)
                 .await
-        {
-            warn!(
-                error = %e,
-                user_id = %user_id,
-                "Failed to persist the GitHub App user token"
-            );
-        }
+    {
+        warn!(
+            error = %e,
+            user_id = %user_id,
+            "Failed to persist the GitHub App user token"
+        );
     }
 
     let token = issue_auth_session(

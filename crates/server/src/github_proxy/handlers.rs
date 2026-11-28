@@ -81,10 +81,10 @@ pub(super) async fn forward(
         let Ok(bytes) = axum::body::to_bytes(body, GRAPHQL_BODY_LIMIT).await else {
             return too_large("The GraphQL request body is too large");
         };
-        if let Err(refusal) = proxy.policy.check_graphql(&scope.workspace, &bytes).await {
-            if let Some(refused) = refuse(proxy, scope, &method, path_and_query, &refusal) {
-                return refused;
-            }
+        if let Err(refusal) = proxy.policy.check_graphql(&scope.workspace, &bytes).await
+            && let Some(refused) = refuse(proxy, scope, &method, path_and_query, &refusal)
+        {
+            return refused;
         }
         let write = GitHubPolicy::graphql_mutates(&bytes).then(|| Write {
             credits: GitHubPolicy::graphql_runs_only(&bytes, authorship::MUTATIONS),
@@ -360,10 +360,10 @@ async fn send_write(
             .map_err(|e| Box::new(e.into_response()))?,
     };
     if let Some(app) = app {
-        if write.opens_pull_request {
-            if let Some(opened) = open_as_driver(request, graphql, requested, write).await? {
-                return Ok((opened, repository));
-            }
+        if write.opens_pull_request
+            && let Some(opened) = open_as_driver(request, graphql, requested, write).await?
+        {
+            return Ok((opened, repository));
         }
         let (body, rewritten) = request.body(write, graphql, true).await;
         let response = request.send(app.token, body, rewritten).await?;

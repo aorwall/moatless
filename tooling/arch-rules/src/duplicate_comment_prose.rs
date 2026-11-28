@@ -34,7 +34,7 @@ pub fn check(_ws: &Workspace) -> Result<Vec<Violation>> {
     Ok(find_pairs(&corpus))
 }
 
-fn walk_excluding(root: &Path) -> impl Iterator<Item = Result<walkdir::DirEntry>> {
+fn walk_excluding(root: &Path) -> impl Iterator<Item = Result<walkdir::DirEntry>> + use<> {
     WalkDir::new(root)
         .follow_links(false)
         .into_iter()

@@ -270,10 +270,9 @@ impl StatusResolver {
                 let image = deployment::deployment_sandbox_image(&dep);
                 if let Ok((desired, _ready)) =
                     deployment::get_deployment_replicas(&self.k8s, task_id).await
+                    && desired == 0
                 {
-                    if desired == 0 {
-                        return (PodPhase::Stopped, None, image);
-                    }
+                    return (PodPhase::Stopped, None, image);
                 }
                 image
             } else {

@@ -236,12 +236,12 @@ fn resolve_cli_path(options: &ClaudeOptions) -> Result<String> {
         return Ok(path.clone());
     }
 
-    if let Ok(output) = std::process::Command::new("which").arg("claude").output() {
-        if output.status.success() {
-            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !path.is_empty() {
-                return Ok(path);
-            }
+    if let Ok(output) = std::process::Command::new("which").arg("claude").output()
+        && output.status.success()
+    {
+        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !path.is_empty() {
+            return Ok(path);
         }
     }
 
@@ -321,17 +321,17 @@ pub(crate) fn build_cli_args(options: &ClaudeOptions) -> Vec<String> {
         args.push(budget.to_string());
     }
 
-    if let Some(tools) = &options.allowed_tools {
-        if !tools.is_empty() {
-            args.push("--allowedTools".to_string());
-            args.push(tools.join(","));
-        }
+    if let Some(tools) = &options.allowed_tools
+        && !tools.is_empty()
+    {
+        args.push("--allowedTools".to_string());
+        args.push(tools.join(","));
     }
-    if let Some(tools) = &options.disallowed_tools {
-        if !tools.is_empty() {
-            args.push("--disallowedTools".to_string());
-            args.push(tools.join(","));
-        }
+    if let Some(tools) = &options.disallowed_tools
+        && !tools.is_empty()
+    {
+        args.push("--disallowedTools".to_string());
+        args.push(tools.join(","));
     }
 
     if let Some(dirs) = &options.additional_directories {
@@ -346,17 +346,17 @@ pub(crate) fn build_cli_args(options: &ClaudeOptions) -> Vec<String> {
         args.push(settings);
     }
 
-    if let Some(sources) = &options.setting_sources {
-        if !sources.is_empty() {
-            args.push("--setting-sources".to_string());
-            args.push(
-                sources
-                    .iter()
-                    .map(std::string::ToString::to_string)
-                    .collect::<Vec<_>>()
-                    .join(","),
-            );
-        }
+    if let Some(sources) = &options.setting_sources
+        && !sources.is_empty()
+    {
+        args.push("--setting-sources".to_string());
+        args.push(
+            sources
+                .iter()
+                .map(std::string::ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(","),
+        );
     }
 
     if let Some(prompt) = &options.system_prompt {
@@ -382,13 +382,13 @@ pub(crate) fn build_cli_args(options: &ClaudeOptions) -> Vec<String> {
     }
 
     // MCP servers — CLI expects {"mcpServers": {...}} wrapper
-    if let Some(servers) = &options.mcp_servers {
-        if !servers.is_empty() {
-            let wrapper = serde_json::json!({ "mcpServers": servers });
-            if let Ok(json) = serde_json::to_string(&wrapper) {
-                args.push("--mcp-config".to_string());
-                args.push(json);
-            }
+    if let Some(servers) = &options.mcp_servers
+        && !servers.is_empty()
+    {
+        let wrapper = serde_json::json!({ "mcpServers": servers });
+        if let Ok(json) = serde_json::to_string(&wrapper) {
+            args.push("--mcp-config".to_string());
+            args.push(json);
         }
     }
 
@@ -396,11 +396,11 @@ pub(crate) fn build_cli_args(options: &ClaudeOptions) -> Vec<String> {
         args.push("--strict-mcp-config".to_string());
     }
 
-    if let Some(betas) = &options.betas {
-        if !betas.is_empty() {
-            args.push("--betas".to_string());
-            args.push(betas.join(","));
-        }
+    if let Some(betas) = &options.betas
+        && !betas.is_empty()
+    {
+        args.push("--betas".to_string());
+        args.push(betas.join(","));
     }
 
     // Streaming
@@ -411,11 +411,11 @@ pub(crate) fn build_cli_args(options: &ClaudeOptions) -> Vec<String> {
     // Output format. `--json-schema` validates its argument as a JSON Schema,
     // so it takes the bare schema — the tagged `OutputFormat` envelope is
     // rejected and the CLI exits before the SDK's first control request.
-    if let Some(OutputFormat::JsonSchema { schema }) = &options.output_format {
-        if let Ok(json) = serde_json::to_string(schema) {
-            args.push("--json-schema".to_string());
-            args.push(json);
-        }
+    if let Some(OutputFormat::JsonSchema { schema }) = &options.output_format
+        && let Ok(json) = serde_json::to_string(schema)
+    {
+        args.push("--json-schema".to_string());
+        args.push(json);
     }
 
     if options.enable_file_checkpointing == Some(true) {

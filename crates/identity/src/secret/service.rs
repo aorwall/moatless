@@ -453,10 +453,10 @@ impl SecretService {
         if !record.enabled {
             return Ok(None);
         }
-        if let Some(kind) = kind {
-            if record.kind != kind.as_str() {
-                return Ok(None);
-            }
+        if let Some(kind) = kind
+            && record.kind != kind.as_str()
+        {
+            return Ok(None);
         }
         let value = self.decrypt_record(&record)?;
         self.secrets.mark_used(&record.id).await?;

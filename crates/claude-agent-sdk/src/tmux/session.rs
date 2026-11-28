@@ -302,12 +302,12 @@ fn resolve_cli_path(options: &ClaudeOptions) -> String {
     if let Some(p) = &options.cli_path {
         return p.clone();
     }
-    if let Ok(output) = std::process::Command::new("which").arg("claude").output() {
-        if output.status.success() {
-            let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !s.is_empty() {
-                return s;
-            }
+    if let Ok(output) = std::process::Command::new("which").arg("claude").output()
+        && output.status.success()
+    {
+        let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !s.is_empty() {
+            return s;
         }
     }
     let default = crate::config_dir::home_dir().join(".claude/local/claude");
@@ -544,11 +544,11 @@ mod tests {
 
         let mut seen = String::new();
         for _ in 0..40 {
-            if let Ok(contents) = std::fs::read_to_string(&dump_path) {
-                if !contents.trim().is_empty() {
-                    seen = contents.trim().to_string();
-                    break;
-                }
+            if let Ok(contents) = std::fs::read_to_string(&dump_path)
+                && !contents.trim().is_empty()
+            {
+                seen = contents.trim().to_string();
+                break;
             }
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         }

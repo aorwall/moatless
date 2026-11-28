@@ -22,10 +22,10 @@ pub(crate) fn strip_heavy_fields(mut msg: UiMessage) -> UiMessage {
     }
     for tr in &mut msg.tool_results {
         tr.typed_result = None;
-        if let Some(ref content) = tr.content {
-            if content.len() > 200 {
-                tr.content = Some(truncate_with_ellipsis(content, 200));
-            }
+        if let Some(ref content) = tr.content
+            && content.len() > 200
+        {
+            tr.content = Some(truncate_with_ellipsis(content, 200));
         }
     }
     msg.sdk_metadata = None;

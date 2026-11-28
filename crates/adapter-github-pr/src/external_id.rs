@@ -258,38 +258,37 @@ pub(super) fn aliases(external_id: &str) -> Vec<String> {
     // fall out of it with no alias.
     if let Some(rest) = external_id.strip_prefix(SYNCHRONIZE_PREFIX) {
         let mut out = vec![external_id.to_string()];
-        if let Some((subject_key, sha)) = rest.rsplit_once(':') {
-            if let Some((repo_full_name, _number)) = subject_key.rsplit_once('#') {
-                if !sha.is_empty() && !repo_full_name.is_empty() {
-                    out.push(push_on(repo_full_name, sha));
-                }
-            }
+        if let Some((subject_key, sha)) = rest.rsplit_once(':')
+            && let Some((repo_full_name, _number)) = subject_key.rsplit_once('#')
+            && !sha.is_empty()
+            && !repo_full_name.is_empty()
+        {
+            out.push(push_on(repo_full_name, sha));
         }
         return out;
     }
     if let Some(rest) = external_id.strip_prefix(EDITED_PREFIX) {
         let mut out = vec![external_id.to_string()];
-        if let Some((subject_key, digest)) = rest.rsplit_once(':') {
-            if let Some((repo_full_name, _number)) = subject_key.rsplit_once('#') {
-                if !digest.is_empty() && !repo_full_name.is_empty() {
-                    out.push(pr_edit_on(repo_full_name, digest));
-                }
-            }
+        if let Some((subject_key, digest)) = rest.rsplit_once(':')
+            && let Some((repo_full_name, _number)) = subject_key.rsplit_once('#')
+            && !digest.is_empty()
+            && !repo_full_name.is_empty()
+        {
+            out.push(pr_edit_on(repo_full_name, digest));
         }
         return out;
     }
 
     if let Some(rest) = external_id.strip_prefix(COMMENT_EDITED_PREFIX) {
         let mut out = vec![external_id.to_string()];
-        if let Some((head, digest)) = rest.rsplit_once(':') {
-            if let Some((repo_full_name, _number)) = head
+        if let Some((head, digest)) = rest.rsplit_once(':')
+            && let Some((repo_full_name, _number)) = head
                 .rsplit_once(':')
                 .and_then(|(subject_key, _id)| subject_key.rsplit_once('#'))
-            {
-                if !digest.is_empty() && !repo_full_name.is_empty() {
-                    out.push(issue_comment_edit_on(repo_full_name, digest));
-                }
-            }
+            && !digest.is_empty()
+            && !repo_full_name.is_empty()
+        {
+            out.push(issue_comment_edit_on(repo_full_name, digest));
         }
         return out;
     }

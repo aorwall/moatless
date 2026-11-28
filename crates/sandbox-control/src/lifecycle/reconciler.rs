@@ -669,10 +669,10 @@ impl Reconciler {
                 .begin(moatless_sandbox_runtime::operation::OperationGeneration(g));
         }
 
-        if let Some(t) = retry.next_eligible {
-            if now < t {
-                return false;
-            }
+        if let Some(t) = retry.next_eligible
+            && now < t
+        {
+            return false;
         }
         // A tracked generation whose cap is exhausted (or hit a permanent
         // failure) waits for a new caller operation or a wake. A markerless

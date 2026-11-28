@@ -134,10 +134,10 @@ async fn find_in_thread(
             .await
             .map_err(read_failed)?;
         for entry in &page {
-            if let Some(frame) = find.feed(entry, sequence) {
-                if let Some(sink) = early {
-                    sink.send(frame).await;
-                }
+            if let Some(frame) = find.feed(entry, sequence)
+                && let Some(sink) = early
+            {
+                sink.send(frame).await;
             }
         }
         if i64::try_from(page.len()).unwrap_or(0) < FIND_PAGE {

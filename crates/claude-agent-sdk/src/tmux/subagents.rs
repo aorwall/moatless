@@ -119,10 +119,10 @@ pub(crate) async fn sum_transcript_usage(path: &Path) -> Option<Usage> {
         let Some(message) = value.get("message") else {
             continue;
         };
-        if let Some(id) = message.get("id").and_then(|i| i.as_str()) {
-            if !seen.insert(id.to_string()) {
-                continue;
-            }
+        if let Some(id) = message.get("id").and_then(|i| i.as_str())
+            && !seen.insert(id.to_string())
+        {
+            continue;
         }
         let Some(usage) = message
             .get("usage")

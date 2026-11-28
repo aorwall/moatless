@@ -96,27 +96,26 @@ impl ClaudePersistentProcess {
         // Same cut as `ClaudeProcess::resolve_resume`; falls through to a
         // fresh Session when the cut fails.
         if let Some(fork) = &input.fork {
-            if let Some(anchor) = &fork.source_message_uuid {
-                if let Some(new_session_id) = super::fork::write_forked_transcript(
+            if let Some(anchor) = &fork.source_message_uuid
+                && let Some(new_session_id) = super::fork::write_forked_transcript(
                     &self.cfg.config.workspace_dir,
                     &self.cfg.config.claude_config_dir,
                     &fork.source_session_id,
                     anchor,
                 )
                 .await
-                {
-                    return Some(ResumeSession::WithId(new_session_id));
-                }
+            {
+                return Some(ResumeSession::WithId(new_session_id));
             }
             return None;
         }
         if input.start_fresh {
             return None;
         }
-        if let Some(ResumeSession::WithId(id)) = &input.resume {
-            if !id.is_empty() {
-                return Some(ResumeSession::WithId(id.clone()));
-            }
+        if let Some(ResumeSession::WithId(id)) = &input.resume
+            && !id.is_empty()
+        {
+            return Some(ResumeSession::WithId(id.clone()));
         }
         if let Some(sid) = replacing.filter(|s| !s.is_empty()) {
             return Some(ResumeSession::WithId(sid.to_string()));
@@ -369,11 +368,11 @@ impl AgentProcess for ClaudePersistentProcess {
     async fn cancel(&mut self) {
         // Interrupt the active Turn; the CLI emits a terminal `Result` the driver
         // maps to a cancelled outcome, and the TUI persists for the next Turn.
-        if let Some(handle) = self.handle.as_ref() {
-            if let Err(error) = handle.interrupt().await {
-                warn!(error = %error, "claude interrupt failed; forcing teardown");
-                handle.close();
-            }
+        if let Some(handle) = self.handle.as_ref()
+            && let Err(error) = handle.interrupt().await
+        {
+            warn!(error = %error, "claude interrupt failed; forcing teardown");
+            handle.close();
         }
     }
 
@@ -382,10 +381,9 @@ impl AgentProcess for ClaudePersistentProcess {
         if matches!(
             event,
             None | Some(ProcessEvent::Terminated { .. } | ProcessEvent::ExecutionEnded { .. })
-        ) {
-            if let Some(trajectory) = &self.trajectory {
-                trajectory.flush().await;
-            }
+        ) && let Some(trajectory) = &self.trajectory
+        {
+            trajectory.flush().await;
         }
         event
     }
@@ -437,10 +435,11 @@ fn needs_restart(fingerprint: Option<&Fingerprint>, input: &Input) -> bool {
     if input.model != fp.model || input.mode != fp.mode || input.effort != fp.effort {
         return true;
     }
-    if let Some(ResumeSession::WithId(id)) = &input.resume {
-        if !id.is_empty() && id != &fp.session_id {
-            return true;
-        }
+    if let Some(ResumeSession::WithId(id)) = &input.resume
+        && !id.is_empty()
+        && id != &fp.session_id
+    {
+        return true;
     }
     false
 }

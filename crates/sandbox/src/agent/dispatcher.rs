@@ -320,12 +320,11 @@ async fn dispatch_pending_messages_for_context(
     }
     // The instruction files' references are named once, on the turn that starts
     // the session; a resumed turn is scanned for its own text only.
-    if !is_slash_command(&text) {
-        if let Some(notice) =
+    if !is_slash_command(&text)
+        && let Some(notice) =
             crate::agent::skill_refs::unresolved_notice(&state.config, &text, starts_session).await
-        {
-            text.insert_str(0, &notice);
-        }
+    {
+        text.insert_str(0, &notice);
     }
     // A preamble ahead of `/compact` turns the command into plain text, so the
     // note waits for the next turn.

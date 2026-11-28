@@ -500,14 +500,14 @@ impl TaskDao for PgTaskDao {
 
         // Loop attribution does not imply interest in a personal feed.
         // Deliberately after commit: a failed follow must not abort creation.
-        if let Some(creator) = row.created_by.as_ref().filter(|_| row.loop_id.is_none()) {
-            if let Err(e) = self.follow_task(creator, &row.task_id).await {
-                tracing::warn!(
-                    error = %e,
-                    task_id = %row.task_id,
-                    "Failed to auto-follow task for creator"
-                );
-            }
+        if let Some(creator) = row.created_by.as_ref().filter(|_| row.loop_id.is_none())
+            && let Err(e) = self.follow_task(creator, &row.task_id).await
+        {
+            tracing::warn!(
+                error = %e,
+                task_id = %row.task_id,
+                "Failed to auto-follow task for creator"
+            );
         }
 
         Ok(())

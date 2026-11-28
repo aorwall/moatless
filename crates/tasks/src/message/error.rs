@@ -94,7 +94,7 @@ impl IntoResponse for MessageError {
                 );
                 internal_error()
             }
-            MessageError::Internal(ref msg) => {
+            MessageError::Internal(msg) => {
                 tracing::error!(error = %msg, "Internal error in message handler");
                 internal_error()
             }

@@ -400,10 +400,10 @@ fn apply_range(text: &mut String, range: &Value, new_text: &str) {
         let character = range.pointer(&format!("/{key}/character"))?.as_u64()?;
         Some(byte_offset(text, line, character))
     };
-    if let (Some(start), Some(end)) = (offset("start"), offset("end")) {
-        if start <= end {
-            text.replace_range(start..end, new_text);
-        }
+    if let (Some(start), Some(end)) = (offset("start"), offset("end"))
+        && start <= end
+    {
+        text.replace_range(start..end, new_text);
     }
 }
 

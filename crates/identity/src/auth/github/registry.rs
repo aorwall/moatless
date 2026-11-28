@@ -92,10 +92,10 @@ impl GitHubAppRegistry {
     /// durable state couldn't be read — an unhealthy installation, not a
     /// missing registration. Callers must not collapse the two.
     pub async fn get(&self, key: &str) -> Result<Option<Arc<GitHubAppService>>, AuthError> {
-        if let Some(login_app) = &self.login_app {
-            if login_app.key() == key {
-                return Ok(Some(Arc::clone(login_app)));
-            }
+        if let Some(login_app) = &self.login_app
+            && login_app.key() == key
+        {
+            return Ok(Some(Arc::clone(login_app)));
         }
 
         let Some(store) = &self.store else {
@@ -108,10 +108,11 @@ impl GitHubAppRegistry {
             return Ok(None);
         };
 
-        if let Some(cached) = self.cache.read().await.get(key) {
-            if cached.record_id == record.id && cached.revision == record.revision {
-                return Ok(Some(Arc::clone(&cached.service)));
-            }
+        if let Some(cached) = self.cache.read().await.get(key)
+            && cached.record_id == record.id
+            && cached.revision == record.revision
+        {
+            return Ok(Some(Arc::clone(&cached.service)));
         }
 
         let service = Arc::new(self.build(&record)?);

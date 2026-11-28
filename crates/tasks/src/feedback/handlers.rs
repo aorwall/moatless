@@ -201,10 +201,10 @@ fn parse_since(raw: &str) -> Result<DateTime<Utc>, FeedbackError> {
     if let Ok(ts) = DateTime::parse_from_rfc3339(raw) {
         return Ok(ts.with_timezone(&Utc));
     }
-    if let Ok(date) = raw.parse::<chrono::NaiveDate>() {
-        if let Some(midnight) = date.and_hms_opt(0, 0, 0) {
-            return Ok(DateTime::from_naive_utc_and_offset(midnight, Utc));
-        }
+    if let Ok(date) = raw.parse::<chrono::NaiveDate>()
+        && let Some(midnight) = date.and_hms_opt(0, 0, 0)
+    {
+        return Ok(DateTime::from_naive_utc_and_offset(midnight, Utc));
     }
     Err(FeedbackError::BadRequest(format!(
         "since must be RFC 3339 or YYYY-MM-DD, got {raw:?}"

@@ -287,15 +287,16 @@ fn detect_transitions(
         }
     }
 
-    if let Some(ref reason) = current.terminated_reason {
-        if reason != "OOMKilled" && reason != "Completed" {
-            let prev_reason = prev.and_then(|p| p.terminated_reason.as_deref());
-            if prev_reason != Some(reason) {
-                events.push((
-                    "container_terminated".to_string(),
-                    Some(format!("Container terminated: {reason}")),
-                ));
-            }
+    if let Some(ref reason) = current.terminated_reason
+        && reason != "OOMKilled"
+        && reason != "Completed"
+    {
+        let prev_reason = prev.and_then(|p| p.terminated_reason.as_deref());
+        if prev_reason != Some(reason) {
+            events.push((
+                "container_terminated".to_string(),
+                Some(format!("Container terminated: {reason}")),
+            ));
         }
     }
 
@@ -316,16 +317,16 @@ fn detect_transitions(
         }
     }
 
-    if let Some(prev) = prev {
-        if current.restart_count > prev.restart_count {
-            events.push((
-                "container_restarted".to_string(),
-                Some(format!(
-                    "Container restarted (count: {} -> {})",
-                    prev.restart_count, current.restart_count
-                )),
-            ));
-        }
+    if let Some(prev) = prev
+        && current.restart_count > prev.restart_count
+    {
+        events.push((
+            "container_restarted".to_string(),
+            Some(format!(
+                "Container restarted (count: {} -> {})",
+                prev.restart_count, current.restart_count
+            )),
+        ));
     }
 
     let prev_phase = prev.map_or("Unknown", |p| p.phase.as_str());
@@ -391,10 +392,11 @@ fn detect_transitions(
         }
     }
 
-    if let Some(prev) = prev {
-        if prev.node_name.is_none() && current.node_name.is_some() {
-            events.push(("pod_scheduled".to_string(), None));
-        }
+    if let Some(prev) = prev
+        && prev.node_name.is_none()
+        && current.node_name.is_some()
+    {
+        events.push(("pod_scheduled".to_string(), None));
     }
 
     events

@@ -435,15 +435,13 @@ async fn provision_session_task(
     .await;
     // Released when no task came of it, so the redelivery retries rather than
     // finding the claim held and dropping the session.
-    if let Err(e) = &created {
-        if !matches!(e, AdapterError::Shared(SharedAdapterError::AccessDenied(_))) {
-            if let Err(release) = routing
-                .release_task_creation(&rule.id, SESSION_TASK_SUBJECT_KIND, &session.id)
-                .await
-            {
-                warn!(session_id = %session.id, error = %release, "Failed to release Linear session claim");
-            }
-        }
+    if let Err(e) = &created
+        && !matches!(e, AdapterError::Shared(SharedAdapterError::AccessDenied(_)))
+        && let Err(release) = routing
+            .release_task_creation(&rule.id, SESSION_TASK_SUBJECT_KIND, &session.id)
+            .await
+    {
+        warn!(session_id = %session.id, error = %release, "Failed to release Linear session claim");
     }
     let task_id = match created {
         Ok(id) => {
@@ -523,18 +521,17 @@ async fn provision_session_task(
     {
         warn!(session_id = %session.id, error = %e, "Failed to update Linear externalUrls");
     }
-    if let Some(ref issue) = session.issue {
-        if let Err(e) = api
+    if let Some(ref issue) = session.issue
+        && let Err(e) = api
             .attachment_link_url(&issue.id, &task_url, &attachment_title)
             .await
-        {
-            warn!(
-                session_id = %session.id,
-                issue_id = %issue.id,
-                error = %e,
-                "Failed to attach Moatless task URL to Linear issue"
-            );
-        }
+    {
+        warn!(
+            session_id = %session.id,
+            issue_id = %issue.id,
+            error = %e,
+            "Failed to attach Moatless task URL to Linear issue"
+        );
     }
 
     // Forward the inbound prompt: issue link + instructions to read the

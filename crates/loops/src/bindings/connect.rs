@@ -225,15 +225,15 @@ impl Connector {
             subscription = subscription_repo.wildcard_subscription(adapter_key).await?;
         }
 
-        if let Some(subscription) = &subscription {
-            if subscription.connection_id != connection.id {
-                warn!(
-                    subscription_id = %subscription.id,
-                    connection_id = %connection.id,
-                    "Ignoring Subscription that belongs to a different connection"
-                );
-                return Ok(None);
-            }
+        if let Some(subscription) = &subscription
+            && subscription.connection_id != connection.id
+        {
+            warn!(
+                subscription_id = %subscription.id,
+                connection_id = %connection.id,
+                "Ignoring Subscription that belongs to a different connection"
+            );
+            return Ok(None);
         }
 
         Ok(subscription)

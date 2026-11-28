@@ -194,10 +194,9 @@ pub(super) async fn linear_user_of(
     if let Some(id) = identity
         .provider_id_for_user(LINEAR_PROVIDER, user_id)
         .await?
+        && let Some(user) = user_by_id(api, &id).await?
     {
-        if let Some(user) = user_by_id(api, &id).await? {
-            return Ok((!user.app).then_some(user));
-        }
+        return Ok((!user.app).then_some(user));
     }
     let Some(email) = users.email(user_id).await? else {
         return Ok(None);

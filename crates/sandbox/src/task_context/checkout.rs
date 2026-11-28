@@ -34,18 +34,18 @@ async fn materialize_isolated_checkout(
     task_config.workspace_dir = workspace_dir.clone();
     task_config.repo_dir = primary_repo_dir_for_workspace(&task_config);
 
-    if !task_config.repos.is_empty() {
-        if let Err(e) = crate::init::git::clone_repositories(&task_config, git_credentials).await {
-            if let Err(cleanup) = tokio::fs::remove_dir_all(&workspace_dir).await {
-                warn!(
-                    task_id = %task_id,
-                    dir = %workspace_dir,
-                    error = %cleanup,
-                    "Failed to clean isolated checkout after clone failure"
-                );
-            }
-            return Err(e.to_string());
+    if !task_config.repos.is_empty()
+        && let Err(e) = crate::init::git::clone_repositories(&task_config, git_credentials).await
+    {
+        if let Err(cleanup) = tokio::fs::remove_dir_all(&workspace_dir).await {
+            warn!(
+                task_id = %task_id,
+                dir = %workspace_dir,
+                error = %cleanup,
+                "Failed to clean isolated checkout after clone failure"
+            );
         }
+        return Err(e.to_string());
     }
 
     Ok((workspace_dir, task_config.repo_dir))

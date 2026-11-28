@@ -213,15 +213,15 @@ impl IntoResponse for SandboxError {
             Self::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             Self::Conflict(_) => (StatusCode::CONFLICT, self.to_string()),
             Self::Forbidden(_) => (StatusCode::FORBIDDEN, self.to_string()),
-            Self::ConfigMissing(ref msg) => {
+            Self::ConfigMissing(msg) => {
                 tracing::error!(error = %msg, "Sandbox config missing");
                 internal_error()
             }
-            Self::JwtError(ref msg) => {
+            Self::JwtError(msg) => {
                 tracing::error!(error = %msg, "Sandbox JWT error");
                 internal_error()
             }
-            Self::PodBuildError(ref msg) => {
+            Self::PodBuildError(msg) => {
                 tracing::error!(error = %msg, "Sandbox pod build error");
                 internal_error()
             }
@@ -232,7 +232,7 @@ impl IntoResponse for SandboxError {
                 );
                 internal_error()
             }
-            Self::DockerError(ref msg) => {
+            Self::DockerError(msg) => {
                 tracing::error!(error = %msg, "Docker API error in sandbox handler");
                 internal_error()
             }
@@ -255,11 +255,11 @@ impl IntoResponse for SandboxError {
                 );
                 internal_error()
             }
-            Self::InvalidResponse(ref e) => {
+            Self::InvalidResponse(e) => {
                 tracing::error!(error = %e, "Invalid sandbox gRPC response");
                 internal_error()
             }
-            Self::Internal(ref msg) => {
+            Self::Internal(msg) => {
                 tracing::error!(error = %msg, "Internal sandbox error");
                 internal_error()
             }

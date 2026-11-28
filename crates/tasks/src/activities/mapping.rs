@@ -135,14 +135,14 @@ pub fn map_content(context: BlockContext<'_>, content: &Value) -> ConversationWr
     let Some(blocks) = content.as_array() else {
         // A Message written as a bare string rather than a block list. 153 rows
         // in today's history are shaped this way; every one holds `{}`.
-        if let Some(text) = content.as_str().filter(|text| !text.is_empty()) {
-            if is_conversation(context.message_type) {
-                write.text.push(TextPart {
-                    message_uuid: context.message_uuid.to_string(),
-                    block_index: context.block_index,
-                    text: text.to_string(),
-                });
-            }
+        if let Some(text) = content.as_str().filter(|text| !text.is_empty())
+            && is_conversation(context.message_type)
+        {
+            write.text.push(TextPart {
+                message_uuid: context.message_uuid.to_string(),
+                block_index: context.block_index,
+                text: text.to_string(),
+            });
         }
         return write;
     };

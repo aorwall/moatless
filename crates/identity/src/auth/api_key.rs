@@ -106,11 +106,11 @@ pub(crate) async fn validate_key(
     };
 
     let now = chrono::Utc::now();
-    if let Some(exp) = row.expires_at {
-        if now > exp {
-            debug!(key_id = %row.id, "API key expired");
-            return Ok(None);
-        }
+    if let Some(exp) = row.expires_at
+        && now > exp
+    {
+        debug!(key_id = %row.id, "API key expired");
+        return Ok(None);
     }
     let renewed_expires_at = renewed_expiry(&row, now);
 

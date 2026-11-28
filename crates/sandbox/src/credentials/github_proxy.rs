@@ -152,10 +152,11 @@ async fn forward(State(state): State<GitHubProxyState>, request: Request) -> Res
     for (name, value) in response.headers() {
         // `reqwest` already dechunked the body, so a forwarded length or
         // transfer encoding would describe bytes the stream no longer carries.
-        if forwards(name) && name != header::CONTENT_LENGTH {
-            if let Ok(value) = HeaderValue::from_bytes(value.as_bytes()) {
-                out = out.header(name.clone(), value);
-            }
+        if forwards(name)
+            && name != header::CONTENT_LENGTH
+            && let Ok(value) = HeaderValue::from_bytes(value.as_bytes())
+        {
+            out = out.header(name.clone(), value);
         }
     }
     out.body(Body::from_stream(response.bytes_stream()))

@@ -600,13 +600,13 @@ fn enabled_by_feature(attrs: &[syn::Attribute]) -> bool {
 fn support(meta: &syn::Meta) -> bool {
     match meta {
         syn::Meta::NameValue(n) if n.path.is_ident("feature") => {
-            if let syn::Expr::Lit(l) = &n.value {
-                if let syn::Lit::Str(s) = &l.lit {
-                    // `test-support` and `db-tests` are the only two features
-                    // the workspace declares for a consumer to reach test-only
-                    // items with; `source_index::test_only` reads the same pair.
-                    return matches!(s.value().as_str(), "test-support" | "db-tests");
-                }
+            if let syn::Expr::Lit(l) = &n.value
+                && let syn::Lit::Str(s) = &l.lit
+            {
+                // `test-support` and `db-tests` are the only two features
+                // the workspace declares for a consumer to reach test-only
+                // items with; `source_index::test_only` reads the same pair.
+                return matches!(s.value().as_str(), "test-support" | "db-tests");
             }
             false
         }

@@ -95,17 +95,17 @@ pub fn backoff(attempt: u32, base: Duration, max: Duration) -> Duration {
 mod tests {
     use super::*;
 
-    fn gen(n: i64) -> OperationGeneration {
+    fn op_gen(n: i64) -> OperationGeneration {
         OperationGeneration(n)
     }
 
     #[test]
     fn retries_of_one_generation_consume_the_same_cap() {
         let mut b = AttemptBudget::new(3);
-        b.begin(gen(1));
+        b.begin(op_gen(1));
         assert_eq!(b.attempts(), 0);
         b.record_failure();
-        b.begin(gen(1)); // same generation — does NOT reset
+        b.begin(op_gen(1)); // same generation — does NOT reset
         b.record_failure();
         assert_eq!(b.attempts(), 2);
         assert!(!b.exhausted());
@@ -116,12 +116,12 @@ mod tests {
     #[test]
     fn new_caller_generation_resets_the_cap() {
         let mut b = AttemptBudget::new(2);
-        b.begin(gen(1));
+        b.begin(op_gen(1));
         b.record_failure();
         b.record_failure();
         assert!(b.exhausted());
         // A new caller-requested generation resets.
-        b.begin(gen(2));
+        b.begin(op_gen(2));
         assert_eq!(b.attempts(), 0);
         assert!(!b.exhausted());
     }
@@ -129,7 +129,7 @@ mod tests {
     #[test]
     fn eligible_wake_resets_the_cap() {
         let mut b = AttemptBudget::new(2);
-        b.begin(gen(1));
+        b.begin(op_gen(1));
         b.record_failure();
         b.record_failure();
         assert!(b.exhausted());
@@ -141,7 +141,7 @@ mod tests {
     #[test]
     fn block_exhausts_until_a_new_generation_or_wake() {
         let mut b = AttemptBudget::new(5);
-        b.begin(gen(1));
+        b.begin(op_gen(1));
         b.block();
         assert!(b.exhausted());
         b.reset_for_wake();
@@ -149,14 +149,14 @@ mod tests {
         // Re-block, then a new generation reopens it.
         b.block();
         assert!(b.exhausted());
-        b.begin(gen(2));
+        b.begin(op_gen(2));
         assert!(!b.exhausted());
     }
 
     #[test]
     fn block_counts_the_attempt_it_spends() {
         let mut b = AttemptBudget::new(5);
-        b.begin(gen(1));
+        b.begin(op_gen(1));
         b.record_failure();
         b.block();
         // Two real attempts, not the cap the give-up event used to report.
@@ -180,7 +180,7 @@ mod tests {
     #[test]
     fn budget_backoff_uses_attempt_count() {
         let mut b = AttemptBudget::new(5);
-        b.begin(gen(1));
+        b.begin(op_gen(1));
         b.record_failure();
         assert_eq!(
             b.backoff(Duration::from_secs(1), Duration::from_mins(1)),

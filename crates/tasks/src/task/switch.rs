@@ -187,14 +187,12 @@ impl TaskSwitchService {
         if profile == AgentProfile::Codex
             && !credentials.hub_available
             && !crate::agent::service::holds_a_key(credentials.secrets, scope_ctx, entry).await
-        {
-            if let Err(moatless_identity::credentials::CredentialError::NotFound(_)) = credentials
+            && let Err(moatless_identity::credentials::CredentialError::NotFound(_)) = credentials
                 .credential_sync
                 .ensure_fresh_codex_for(&scope_ctx.user_id)
                 .await
-            {
-                return Err(TaskError::BadRequest(CODEX_MISSING.to_string()));
-            }
+        {
+            return Err(TaskError::BadRequest(CODEX_MISSING.to_string()));
         }
 
         let harness_changes = task.agent_profile.harness() != profile.harness();

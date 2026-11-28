@@ -320,10 +320,10 @@ impl Loops {
             None => current.loop_.name.clone(),
         };
 
-        if let Some(rule) = &req.config {
-            if let Some(workspace_id) = rule.workspace_id.as_deref() {
-                ensure_workspace_usable(workspaces, ctx, workspace_id).await?;
-            }
+        if let Some(rule) = &req.config
+            && let Some(workspace_id) = rule.workspace_id.as_deref()
+        {
+            ensure_workspace_usable(workspaces, ctx, workspace_id).await?;
         }
 
         let (next_scope, next_owner) = if let Some(requested) = req.scope {

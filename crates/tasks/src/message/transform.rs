@@ -287,10 +287,10 @@ pub(crate) fn agent_tool_use_ids(messages: &[UiMessage]) -> Vec<String> {
     let mut ids = Vec::new();
     for m in messages {
         for b in &m.content {
-            if b.tool_name.as_deref() == Some("Agent") {
-                if let Some(id) = &b.tool_use_id {
-                    ids.push(id.clone());
-                }
+            if b.tool_name.as_deref() == Some("Agent")
+                && let Some(id) = &b.tool_use_id
+            {
+                ids.push(id.clone());
             }
         }
     }

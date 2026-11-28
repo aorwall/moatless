@@ -587,18 +587,19 @@ async fn test_mid_turn_injection_joins_the_running_turn() {
             // Inject once the Turn is demonstrably in flight: the CLI has
             // reported its Session and produced its first assistant output
             // (the tool call), so the sleep is running.
-            if !injected && matches!(msg, SdkMessage::Assistant(_)) {
-                if let Some(ref session) = session_id {
-                    handle
-                        .send_user_message(&injected_user_message(
-                            "Change of plan: instead of DONE, reply with the single \
+            if !injected
+                && matches!(msg, SdkMessage::Assistant(_))
+                && let Some(ref session) = session_id
+            {
+                handle
+                    .send_user_message(&injected_user_message(
+                        "Change of plan: instead of DONE, reply with the single \
                              word BANANA and nothing else.",
-                            session,
-                        ))
-                        .await
-                        .expect("failed to inject user message mid-turn");
-                    injected = true;
-                }
+                        session,
+                    ))
+                    .await
+                    .expect("failed to inject user message mid-turn");
+                injected = true;
             }
 
             let terminal = matches!(msg, SdkMessage::Result(_));

@@ -84,13 +84,13 @@ fn cut_transcript(body: &str, through_uuid: &str, session_id: &str) -> String {
     let mut out = String::new();
     for value in parsed.into_iter().take(last + 1) {
         let mut value = value;
-        if let Some(obj) = value.as_object_mut() {
-            if obj.contains_key("sessionId") {
-                obj.insert(
-                    "sessionId".to_string(),
-                    serde_json::Value::String(session_id.to_string()),
-                );
-            }
+        if let Some(obj) = value.as_object_mut()
+            && obj.contains_key("sessionId")
+        {
+            obj.insert(
+                "sessionId".to_string(),
+                serde_json::Value::String(session_id.to_string()),
+            );
         }
         out.push_str(&value.to_string());
         out.push('\n');

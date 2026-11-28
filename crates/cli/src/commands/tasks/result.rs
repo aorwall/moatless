@@ -133,10 +133,10 @@ pub(super) async fn show_result(
     for child in children.items {
         // A child whose status cannot be read counts as idle rather than
         // failing the whole read.
-        if let Ok(child_live) = api.live_status(&child.task_id).await {
-            if agent_in_turn(&child_live) {
-                active_child_ids.push(child.task_id);
-            }
+        if let Ok(child_live) = api.live_status(&child.task_id).await
+            && agent_in_turn(&child_live)
+        {
+            active_child_ids.push(child.task_id);
         }
     }
 

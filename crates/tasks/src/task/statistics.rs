@@ -88,14 +88,13 @@ pub(crate) fn build_task_statistics(
             entry.failed_calls += 1;
         }
 
-        if activity.summary == "Skill" {
-            if let Some(skill_name) = activity
+        if activity.summary == "Skill"
+            && let Some(skill_name) = activity
                 .tool_input()
                 .get("skill")
                 .and_then(serde_json::Value::as_str)
-            {
-                *skill_stats.entry(skill_name.to_string()).or_insert(0) += 1;
-            }
+        {
+            *skill_stats.entry(skill_name.to_string()).or_insert(0) += 1;
         }
     }
 

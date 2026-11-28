@@ -118,13 +118,13 @@ fn surface(
                 return out;
             }
             for item in &i.items {
-                if let syn::ImplItem::Fn(f) = item {
-                    if matches!(f.vis, syn::Visibility::Public(_)) {
-                        let mut found = Paths::default();
-                        found.visit_signature(&f.sig);
-                        let name = format!("{type_name}::{}", f.sig.ident);
-                        out.extend(found.0.into_iter().map(|p| (name.clone(), p)));
-                    }
+                if let syn::ImplItem::Fn(f) = item
+                    && matches!(f.vis, syn::Visibility::Public(_))
+                {
+                    let mut found = Paths::default();
+                    found.visit_signature(&f.sig);
+                    let name = format!("{type_name}::{}", f.sig.ident);
+                    out.extend(found.0.into_iter().map(|p| (name.clone(), p)));
                 }
             }
             out

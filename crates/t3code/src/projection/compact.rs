@@ -199,10 +199,10 @@ impl IdTable {
                 if let Value::Array(values) = value {
                     values.iter_mut().for_each(|value| self.intern(value));
                 }
-            } else if key == "item" {
-                if let Value::Object(item) = value {
-                    self.intern_record(item);
-                }
+            } else if key == "item"
+                && let Value::Object(item) = value
+            {
+                self.intern_record(item);
             }
         }
     }

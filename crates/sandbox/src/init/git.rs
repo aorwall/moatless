@@ -45,15 +45,15 @@ pub async fn configure_git(config: &Config, credentials: &GitCredentials) -> Res
     if is_github && (user_name.is_none() || user_email.is_none()) {
         match resolve_github_user().await {
             Ok((name, email)) => {
-                if user_name.is_none() {
-                    if let Some(ref n) = name {
-                        run_command("git", &["config", "--global", "user.name", n]).await?;
-                    }
+                if user_name.is_none()
+                    && let Some(ref n) = name
+                {
+                    run_command("git", &["config", "--global", "user.name", n]).await?;
                 }
-                if user_email.is_none() {
-                    if let Some(ref e) = email {
-                        run_command("git", &["config", "--global", "user.email", e]).await?;
-                    }
+                if user_email.is_none()
+                    && let Some(ref e) = email
+                {
+                    run_command("git", &["config", "--global", "user.email", e]).await?;
                 }
             }
             Err(e) => {

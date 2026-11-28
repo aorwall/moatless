@@ -203,10 +203,10 @@ pub async fn fetch_and_apply_credentials_with_mode(
 
                 // A GitLab pod's token is also its `GIT_TOKEN`, so git.rs has one
                 // name for it. GitHub has none: it is reached through the proxy.
-                if state.config.git_provider == "gitlab" {
-                    if let Some(token) = resp.credentials.get("GITLAB_TOKEN").cloned() {
-                        resp.credentials.insert(GIT_TOKEN.to_string(), token);
-                    }
+                if state.config.git_provider == "gitlab"
+                    && let Some(token) = resp.credentials.get("GITLAB_TOKEN").cloned()
+                {
+                    resp.credentials.insert(GIT_TOKEN.to_string(), token);
                 }
                 *state.git_credentials.write().await =
                     GitCredentials::from_credentials(&resp.credentials)
@@ -370,11 +370,11 @@ pub(crate) async fn persist_user_auth_token(config: &Config, token: &str) {
     purge_exposed_user_tokens(config).await;
 
     let path = config.persisted_user_token_path();
-    if let Some(parent) = path.parent() {
-        if let Err(e) = fs::create_dir_all(parent).await {
-            warn!(error = %e, "Failed to create dir for persisted user auth token");
-            return;
-        }
+    if let Some(parent) = path.parent()
+        && let Err(e) = fs::create_dir_all(parent).await
+    {
+        warn!(error = %e, "Failed to create dir for persisted user auth token");
+        return;
     }
     // Renamed into place: the agent's `apiKeyHelper` reads this file at any
     // moment, and a write in place can hand it a truncated token.

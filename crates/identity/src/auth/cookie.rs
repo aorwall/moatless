@@ -12,10 +12,10 @@ pub const CSRF_COOKIE_NAME: &str = "moatless_csrf";
 pub fn get_cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
     let cookie_header = headers.get(header::COOKIE)?.to_str().ok()?;
     for pair in cookie_header.split(';') {
-        if let Ok(c) = Cookie::parse(pair.trim()) {
-            if c.name() == name {
-                return Some(c.value().to_string());
-            }
+        if let Ok(c) = Cookie::parse(pair.trim())
+            && c.name() == name
+        {
+            return Some(c.value().to_string());
         }
     }
     None

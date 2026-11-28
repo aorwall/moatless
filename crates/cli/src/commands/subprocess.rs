@@ -41,15 +41,15 @@ pub(crate) async fn run(
         .spawn()
         .map_err(|e| ClientError::Other(format!("Failed to spawn {cmd}: {e}")))?;
 
-    if let Some(input) = stdin {
-        if let Some(mut h) = child.stdin.take() {
-            h.write_all(input.as_bytes())
-                .await
-                .map_err(|e| ClientError::Other(format!("Failed to write stdin to {cmd}: {e}")))?;
-            h.shutdown()
-                .await
-                .map_err(|e| ClientError::Other(format!("Failed to close stdin for {cmd}: {e}")))?;
-        }
+    if let Some(input) = stdin
+        && let Some(mut h) = child.stdin.take()
+    {
+        h.write_all(input.as_bytes())
+            .await
+            .map_err(|e| ClientError::Other(format!("Failed to write stdin to {cmd}: {e}")))?;
+        h.shutdown()
+            .await
+            .map_err(|e| ClientError::Other(format!("Failed to close stdin for {cmd}: {e}")))?;
     }
 
     let output = child

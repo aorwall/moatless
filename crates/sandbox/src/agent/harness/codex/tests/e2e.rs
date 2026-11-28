@@ -186,16 +186,16 @@ async fn collect_turn(harness: &mut HarnessRuntime, mid_turn: Option<(&str, &str
                     log.text.push('\n');
                 }
 
-                if block["type"] == "tool_use" {
-                    if let Some((id, text)) = mid_turn.take() {
-                        eprintln!("SUBMITTING {id} while the Turn is running");
-                        log.tool_use_before_mid_turn = true;
-                        let input = Input {
-                            resume: log.session.clone().map(ResumeSession::WithId),
-                            ..Input::text(id, text)
-                        };
-                        harness.submit(input).await.expect("submit mid-Turn input");
-                    }
+                if block["type"] == "tool_use"
+                    && let Some((id, text)) = mid_turn.take()
+                {
+                    eprintln!("SUBMITTING {id} while the Turn is running");
+                    log.tool_use_before_mid_turn = true;
+                    let input = Input {
+                        resume: log.session.clone().map(ResumeSession::WithId),
+                        ..Input::text(id, text)
+                    };
+                    harness.submit(input).await.expect("submit mid-Turn input");
                 }
             }
             Signal::Activity(_) => {}

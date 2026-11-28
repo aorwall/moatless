@@ -31,13 +31,13 @@ pub(crate) fn redact_secrets(command: &str) -> String {
     let mut out = String::with_capacity(command.len());
     let mut i = 0;
     while i < chars.len() {
-        if starts_word(&chars, i) {
-            if let Some((name_end, value_end)) = secret_assignment(&chars, i) {
-                out.extend(&chars[i..=name_end]);
-                out.push_str(MASK);
-                i = value_end;
-                continue;
-            }
+        if starts_word(&chars, i)
+            && let Some((name_end, value_end)) = secret_assignment(&chars, i)
+        {
+            out.extend(&chars[i..=name_end]);
+            out.push_str(MASK);
+            i = value_end;
+            continue;
         }
         out.push(chars[i]);
         i += 1;

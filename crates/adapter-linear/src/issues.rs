@@ -578,14 +578,13 @@ async fn provision_issue_task(
         None,
     )
     .await;
-    if let (Err(_), Some(firing)) = (&created, firing.as_deref()) {
-        if let Err(e) = ports
+    if let (Err(_), Some(firing)) = (&created, firing.as_deref())
+        && let Err(e) = ports
             .routing
             .release_task_creation(&rule.id, UNBOUND_SUBJECT_KIND, firing)
             .await
-        {
-            warn!(issue = %issue.identifier, error = %e, "Failed to release the firing claim");
-        }
+    {
+        warn!(issue = %issue.identifier, error = %e, "Failed to release the firing claim");
     }
     let task_id = match created {
         Ok(id) => id,
@@ -690,10 +689,10 @@ async fn provision_issue_task(
     // `Issue.update` re-enters this path but trips the idempotency guard above.
     // Transitions only when not already in the target state, so a loop via
     // overlapping `start_state`/`trigger_states` doesn't thrash.
-    if let Some(start_state) = cfg.start_state.as_deref() {
-        if !issue.state_name().eq_ignore_ascii_case(start_state) {
-            transition_issue_state(api, &team_id, &issue.id, &issue.identifier, start_state).await;
-        }
+    if let Some(start_state) = cfg.start_state.as_deref()
+        && !issue.state_name().eq_ignore_ascii_case(start_state)
+    {
+        transition_issue_state(api, &team_id, &issue.id, &issue.identifier, start_state).await;
     }
 
     Ok(Provisioned::Created(task_id))

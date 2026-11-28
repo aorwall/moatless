@@ -73,33 +73,33 @@ pub async fn publish_sandbox_observation(
     payload: &SandboxEventPayload,
     generation: Option<OperationGeneration>,
 ) {
-    if status == SandboxStatus::Ready {
-        if let Some(generation) = generation {
-            match serde_json::to_value(payload) {
-                Ok(payload) => {
-                    if let Err(e) = event_publisher
-                        .publish_raw_event_with_id(
-                            &event_id(task_id, generation, EventFact::Ready),
-                            task_id,
-                            "sandbox",
-                            SandboxStatus::Ready.as_str(),
-                            None,
-                            None,
-                            payload,
-                        )
-                        .await
-                    {
-                        warn!(task_id, error = %e, "ready event did not reach the live transport");
-                    }
-                    return;
-                }
-                Err(e) => {
-                    warn!(
+    if status == SandboxStatus::Ready
+        && let Some(generation) = generation
+    {
+        match serde_json::to_value(payload) {
+            Ok(payload) => {
+                if let Err(e) = event_publisher
+                    .publish_raw_event_with_id(
+                        &event_id(task_id, generation, EventFact::Ready),
                         task_id,
-                        error = %e,
-                        "Failed to serialize deterministic Ready observation; using typed publish"
-                    );
+                        "sandbox",
+                        SandboxStatus::Ready.as_str(),
+                        None,
+                        None,
+                        payload,
+                    )
+                    .await
+                {
+                    warn!(task_id, error = %e, "ready event did not reach the live transport");
                 }
+                return;
+            }
+            Err(e) => {
+                warn!(
+                    task_id,
+                    error = %e,
+                    "Failed to serialize deterministic Ready observation; using typed publish"
+                );
             }
         }
     }

@@ -210,14 +210,13 @@ pub(in crate::auth) async fn oidc_callback_handler(
         .filter(|oidc| oidc.provider_id() == provider)
         .ok_or_else(|| AuthError::NotFound("OIDC provider is not configured".into()))?;
     let source = request_source(&headers);
-    if let Some(source) = source {
-        if state
+    if let Some(source) = source
+        && state
             .login_throttle
             .is_locked("oidc_callback_failure", source)
             .await?
-        {
-            return Err(AuthError::TooManyRequests);
-        }
+    {
+        return Err(AuthError::TooManyRequests);
     }
     let result = match oidc
         .finish(

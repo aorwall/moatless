@@ -173,14 +173,13 @@ impl ResticWorkspaceSnapshots {
     async fn store(&self, task_id: &str, entry: Entry) {
         let mut cache = self.cache.lock().await;
         cache.retain(|_, held| held.fetched().elapsed() < REPOSITORY_TTL);
-        if cache.len() >= REPOSITORY_CACHE_CAP {
-            if let Some(oldest) = cache
+        if cache.len() >= REPOSITORY_CACHE_CAP
+            && let Some(oldest) = cache
                 .iter()
                 .min_by_key(|(_, held)| held.fetched())
                 .map(|(id, _)| id.clone())
-            {
-                cache.remove(&oldest);
-            }
+        {
+            cache.remove(&oldest);
         }
         cache.insert(task_id.to_string(), entry);
     }

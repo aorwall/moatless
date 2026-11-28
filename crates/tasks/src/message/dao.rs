@@ -492,10 +492,10 @@ impl MessageDao for PgMessageDao {
         };
         // A subagent's rows never upsert a top-level Message: its progress rides
         // `subagentProgress` instead.
-        if let Some(record) = &record {
-            if record.task_id != task_id || record.parent_tool_use_id.is_some() {
-                return Ok(None);
-            }
+        if let Some(record) = &record
+            && (record.task_id != task_id || record.parent_tool_use_id.is_some())
+        {
+            return Ok(None);
         }
         let named = [message_uuid.to_string()];
         let activities = activities::dao::for_messages(&self.0, task_id, &named).await?;

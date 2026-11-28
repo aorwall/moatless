@@ -53,25 +53,24 @@ pub async fn recover_interrupted_turn(
             .turn_progressed_since_last_recovery(task_id, interrupted.turn_number)
             .await
             .unwrap_or(false)
+        && let Some(task_turns) = task_turns
     {
-        if let Some(task_turns) = task_turns {
-            match task_turns
-                .store()
-                .reset_recovery_attempts(task_id, interrupted.turn_number)
-                .await
-            {
-                Ok(()) => {
-                    info!(
-                        task_id = %task_id,
-                        turn_number = interrupted.turn_number,
-                        prior_attempts = recovery_attempts,
-                        "RecoverInterruptedRun: last re-drive made progress; resetting recovery counter"
-                    );
-                    recovery_attempts = 0;
-                }
-                Err(e) => {
-                    warn!(error = %e, task_id = %task_id, "reset_recovery_attempts failed");
-                }
+        match task_turns
+            .store()
+            .reset_recovery_attempts(task_id, interrupted.turn_number)
+            .await
+        {
+            Ok(()) => {
+                info!(
+                    task_id = %task_id,
+                    turn_number = interrupted.turn_number,
+                    prior_attempts = recovery_attempts,
+                    "RecoverInterruptedRun: last re-drive made progress; resetting recovery counter"
+                );
+                recovery_attempts = 0;
+            }
+            Err(e) => {
+                warn!(error = %e, task_id = %task_id, "reset_recovery_attempts failed");
             }
         }
     }

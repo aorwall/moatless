@@ -166,26 +166,26 @@ pub(crate) fn descriptor(config: &UiRpcConfig) -> Value {
     // `attachmentUploads` moves the composer off the inline data-URL path
     // once a URL can be signed (see [`attachments`]); inline stays served
     // either way, for clients that haven't read it.
-    if config.attachment_uploads {
-        if let Some(capabilities) = descriptor["capabilities"].as_object_mut() {
-            capabilities.insert("attachmentUploads".into(), json!(true));
-            // What a turn may carry beyond images, and how large. Absent, a
-            // client offers no file picker at all.
-            capabilities.insert(
-                "fileAttachments".into(),
-                json!({ "maxUploadBytes": attachments::MAX_FILE_BYTES }),
-            );
-        }
+    if config.attachment_uploads
+        && let Some(capabilities) = descriptor["capabilities"].as_object_mut()
+    {
+        capabilities.insert("attachmentUploads".into(), json!(true));
+        // What a turn may carry beyond images, and how large. Absent, a
+        // client offers no file picker at all.
+        capabilities.insert(
+            "fileAttachments".into(),
+            json!({ "maxUploadBytes": attachments::MAX_FILE_BYTES }),
+        );
     }
 
     // Absent rather than false for the same decode reason, and reported only
     // where a hub is configured: the client keeps a source event it has already
     // received until a snapshot without this key clears it, so a deployment
     // that lost its hub has to stop declaring the capability to clear the rows.
-    if config.usage_limit_sources {
-        if let Some(capabilities) = descriptor["capabilities"].as_object_mut() {
-            capabilities.insert("usageLimitSources".into(), json!(true));
-        }
+    if config.usage_limit_sources
+        && let Some(capabilities) = descriptor["capabilities"].as_object_mut()
+    {
+        capabilities.insert("usageLimitSources".into(), json!(true));
     }
 
     descriptor

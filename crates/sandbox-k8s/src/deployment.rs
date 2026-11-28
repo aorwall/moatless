@@ -48,12 +48,12 @@ pub fn build_deployment_object(
         .ok_or_else(|| SandboxError::PodBuildError("Pod has no spec".to_string()))?;
 
     // Deployments only support restartPolicy "Always"
-    if let Some(ref policy) = pod_spec.restart_policy {
-        if policy != "Always" {
-            return Err(SandboxError::PodBuildError(format!(
-                "Pod template has restartPolicy \"{policy}\", but Deployments only support \"Always\""
-            )));
-        }
+    if let Some(ref policy) = pod_spec.restart_policy
+        && policy != "Always"
+    {
+        return Err(SandboxError::PodBuildError(format!(
+            "Pod template has restartPolicy \"{policy}\", but Deployments only support \"Always\""
+        )));
     }
 
     let mut labels = BTreeMap::new();

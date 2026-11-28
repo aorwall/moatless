@@ -234,10 +234,10 @@ fn file_change(input: &Value) -> Option<Value> {
         let file_name = details.first()?.get("path")?.clone();
         let mut fields =
             json!({ "type": "file_change", "fileName": file_name, "changes": details });
-        if let [change] = changes.as_slice() {
-            if let Some(diff) = text(change, &["diff"]) {
-                fields["diffStr"] = json!(diff);
-            }
+        if let [change] = changes.as_slice()
+            && let Some(diff) = text(change, &["diff"])
+        {
+            fields["diffStr"] = json!(diff);
         }
         return Some(fields);
     }

@@ -371,16 +371,16 @@ fn stage_plugin_component(
         let target_name = format!("{plugin_name}--{skill_name}");
         let target = codex_skills_root.join(&target_name);
 
-        if target.exists() {
-            if let Err(e) = std::fs::remove_dir_all(&target) {
-                warn!(
-                    plugin = %plugin_name,
-                    skill = %skill_name,
-                    error = %e,
-                    "Failed to remove stale Codex skill target"
-                );
-                continue;
-            }
+        if target.exists()
+            && let Err(e) = std::fs::remove_dir_all(&target)
+        {
+            warn!(
+                plugin = %plugin_name,
+                skill = %skill_name,
+                error = %e,
+                "Failed to remove stale Codex skill target"
+            );
+            continue;
         }
         if let Err(e) = std::fs::create_dir_all(&target) {
             warn!(
@@ -417,10 +417,10 @@ fn expand_staged_skill_md(staged_skill: &Path, plugin_root: &Path) {
         return;
     };
     let expanded = expand_plugin_placeholders(&body, plugin_root, staged_skill);
-    if expanded != body {
-        if let Err(e) = std::fs::write(&skill_md, expanded) {
-            warn!(path = %skill_md.display(), error = %e, "Failed to expand staged SKILL.md");
-        }
+    if expanded != body
+        && let Err(e) = std::fs::write(&skill_md, expanded)
+    {
+        warn!(path = %skill_md.display(), error = %e, "Failed to expand staged SKILL.md");
     }
 }
 

@@ -93,15 +93,15 @@ impl RepositoryBranchService {
             .clone()
             .or(result.default_branch.clone());
 
-        if repo.default_branch.is_none() {
-            if let Some(ref branch) = default_branch {
-                let patch = RepositoryPatch {
-                    default_branch: Some(Some(branch.clone())),
-                    ..Default::default()
-                };
-                if let Err(e) = repositories.update(repository_id, &patch, ctx).await {
-                    warn!(repository_id = %repository_id, error = %e, "Failed to persist default branch");
-                }
+        if repo.default_branch.is_none()
+            && let Some(ref branch) = default_branch
+        {
+            let patch = RepositoryPatch {
+                default_branch: Some(Some(branch.clone())),
+                ..Default::default()
+            };
+            if let Err(e) = repositories.update(repository_id, &patch, ctx).await {
+                warn!(repository_id = %repository_id, error = %e, "Failed to persist default branch");
             }
         }
 

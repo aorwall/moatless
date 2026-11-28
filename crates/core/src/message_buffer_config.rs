@@ -27,10 +27,9 @@ pub(crate) fn parse(vars: impl Iterator<Item = (OsString, OsString)>) -> Message
         } else if let Some(kind) = key
             .strip_prefix(MESSAGE_BUFFER_ENV)
             .and_then(|k| k.strip_prefix('_'))
+            && let Some(value) = seconds(key, &raw)
         {
-            if let Some(value) = seconds(key, &raw) {
-                config.per_kind_seconds.insert(kind.to_string(), value);
-            }
+            config.per_kind_seconds.insert(kind.to_string(), value);
         }
     }
     config

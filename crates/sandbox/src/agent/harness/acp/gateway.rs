@@ -184,10 +184,11 @@ async fn forward(State(state): State<ProxyState>, request: Request) -> Response 
     let mut out = Response::builder().status(status);
     for (name, value) in response.headers() {
         // `reqwest` already dechunked the body.
-        if forwards(name) && name != header::CONTENT_LENGTH {
-            if let Ok(value) = HeaderValue::from_bytes(value.as_bytes()) {
-                out = out.header(name.clone(), value);
-            }
+        if forwards(name)
+            && name != header::CONTENT_LENGTH
+            && let Ok(value) = HeaderValue::from_bytes(value.as_bytes())
+        {
+            out = out.header(name.clone(), value);
         }
     }
     let body = if lists_models && status.is_success() {

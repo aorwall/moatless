@@ -43,17 +43,16 @@ pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
             continue;
         }
         for p in index.paths(r) {
-            if let Some(dao) = dao_path(p) {
-                if dao.starts_with("moatless_")
-                    && !dao.starts_with(&format!("{}::", r.package.replace('-', "_")))
-                {
-                    out.push(Violation::at(
-                        RULE,
-                        format!("{} names {dao}", r.id),
-                        "name the owning domain's port instead of its store",
-                        &r.file,
-                    ));
-                }
+            if let Some(dao) = dao_path(p)
+                && dao.starts_with("moatless_")
+                && !dao.starts_with(&format!("{}::", r.package.replace('-', "_")))
+            {
+                out.push(Violation::at(
+                    RULE,
+                    format!("{} names {dao}", r.id),
+                    "name the owning domain's port instead of its store",
+                    &r.file,
+                ));
             }
         }
     }

@@ -281,13 +281,12 @@ pub fn jsonl_row(id: &str, result: &Result<PickDecisionResponse, ApiError>) -> V
 
 /// The backend's `{"error": ...}` message when there is one.
 fn error_message(error: &ApiError) -> String {
-    if let ApiError::Api { status, body } = error {
-        if let Some(message) = serde_json::from_str::<Value>(body)
+    if let ApiError::Api { status, body } = error
+        && let Some(message) = serde_json::from_str::<Value>(body)
             .ok()
             .and_then(|v| v["error"].as_str().map(str::to_string))
-        {
-            return format!("{status}: {message}");
-        }
+    {
+        return format!("{status}: {message}");
     }
     error.to_string()
 }

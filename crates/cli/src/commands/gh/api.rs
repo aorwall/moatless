@@ -383,10 +383,9 @@ fn parse_api_endpoint(arg: &str) -> Option<ApiCreation> {
 fn parse_created_id(text: &str, kind: ApiCreated) -> Option<u64> {
     if let Ok(serde_json::Value::Object(body)) =
         serde_json::from_str::<serde_json::Value>(text.trim())
+        && let Some(id) = body.get("id").and_then(serde_json::Value::as_u64)
     {
-        if let Some(id) = body.get("id").and_then(serde_json::Value::as_u64) {
-            return Some(id);
-        }
+        return Some(id);
     }
     last_id_after(text, kind.html_anchor())
 }

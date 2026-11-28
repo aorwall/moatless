@@ -9,13 +9,12 @@ use anyhow::Result;
 pub const RULE: &str = "row-stays-with-query";
 
 fn from_row(item: &syn::Item) -> bool {
-    if let syn::Item::Impl(i) = item {
-        if i.trait_
+    if let syn::Item::Impl(i) = item
+        && i.trait_
             .as_ref()
             .is_some_and(|(_, p, _)| p.segments.last().is_some_and(|s| s.ident == "FromRow"))
-        {
-            return true;
-        }
+    {
+        return true;
     }
     attrs(item).iter().any(|a| match &a.meta {
         syn::Meta::List(l) => l

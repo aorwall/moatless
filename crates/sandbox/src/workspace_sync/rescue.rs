@@ -30,12 +30,16 @@ mod oneshot_tests {
         let tmp = tempfile::TempDir::new().unwrap();
         let missing_workspace = tmp.path().join("workspace");
 
-        std::env::remove_var("BACKEND_GRPC_URL");
-        std::env::set_var("TASK_ID", "oneshot-test-task");
-        std::env::set_var("WORKSPACE_DIR", missing_workspace.to_str().unwrap());
-        std::env::set_var("WORKSPACE_SYNC_PUT_URL", "http://127.0.0.1:1/put");
+        let workspace_dir = missing_workspace.to_str().unwrap().to_string();
+        let config = RescueConfig::from_vars(|key| match key {
+            "TASK_ID" => Some("oneshot-test-task".to_string()),
+            "WORKSPACE_DIR" => Some(workspace_dir.clone()),
+            "WORKSPACE_SYNC_PUT_URL" => Some("http://127.0.0.1:1/put".to_string()),
+            _ => None,
+        })
+        .unwrap();
 
-        let error = rescue(RescueConfig::from_env().unwrap())
+        let error = rescue(config)
             .await
             .expect_err("an unarchivable workspace is still an error");
 
@@ -43,9 +47,5 @@ mod oneshot_tests {
             !error.to_string().contains("BACKEND_GRPC_URL"),
             "a rescue must not require BACKEND_GRPC_URL: {error}"
         );
-
-        std::env::remove_var("TASK_ID");
-        std::env::remove_var("WORKSPACE_DIR");
-        std::env::remove_var("WORKSPACE_SYNC_PUT_URL");
     }
 }

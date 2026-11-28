@@ -337,10 +337,10 @@ async fn normalize_pull_request(
         .and_then(serde_json::Value::as_str)
         .unwrap_or("");
 
-    if STATUS_ACTIONS.contains(&action) {
-        if let Some(observation) = pr_status_observation(payload, context) {
-            observations.push(observation);
-        }
+    if STATUS_ACTIONS.contains(&action)
+        && let Some(observation) = pr_status_observation(payload, context)
+    {
+        observations.push(observation);
     }
 
     if action == "synchronize" {

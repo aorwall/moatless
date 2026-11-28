@@ -66,10 +66,10 @@ impl AdapterTaskRoom for SlackAdapter {
             .await?;
         // Deliberately not fatal: the room exists and is bound either way, and
         // a missing scope would fail every retry the same way.
-        if !request.invitees.is_empty() {
-            if let Err(e) = app.api.invite(&channel, &request.invitees).await {
-                warn!(task_id = %request.task_id, channel, error = %e, "Task Room invite failed");
-            }
+        if !request.invitees.is_empty()
+            && let Err(e) = app.api.invite(&channel, &request.invitees).await
+        {
+            warn!(task_id = %request.task_id, channel, error = %e, "Task Room invite failed");
         }
 
         Ok(RoomOpened {

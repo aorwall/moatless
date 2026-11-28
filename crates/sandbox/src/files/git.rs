@@ -268,14 +268,14 @@ async fn get_best_compare_reference(workspace_dir: &str) -> CompareRef {
 
     let current = run_git_quiet(workspace_dir, &["branch", "--show-current"], 5).await;
     let current = current.trim();
-    if !current.is_empty() {
-        if let Ok(output) = run_git(workspace_dir, &["merge-base", &base, current], 5).await {
-            let merge_base = output.trim().to_string();
-            if !merge_base.is_empty() {
-                return CompareRef {
-                    reference: merge_base,
-                };
-            }
+    if !current.is_empty()
+        && let Ok(output) = run_git(workspace_dir, &["merge-base", &base, current], 5).await
+    {
+        let merge_base = output.trim().to_string();
+        if !merge_base.is_empty() {
+            return CompareRef {
+                reference: merge_base,
+            };
         }
     }
 
@@ -426,10 +426,10 @@ fn parse_diff_files(
             continue;
         };
 
-        if let Some(&(add, del, is_binary)) = numstat.get(&filename) {
-            if is_binary || (add + del) as i64 > MAX_FILE_LINES {
-                continue;
-            }
+        if let Some(&(add, del, is_binary)) = numstat.get(&filename)
+            && (is_binary || (add + del) as i64 > MAX_FILE_LINES)
+        {
+            continue;
         }
 
         let status = determine_file_status(chunk);

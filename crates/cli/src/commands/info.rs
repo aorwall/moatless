@@ -25,7 +25,7 @@ pub fn print_status(config: &Config) {
     match &config.auth_mode {
         AuthMode::Sandbox { task_id, .. } => {
             println!("Mode:    sandbox");
-            if let Some(ref tid) = task_id {
+            if let Some(tid) = task_id {
                 println!("Task:    {tid}");
             }
         }

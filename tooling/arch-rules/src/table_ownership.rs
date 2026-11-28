@@ -155,15 +155,16 @@ pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
         }
         for literal in sql::literals(&r.item) {
             for (table, write) in sql::tables(&literal) {
-                if let Some((_, owner)) = TABLES.iter().find(|(t, _)| *t == table) {
-                    if *owner != r.package && !allowed(&r.package, &table, write) {
-                        out.push(Violation::at(
-                            RULE,
-                            format!("{} -> {table} ({owner})", r.id),
-                            format!("{} names {table}, owned by {owner}", r.package),
-                            &r.file,
-                        ));
-                    }
+                if let Some((_, owner)) = TABLES.iter().find(|(t, _)| *t == table)
+                    && *owner != r.package
+                    && !allowed(&r.package, &table, write)
+                {
+                    out.push(Violation::at(
+                        RULE,
+                        format!("{} -> {table} ({owner})", r.id),
+                        format!("{} names {table}, owned by {owner}", r.package),
+                        &r.file,
+                    ));
                 }
             }
         }

@@ -146,10 +146,8 @@ pub fn codex_refresh_url_from_env() -> String {
 /// Never default this from `T3_UI_RPC_ALLOWED_ORIGINS`: it carries wildcard
 /// preview origins serving agent-authored code, which under a shared
 /// `COOKIE_DOMAIN` could drive cookie-authenticated writes.
-fn csrf_trusted_origins_from_env() -> Vec<AllowedOrigin> {
-    moatless_types::auth::parse_allowed_origins(
-        &env_opt("CSRF_TRUSTED_ORIGINS").unwrap_or_default(),
-    )
+fn csrf_trusted_origins(lookup: impl Fn(&str) -> Option<String>) -> Vec<AllowedOrigin> {
+    moatless_types::auth::parse_allowed_origins(&lookup("CSRF_TRUSTED_ORIGINS").unwrap_or_default())
 }
 
 /// One Plugin the deployment declares, from `PLUGIN_REPOSITORIES_JSON`.
@@ -182,10 +180,15 @@ pub struct ServiceProxyConfig {
 
 /// Read an environment variable as a boolean (true if "true" or "1").
 fn env_bool(key: &str, default: bool) -> bool {
-    match env::var(key) {
-        Ok(v) if default => v != "false" && v != "0",
-        Ok(v) => v == "true" || v == "1",
-        Err(_) => default,
+    parse_bool(env::var(key).ok().as_deref(), default)
+}
+
+/// `true`/`1` turn a default-off flag on; `false`/`0` turn a default-on one off.
+fn parse_bool(value: Option<&str>, default: bool) -> bool {
+    match value {
+        Some(v) if default => v != "false" && v != "0",
+        Some(v) => v == "true" || v == "1",
+        None => default,
     }
 }
 
@@ -1030,7 +1033,7 @@ impl Config {
                 session_max_age_secs: env_or("SESSION_MAX_AGE", 604_800),
                 session_absolute_age_secs: env_or("SESSION_ABSOLUTE_MAX_AGE", 2_592_000),
                 frontend_url: env_str("FRONTEND_URL", "http://localhost:3000"),
-                csrf_trusted_origins: csrf_trusted_origins_from_env(),
+                csrf_trusted_origins: csrf_trusted_origins(env_opt),
                 cookie_domain: env_opt("COOKIE_DOMAIN"),
                 session_cookie_name: env_str("SESSION_COOKIE_NAME", "moatless_session"),
                 is_production: env::var("APP_ENV")
@@ -1189,12 +1192,12 @@ impl Config {
                     "ADMIN_EMAIL required when AUTH_PROVIDER=local".into(),
                 ));
             }
-            if let Some(ref pw) = self.auth.admin_password {
-                if pw.chars().count() < MIN_ADMIN_PASSWORD_LEN {
-                    return Err(ConfigError::Invalid(format!(
-                        "ADMIN_PASSWORD must be at least {MIN_ADMIN_PASSWORD_LEN} characters"
-                    )));
-                }
+            if let Some(ref pw) = self.auth.admin_password
+                && pw.chars().count() < MIN_ADMIN_PASSWORD_LEN
+            {
+                return Err(ConfigError::Invalid(format!(
+                    "ADMIN_PASSWORD must be at least {MIN_ADMIN_PASSWORD_LEN} characters"
+                )));
             }
         }
 

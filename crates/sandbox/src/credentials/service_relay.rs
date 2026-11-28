@@ -114,10 +114,11 @@ async fn relay(State(state): State<ServiceRelayState>, request: Request) -> Resp
     let mut out = Response::builder().status(status);
     for (name, value) in response.headers() {
         // `reqwest` already dechunked the body.
-        if forwards(name) && name != header::CONTENT_LENGTH {
-            if let Ok(value) = HeaderValue::from_bytes(value.as_bytes()) {
-                out = out.header(name.clone(), value);
-            }
+        if forwards(name)
+            && name != header::CONTENT_LENGTH
+            && let Ok(value) = HeaderValue::from_bytes(value.as_bytes())
+        {
+            out = out.header(name.clone(), value);
         }
     }
     out.body(Body::from_stream(response.bytes_stream()))

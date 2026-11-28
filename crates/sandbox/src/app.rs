@@ -336,19 +336,19 @@ fn start_background_tasks(state: &SandboxState, registrar: &crate::supervisor::R
     // and shutdown flushes, uploading only when the tracked file set
     // changed (`WORKSPACE_SYNC_INTERVAL_SECS=0`, or a durable volume,
     // disables it). Liveness: a dead loop just drops between-turn checkpoints.
-    if crate::workspace_sync::is_periodic_enabled(&state.config) {
-        if let Some(interval) = state.config.workspace_sync_interval {
-            let workspace_state = state.clone();
-            let workspace_cancel = state.lifecycle_cancel.clone();
-            registrar.supervise(
-                "workspace-sync",
-                Criticality::Liveness,
-                tokio::spawn(crate::workspace_sync::run_workspace_sync(
-                    workspace_state,
-                    workspace_cancel,
-                    interval,
-                )),
-            );
-        }
+    if crate::workspace_sync::is_periodic_enabled(&state.config)
+        && let Some(interval) = state.config.workspace_sync_interval
+    {
+        let workspace_state = state.clone();
+        let workspace_cancel = state.lifecycle_cancel.clone();
+        registrar.supervise(
+            "workspace-sync",
+            Criticality::Liveness,
+            tokio::spawn(crate::workspace_sync::run_workspace_sync(
+                workspace_state,
+                workspace_cancel,
+                interval,
+            )),
+        );
     }
 }

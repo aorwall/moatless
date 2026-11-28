@@ -68,10 +68,10 @@ impl HubModels {
     /// waits out the client timeout.
     async fn listing(&self) -> Option<Value> {
         let mut cached = self.cached.lock().await;
-        if let Some((at, body)) = cached.as_ref() {
-            if at.elapsed() < CACHE_TTL {
-                return Some(body.clone());
-            }
+        if let Some((at, body)) = cached.as_ref()
+            && at.elapsed() < CACHE_TTL
+        {
+            return Some(body.clone());
         }
         match self.fetch().await {
             Ok(body) if !chat_models(&body, &[], PI_VENDORS).is_empty() => {

@@ -360,19 +360,17 @@ pub(super) fn build_sandbox_container(
             .as_deref()
             .map(str::trim)
             .filter(|p| !p.is_empty()),
-    ) {
-        if config
-            .sandbox
-            .egress_proxy_profiles
-            .iter()
-            .any(|p| p == profile)
-        {
-            for key in ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"] {
-                env.push(env_var(key, proxy_url));
-            }
-            env.push(env_var("NO_PROXY", &config.sandbox.egress_proxy_no_proxy));
-            env.push(env_var("no_proxy", &config.sandbox.egress_proxy_no_proxy));
+    ) && config
+        .sandbox
+        .egress_proxy_profiles
+        .iter()
+        .any(|p| p == profile)
+    {
+        for key in ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"] {
+            env.push(env_var(key, proxy_url));
         }
+        env.push(env_var("NO_PROXY", &config.sandbox.egress_proxy_no_proxy));
+        env.push(env_var("no_proxy", &config.sandbox.egress_proxy_no_proxy));
     }
 
     if let Some(ref model) = config.sandbox.default_model {

@@ -409,10 +409,10 @@ impl TaskCreationService {
         self.record_repositories(&task_id, &req).await?;
 
         // Tags (best-effort).
-        if !req.tag_ids.is_empty() {
-            if let Err(e) = self.tags.add_task_tags(&task_id, &req.tag_ids).await {
-                tracing::warn!(task_id = %task_id, error = %e, "Failed to assign tags to task");
-            }
+        if !req.tag_ids.is_empty()
+            && let Err(e) = self.tags.add_task_tags(&task_id, &req.tag_ids).await
+        {
+            tracing::warn!(task_id = %task_id, error = %e, "Failed to assign tags to task");
         }
 
         // Relations (best-effort; helpers swallow-and-log).
@@ -508,20 +508,20 @@ impl TaskCreationService {
         // A Task whose brief didn't persist has no second chance to deliver
         // it, so create fails rather than provisioning one — see
         // [`Self::first_message_failed`] for what it leaves behind.
-        if let Some(first_message) = req.first_message {
-            if let Err(error) = send_first_message(task_id.clone(), first_message).await {
-                tracing::warn!(
-                    task_id = %task_id,
-                    error = %moatless_core::error::causal_chain(&error),
-                    "First message failed during task creation"
-                );
-                // A join that deferred registered nothing on a pod, so it holds
-                // the insert down no more than no join at all does.
-                let join_landed = join_checkout_mode.is_some() && !join_deferred_to_start;
-                return Err(self
-                    .first_message_failed(&task_id, error, join_landed)
-                    .await);
-            }
+        if let Some(first_message) = req.first_message
+            && let Err(error) = send_first_message(task_id.clone(), first_message).await
+        {
+            tracing::warn!(
+                task_id = %task_id,
+                error = %moatless_core::error::causal_chain(&error),
+                "First message failed during task creation"
+            );
+            // A join that deferred registered nothing on a pod, so it holds
+            // the insert down no more than no join at all does.
+            let join_landed = join_checkout_mode.is_some() && !join_deferred_to_start;
+            return Err(self
+                .first_message_failed(&task_id, error, join_landed)
+                .await);
         }
 
         // Provision is best-effort: failure publishes a sandbox error event,
@@ -590,10 +590,10 @@ impl TaskCreationService {
             .into_iter()
             .map(|placement| placement.repository_id)
             .collect();
-        if let Some(repository_id) = &req.repository_id {
-            if !placed.contains(repository_id) {
-                placed.push(repository_id.clone());
-            }
+        if let Some(repository_id) = &req.repository_id
+            && !placed.contains(repository_id)
+        {
+            placed.push(repository_id.clone());
         }
         self.task_repositories
             .record(task_id, &placed, TaskRepositorySource::Workspace)

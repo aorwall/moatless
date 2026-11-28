@@ -130,10 +130,10 @@ pub async fn stat(workspace_dir: &str, paths: &[String]) -> Vec<PathStat> {
 pub async fn write_file(workspace_dir: &str, path: &str, content: &str) -> Result<(), FileError> {
     let full_path = validate_path(workspace_dir, path)?;
 
-    if let Some(parent) = full_path.parent() {
-        if !parent.exists() {
-            fs::create_dir_all(parent).await?;
-        }
+    if let Some(parent) = full_path.parent()
+        && !parent.exists()
+    {
+        fs::create_dir_all(parent).await?;
     }
 
     fs::write(&full_path, content).await?;

@@ -676,10 +676,10 @@ fn run_turns(conversation: &Conversation, transcript: &Transcript) -> Vec<i32> {
         .collect();
     turn_numbers.sort_unstable();
     turn_numbers.dedup();
-    if let Some(current) = conversation.turn_number {
-        if !turn_numbers.contains(&current) {
-            turn_numbers.push(current);
-        }
+    if let Some(current) = conversation.turn_number
+        && !turn_numbers.contains(&current)
+    {
+        turn_numbers.push(current);
     }
     turn_numbers
 }
@@ -978,10 +978,10 @@ pub(crate) fn turn_items_and_messages(
         };
         if item["type"] == "user_message" {
             let selection = message.turn_number.and_then(|turn| selections.get(&turn));
-            if let (Some(from), Some(to)) = (shown_selection, selection) {
-                if from != to {
-                    item["modelSwitch"] = json!({ "from": from, "to": to });
-                }
+            if let (Some(from), Some(to)) = (shown_selection, selection)
+                && from != to
+            {
+                item["modelSwitch"] = json!({ "from": from, "to": to });
             }
             shown_selection = selection.or(shown_selection);
         }

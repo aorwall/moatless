@@ -214,10 +214,10 @@ impl ClaudeProcess {
                 }
             }
             SdkMessage::Assistant(assistant) => {
-                if assistant.parent_tool_use_id.is_none() {
-                    if let Some(usage) = assistant.message.usage.clone() {
-                        self.last_response = Some(usage);
-                    }
+                if assistant.parent_tool_use_id.is_none()
+                    && let Some(usage) = assistant.message.usage.clone()
+                {
+                    self.last_response = Some(usage);
                 }
                 for event in assistant_blocks(&assistant) {
                     self.pending.push_back(ProcessEvent::Block(event));
@@ -264,17 +264,16 @@ impl ClaudeProcess {
         // for a pod too old to know `fork`). Falls through to a fresh
         // Session when the cut fails (no transcript, or anchor missing).
         if let Some(fork) = &input.fork {
-            if let Some(anchor) = &fork.source_message_uuid {
-                if let Some(new_session_id) = fork::write_forked_transcript(
+            if let Some(anchor) = &fork.source_message_uuid
+                && let Some(new_session_id) = fork::write_forked_transcript(
                     &self.cfg.config.workspace_dir,
                     &self.cfg.config.claude_config_dir,
                     &fork.source_session_id,
                     anchor,
                 )
                 .await
-                {
-                    return Some(ResumeSession::WithId(new_session_id));
-                }
+            {
+                return Some(ResumeSession::WithId(new_session_id));
             }
             return None;
         }
@@ -398,10 +397,10 @@ impl AgentProcess for ClaudeProcess {
 
     async fn next(&mut self) -> Option<ProcessEvent> {
         let event = self.next_event().await;
-        if matches!(event, None | Some(ProcessEvent::Terminated { .. })) {
-            if let Some(trajectory) = &self.trajectory {
-                trajectory.flush().await;
-            }
+        if matches!(event, None | Some(ProcessEvent::Terminated { .. }))
+            && let Some(trajectory) = &self.trajectory
+        {
+            trajectory.flush().await;
         }
         event
     }

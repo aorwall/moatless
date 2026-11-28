@@ -36,7 +36,7 @@ impl IntoResponse for FileStorageError {
             FileStorageError::S3NotConfigured => {
                 (StatusCode::SERVICE_UNAVAILABLE, self.to_string())
             }
-            FileStorageError::UploadFailed(ref msg) => {
+            FileStorageError::UploadFailed(msg) => {
                 tracing::error!(error = %msg, "File upload failed");
                 internal_error()
             }

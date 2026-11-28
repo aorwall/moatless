@@ -163,13 +163,12 @@ impl LifecycleDao for InMemoryLifecycleDao {
             .expect("lock")
             .push(event.event_id.clone());
         // Committing a completion clears the marker atomically.
-        if let Some(cur) = self.intent.lock().expect("lock").as_mut() {
-            if cur
+        if let Some(cur) = self.intent.lock().expect("lock").as_mut()
+            && cur
                 .marker
                 .is_some_and(|marker| marker.generation == event.generation)
-            {
-                cur.marker = None;
-            }
+        {
+            cur.marker = None;
         }
         Ok(())
     }
@@ -234,13 +233,12 @@ impl LifecycleDao for InMemoryLifecycleDao {
         generation: OperationGeneration,
     ) -> Result<(), StoreError> {
         *self.marker_cleared.lock().expect("lock") = true;
-        if let Some(cur) = self.intent.lock().expect("lock").as_mut() {
-            if cur
+        if let Some(cur) = self.intent.lock().expect("lock").as_mut()
+            && cur
                 .marker
                 .is_some_and(|marker| marker.generation == generation)
-            {
-                cur.marker = None;
-            }
+        {
+            cur.marker = None;
         }
         Ok(())
     }

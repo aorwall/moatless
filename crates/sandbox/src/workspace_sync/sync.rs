@@ -1401,21 +1401,20 @@ fn fingerprint_repo(entries: &mut Vec<(String, u64, u128)>, repo_dir: &Path, pre
         .arg(repo_dir)
         .args(["ls-files", "-c", "-o", "--exclude-standard", "-z"])
         .output()
+        && output.status.success()
     {
-        if output.status.success() {
-            for rel in output.stdout.split(|b| *b == 0) {
-                if rel.is_empty() {
-                    continue;
-                }
-                let Ok(rel) = std::str::from_utf8(rel) else {
-                    continue;
-                };
-                let full = repo_dir.join(rel);
-                if let Ok(meta) = std::fs::symlink_metadata(&full) {
-                    if meta.is_file() || meta.is_symlink() {
-                        entries.push((join_prefix(prefix, rel), meta.len(), mtime_nanos(&meta)));
-                    }
-                }
+        for rel in output.stdout.split(|b| *b == 0) {
+            if rel.is_empty() {
+                continue;
+            }
+            let Ok(rel) = std::str::from_utf8(rel) else {
+                continue;
+            };
+            let full = repo_dir.join(rel);
+            if let Ok(meta) = std::fs::symlink_metadata(&full)
+                && (meta.is_file() || meta.is_symlink())
+            {
+                entries.push((join_prefix(prefix, rel), meta.len(), mtime_nanos(&meta)));
             }
         }
     }

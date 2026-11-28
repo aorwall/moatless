@@ -215,22 +215,22 @@ impl GithubPrInboundRouter {
         filter: &FilterKey,
         mut msg: InboundMessage,
     ) -> Result<(), AdapterError> {
-        if let Some(rule) = rule {
-            if !rule.active {
-                debug!(
-                    subscription_id = %rule.id,
-                    source_matcher = %rule.source_matcher,
-                    "Ignoring GitHub PR message: task trigger inactive"
-                );
-                record_inbound(
-                    ADAPTER_LABEL,
-                    "ignored",
-                    inbound_reason::INACTIVE_RULE,
-                    &rule.id,
-                    &connection.id,
-                );
-                return Ok(());
-            }
+        if let Some(rule) = rule
+            && !rule.active
+        {
+            debug!(
+                subscription_id = %rule.id,
+                source_matcher = %rule.source_matcher,
+                "Ignoring GitHub PR message: task trigger inactive"
+            );
+            record_inbound(
+                ADAPTER_LABEL,
+                "ignored",
+                inbound_reason::INACTIVE_RULE,
+                &rule.id,
+                &connection.id,
+            );
+            return Ok(());
         }
 
         let subject = GithubPrSubject::from_thread_properties(&msg.thread_properties)?;

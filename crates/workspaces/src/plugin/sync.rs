@@ -198,15 +198,14 @@ impl PluginSyncService {
 
         if let (Some(fetched), Some(stored)) =
             (version.as_deref(), current.synced_version.as_deref())
+            && fetched == stored
         {
-            if fetched == stored {
-                debug!(
-                    plugin_id = %current.id,
-                    version = fetched,
-                    "Plugin unchanged — skipping fetch"
-                );
-                return Ok(());
-            }
+            debug!(
+                plugin_id = %current.id,
+                version = fetched,
+                "Plugin unchanged — skipping fetch"
+            );
+            return Ok(());
         }
 
         let files = self

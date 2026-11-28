@@ -54,4 +54,4 @@ RUN claude --version && tmux -V && codex --version
 ENTRYPOINT ["sh", "-c"]
 # Default: run both transports. The test bodies self-skip unless the matching
 # CLAUDE_SDK_E2E / CLAUDE_TMUX_E2E gate is set.
-CMD ["CLAUDE_SDK_E2E=1 CLAUDE_TMUX_E2E=1 /test-bins/agent-transport-e2e --ignored --nocapture"]
+CMD ["CLAUDE_SDK_E2E=1 CLAUDE_TMUX_E2E=1 /test-bins/agent-transport-e2e --ignored --nocapture --test-threads=1"]

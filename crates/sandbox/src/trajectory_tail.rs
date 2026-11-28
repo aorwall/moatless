@@ -235,12 +235,12 @@ impl SessionRecorder {
         {
             result = self.flush_inner(release).await;
         }
-        if let Err(error) = &result {
-            if error.is_final() {
-                self.stopped = true;
-                if !matches!(error, RecordError::Off) {
-                    self.report(error).await;
-                }
+        if let Err(error) = &result
+            && error.is_final()
+        {
+            self.stopped = true;
+            if !matches!(error, RecordError::Off) {
+                self.report(error).await;
             }
         }
         result

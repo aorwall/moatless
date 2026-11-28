@@ -81,13 +81,13 @@ fn resolve_upstream(
     }
     // A hub named with no key of the task's own takes the deployment's key,
     // never the person's OAuth token.
-    if Some(base) != hub_url {
-        if let Some(token) = credentials.get(CLAUDE_CODE_OAUTH_TOKEN) {
-            return Ok(Upstream {
-                base: base.to_string(),
-                credential: Credential::OAuth(token.clone()),
-            });
-        }
+    if Some(base) != hub_url
+        && let Some(token) = credentials.get(CLAUDE_CODE_OAUTH_TOKEN)
+    {
+        return Ok(Upstream {
+            base: base.to_string(),
+            credential: Credential::OAuth(token.clone()),
+        });
     }
     match hub_url.zip(hub_key) {
         Some((url, key)) => Ok(Upstream {

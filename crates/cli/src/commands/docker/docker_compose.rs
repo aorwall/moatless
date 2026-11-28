@@ -91,10 +91,10 @@ impl ComposeCmd {
 pub(super) async fn detect_compose_cmd() -> Result<ComposeCmd, ClientError> {
     if which::which("docker").is_ok() {
         let out = run("docker", &["compose", "version"], None).await;
-        if let Ok(o) = out {
-            if o.success() {
-                return Ok(ComposeCmd::V2);
-            }
+        if let Ok(o) = out
+            && o.success()
+        {
+            return Ok(ComposeCmd::V2);
         }
     }
     if which::which("docker-compose").is_ok() {
@@ -169,13 +169,13 @@ pub(super) fn seed_assets(
     custom_from: Option<&Path>,
     overwrite: bool,
 ) -> Result<Vec<String>, ClientError> {
-    if let Some(dir) = custom_from {
-        if !dir.is_dir() {
-            return Err(ClientError::Other(format!(
-                "--assets-from path is not a directory: {}",
-                dir.display()
-            )));
-        }
+    if let Some(dir) = custom_from
+        && !dir.is_dir()
+    {
+        return Err(ClientError::Other(format!(
+            "--assets-from path is not a directory: {}",
+            dir.display()
+        )));
     }
 
     fs::create_dir_all(work_dir)
@@ -206,10 +206,9 @@ pub(super) fn seed_assets(
                 // clobber the file.
                 if let (Ok(src_canon), Ok(dst_canon)) =
                     (fs::canonicalize(&src), fs::canonicalize(&dst))
+                    && src_canon == dst_canon
                 {
-                    if src_canon == dst_canon {
-                        continue;
-                    }
+                    continue;
                 }
 
                 fs::copy(&src, &dst).map_err(|e| {

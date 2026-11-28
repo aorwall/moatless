@@ -916,15 +916,13 @@ fn select_lookup_match(
 
     // A team label shadows the workspace label of the same name: the label
     // filter admits both, and the pair is one usable label, not two objects.
-    if matches!(kind, LookupKind::Label) {
-        if let Some(team_id) = team_id {
-            if matches
-                .iter()
-                .any(|node| node_team_id(node) == Some(team_id))
-            {
-                matches.retain(|node| node_team_id(node) == Some(team_id));
-            }
-        }
+    if matches!(kind, LookupKind::Label)
+        && let Some(team_id) = team_id
+        && matches
+            .iter()
+            .any(|node| node_team_id(node) == Some(team_id))
+    {
+        matches.retain(|node| node_team_id(node) == Some(team_id));
     }
 
     let mut seen: Vec<String> = Vec::new();

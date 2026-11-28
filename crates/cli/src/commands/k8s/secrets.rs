@@ -275,22 +275,21 @@ async fn bootstrap(args: BootstrapArgs, json_out: bool) -> Result<(), ClientErro
 
     for spec in &specs {
         let key = spec.key;
-        if !args.overwrite {
-            if let Some(existing_val) = existing.get(key) {
-                if !existing_val.is_empty() {
-                    sources.insert(key.to_string(), "cluster");
-                    // Keep existing; don't include in manifest patch.
-                    continue;
-                }
-            }
+        if !args.overwrite
+            && let Some(existing_val) = existing.get(key)
+            && !existing_val.is_empty()
+        {
+            sources.insert(key.to_string(), "cluster");
+            // Keep existing; don't include in manifest patch.
+            continue;
         }
 
-        if let Some(from_env) = env_values.get(key) {
-            if !from_env.is_empty() {
-                final_values.insert(key.to_string(), from_env.clone());
-                sources.insert(key.to_string(), "env-file");
-                continue;
-            }
+        if let Some(from_env) = env_values.get(key)
+            && !from_env.is_empty()
+        {
+            final_values.insert(key.to_string(), from_env.clone());
+            sources.insert(key.to_string(), "env-file");
+            continue;
         }
 
         if let Some(generated) = generated_value(key) {

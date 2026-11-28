@@ -228,81 +228,80 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
     // nothing else is accepted here, and a ticket is accepted nowhere else.
     // A bad ticket is refused rather than falling through to the cookie, so
     // a client isn't silently authenticated a different way than it chose.
-    if path == WEBSOCKET_PATH {
-        if let Some(ticket) = websocket_ticket(&req) {
-            let Some(jwt_secret) = jwt::get_jwt_secret(&state.config) else {
-                warn!(path = %path, "Auth middleware: no JWT secret configured");
-                return unauthorized_response(&path, Credential::Invalid);
-            };
-            return match jwt::verify_ws_ticket_jwt(&ticket, jwt_secret) {
-                Ok(claims) => {
-                    debug!(user_id = %claims.sub, path = %path, "Auth middleware: websocket ticket valid");
-                    tracing::Span::current().record("user_id", claims.sub.to_string().as_str());
-                    let role = claims.user_role();
-                    insert_auth_extensions(
-                        &mut req,
-                        AuthIdentity {
-                            user_id: claims.sub,
-                            login: claims.login,
-                            role,
-                            provider: claims.provider,
-                        },
-                        AuthMethod::WebSocketTicket,
-                    );
-                    next.run(req).await
-                }
-                Err(error) => {
-                    warn!(error = %error, path = %path, "Auth middleware: invalid websocket ticket");
-                    unauthorized_response(&path, Credential::Invalid)
-                }
-            };
-        }
+    if path == WEBSOCKET_PATH
+        && let Some(ticket) = websocket_ticket(&req)
+    {
+        let Some(jwt_secret) = jwt::get_jwt_secret(&state.config) else {
+            warn!(path = %path, "Auth middleware: no JWT secret configured");
+            return unauthorized_response(&path, Credential::Invalid);
+        };
+        return match jwt::verify_ws_ticket_jwt(&ticket, jwt_secret) {
+            Ok(claims) => {
+                debug!(user_id = %claims.sub, path = %path, "Auth middleware: websocket ticket valid");
+                tracing::Span::current().record("user_id", claims.sub.to_string().as_str());
+                let role = claims.user_role();
+                insert_auth_extensions(
+                    &mut req,
+                    AuthIdentity {
+                        user_id: claims.sub,
+                        login: claims.login,
+                        role,
+                        provider: claims.provider,
+                    },
+                    AuthMethod::WebSocketTicket,
+                );
+                next.run(req).await
+            }
+            Err(error) => {
+                warn!(error = %error, path = %path, "Auth middleware: invalid websocket ticket");
+                unauthorized_response(&path, Credential::Invalid)
+            }
+        };
     }
 
     if let Some(auth_header) = req
         .headers()
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
+        && auth_header.starts_with("Bearer mvk_")
     {
-        if auth_header.starts_with("Bearer mvk_") {
-            let key = &auth_header[7..]; // strip "Bearer "
-            match validate_key_cached(
-                state.api_keys.clone(),
-                state.users.as_ref(),
-                key,
-                &state.cache,
-            )
-            .await
-            {
-                Ok(Some(payload)) => {
-                    let Ok(user_id) = payload.user_id.parse::<Uuid>() else {
-                        warn!(path = %path, user_id = %payload.user_id, "Auth middleware: API key user_id is not a uuid");
-                        return unauthorized_response(&path, Credential::Invalid);
-                    };
-                    debug!(user_id = %user_id, path = %path, "Auth middleware: API key valid");
-                    // Stamp user_id onto the surrounding request-trace span so
-                    // every downstream log line carries it.
-                    tracing::Span::current().record("user_id", user_id.to_string().as_str());
-                    insert_auth_extensions(
-                        &mut req,
-                        AuthIdentity {
-                            user_id,
-                            login: payload.user_login,
-                            role: payload.role,
-                            provider: payload.provider,
-                        },
-                        AuthMethod::ApiKey,
-                    );
-                    return next.run(req).await;
-                }
-                Ok(None) => {
-                    warn!(path = %path, "Auth middleware: invalid API key");
+        let key = &auth_header[7..]; // strip "Bearer "
+        match validate_key_cached(
+            state.api_keys.clone(),
+            state.users.as_ref(),
+            key,
+            &state.cache,
+        )
+        .await
+        {
+            Ok(Some(payload)) => {
+                let Ok(user_id) = payload.user_id.parse::<Uuid>() else {
+                    warn!(path = %path, user_id = %payload.user_id, "Auth middleware: API key user_id is not a uuid");
                     return unauthorized_response(&path, Credential::Invalid);
-                }
-                Err(e) => {
-                    warn!(error = %e, path = %path, "Auth middleware: API key validation error");
-                    return unauthorized_response(&path, Credential::Invalid);
-                }
+                };
+                debug!(user_id = %user_id, path = %path, "Auth middleware: API key valid");
+                // Stamp user_id onto the surrounding request-trace span so
+                // every downstream log line carries it.
+                tracing::Span::current().record("user_id", user_id.to_string().as_str());
+                insert_auth_extensions(
+                    &mut req,
+                    AuthIdentity {
+                        user_id,
+                        login: payload.user_login,
+                        role: payload.role,
+                        provider: payload.provider,
+                    },
+                    AuthMethod::ApiKey,
+                );
+                return next.run(req).await;
+            }
+            Ok(None) => {
+                warn!(path = %path, "Auth middleware: invalid API key");
+                return unauthorized_response(&path, Credential::Invalid);
+            }
+            Err(e) => {
+                warn!(error = %e, path = %path, "Auth middleware: API key validation error");
+                return unauthorized_response(&path, Credential::Invalid);
             }
         }
     }
@@ -316,51 +315,50 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
         .headers()
         .get("x-user-token")
         .and_then(|v| v.to_str().ok())
+        && let Ok(verified) = state.token_verifier.verify_user_token(token).await
     {
-        if let Ok(verified) = state.token_verifier.verify_user_token(token).await {
-            match verified.user_id.parse::<Uuid>() {
-                Ok(user_id) => match state.users.get_user(&user_id).await {
-                    Ok(Some(user)) if user.status == UserStatus::Active => {
-                        debug!(user_id = %user_id, path = %path, "Auth middleware: user token valid");
-                        tracing::Span::current().record("user_id", user_id.to_string().as_str());
-                        let role = match super::sandbox_scope::admit(
-                            state.sandbox_reach.as_ref(),
-                            state.config.auth.sandbox_token_scope,
-                            req.method(),
-                            &path,
-                            &verified.sandbox_id,
-                            user.role,
-                        )
-                        .await
-                        {
-                            Ok(role) => role,
-                            Err(status) => return sandbox_refusal(status),
-                        };
-                        insert_auth_extensions(
-                            &mut req,
-                            AuthIdentity {
-                                user_id,
-                                login: user.login,
-                                role,
-                                provider: "user-token".to_string(),
-                            },
-                            AuthMethod::UserToken,
-                        );
-                        return next.run(req).await;
-                    }
-                    Ok(Some(_)) => {
-                        warn!(user_id = %user_id, path = %path, "Auth middleware: user token names a disabled account");
-                    }
-                    Ok(None) => {
-                        warn!(user_id = %user_id, path = %path, "Auth middleware: user token names an unknown user");
-                    }
-                    Err(e) => {
-                        warn!(error = %e, path = %path, "Auth middleware: user lookup failed for user token");
-                    }
-                },
-                Err(_) => {
-                    warn!(path = %path, "Auth middleware: user token user_id is not a uuid");
+        match verified.user_id.parse::<Uuid>() {
+            Ok(user_id) => match state.users.get_user(&user_id).await {
+                Ok(Some(user)) if user.status == UserStatus::Active => {
+                    debug!(user_id = %user_id, path = %path, "Auth middleware: user token valid");
+                    tracing::Span::current().record("user_id", user_id.to_string().as_str());
+                    let role = match super::sandbox_scope::admit(
+                        state.sandbox_reach.as_ref(),
+                        state.config.auth.sandbox_token_scope,
+                        req.method(),
+                        &path,
+                        &verified.sandbox_id,
+                        user.role,
+                    )
+                    .await
+                    {
+                        Ok(role) => role,
+                        Err(status) => return sandbox_refusal(status),
+                    };
+                    insert_auth_extensions(
+                        &mut req,
+                        AuthIdentity {
+                            user_id,
+                            login: user.login,
+                            role,
+                            provider: "user-token".to_string(),
+                        },
+                        AuthMethod::UserToken,
+                    );
+                    return next.run(req).await;
                 }
+                Ok(Some(_)) => {
+                    warn!(user_id = %user_id, path = %path, "Auth middleware: user token names a disabled account");
+                }
+                Ok(None) => {
+                    warn!(user_id = %user_id, path = %path, "Auth middleware: user token names an unknown user");
+                }
+                Err(e) => {
+                    warn!(error = %e, path = %path, "Auth middleware: user lookup failed for user token");
+                }
+            },
+            Err(_) => {
+                warn!(path = %path, "Auth middleware: user token user_id is not a uuid");
             }
         }
     }

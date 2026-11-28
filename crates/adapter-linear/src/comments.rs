@@ -113,8 +113,7 @@ pub(super) async fn handle_comment_created(
             .destination_config
             .get("session_id")
             .and_then(serde_json::Value::as_str)
-        {
-            if let Err(e) = api
+            && let Err(e) = api
                 .agent_activity_create(
                     session_id,
                     ActivityKind::Thought,
@@ -122,13 +121,12 @@ pub(super) async fn handle_comment_created(
                     true,
                 )
                 .await
-            {
-                warn!(
-                    session_id,
-                    error = %e,
-                    "Failed to emit Linear comment heartbeat"
-                );
-            }
+        {
+            warn!(
+                session_id,
+                error = %e,
+                "Failed to emit Linear comment heartbeat"
+            );
         }
 
         if let Err(e) = message_send

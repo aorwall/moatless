@@ -376,15 +376,15 @@ fn relations_to_dtos(rows: Vec<TaskRelation>) -> Vec<TaskRelationDto> {
 
 /// Derive task title: name > description first line > `agent_profile` > "Task".
 fn derive_title(row: &Task) -> String {
-    if let Some(ref name) = row.name {
-        if !name.is_empty() {
-            return name.clone();
-        }
+    if let Some(ref name) = row.name
+        && !name.is_empty()
+    {
+        return name.clone();
     }
-    if let Some(ref desc) = row.description {
-        if !desc.is_empty() {
-            return desc.lines().next().unwrap_or("Task").to_string();
-        }
+    if let Some(ref desc) = row.description
+        && !desc.is_empty()
+    {
+        return desc.lines().next().unwrap_or("Task").to_string();
     }
     row.agent_profile.to_string()
 }

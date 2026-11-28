@@ -357,8 +357,8 @@ pub(crate) async fn scripts_run_http(
         Ok(payload) => payload,
         Err(detail) => return scripts_error_response(&ScriptsError::Invalid(detail)),
     };
-    if declaration.get("command").is_some() {
-        if let Err(error) = scripts::declare(
+    if declaration.get("command").is_some()
+        && let Err(error) = scripts::declare(
             &state.scripts,
             state.sandboxes.as_ref(),
             &viewer,
@@ -367,9 +367,8 @@ pub(crate) async fn scripts_run_http(
             &declaration,
         )
         .await
-        {
-            return scripts_error_response(&error);
-        }
+    {
+        return scripts_error_response(&error);
     }
 
     let input = scripts::ScriptsRunInput {

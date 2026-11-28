@@ -74,10 +74,11 @@ fn words(text: &str) -> Vec<String> {
 /// reference links and drops the definition.
 fn without_reference_definition(line: &str) -> &str {
     let body = line.trim_start();
-    if body.starts_with('[') && !body.starts_with("[^") {
-        if let Some(end) = body.find("]:") {
-            return &body[end + 2..];
-        }
+    if body.starts_with('[')
+        && !body.starts_with("[^")
+        && let Some(end) = body.find("]:")
+    {
+        return &body[end + 2..];
     }
     line
 }

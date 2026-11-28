@@ -68,17 +68,16 @@ pub(super) async fn process_watcher_event(
                     previous.node_name != new_state.node_name
                         || previous.operation_generation != new_state.operation_generation
                 });
-            if should_record_node {
-                if let Err(error) =
+            if should_record_node
+                && let Err(error) =
                     crate::node_archive::record_observed_pod(k8s, &task_id, pod).await
-                {
-                    warn!(
-                        task_id,
-                        pod_name,
-                        error = %error,
-                        "Failed to record node-local sandbox archive location"
-                    );
-                }
+            {
+                warn!(
+                    task_id,
+                    pod_name,
+                    error = %error,
+                    "Failed to record node-local sandbox archive location"
+                );
             }
 
             // During InitApply, populate the map silently without publishing events

@@ -71,13 +71,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Some(other) => Err(format!("unknown SANDBOX_ONESHOT mode: {other}").into()),
         }
     });
-    if let Err(error) = &result {
-        if let Some(error) = error.downcast_ref::<moatless_sandbox::init::InitError>() {
-            std::process::exit(match error {
-                moatless_sandbox::init::InitError::Permanent(_) => 78,
-                moatless_sandbox::init::InitError::Transient(_) => 1,
-            });
-        }
+    if let Err(error) = &result
+        && let Some(error) = error.downcast_ref::<moatless_sandbox::init::InitError>()
+    {
+        std::process::exit(match error {
+            moatless_sandbox::init::InitError::Permanent(_) => 78,
+            moatless_sandbox::init::InitError::Transient(_) => 1,
+        });
     }
     result
 }

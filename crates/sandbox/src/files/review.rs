@@ -582,10 +582,10 @@ async fn default_branch(repo_dir: &str) -> Option<String> {
     .ok()
     .filter(git::GitOutput::succeeded)
     .map_or_default(|output| output.stdout);
-    if let Some(branch) = symbolic.trim().strip_prefix("origin/") {
-        if !branch.is_empty() {
-            return Some(branch.to_string());
-        }
+    if let Some(branch) = symbolic.trim().strip_prefix("origin/")
+        && !branch.is_empty()
+    {
+        return Some(branch.to_string());
     }
     for candidate in ["main", "master"] {
         if verified_ref(repo_dir, candidate).await.is_some() {

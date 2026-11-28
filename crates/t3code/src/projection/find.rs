@@ -278,12 +278,12 @@ impl ThreadFind {
     pub(crate) fn finish(self, snapshot_sequence: u64) -> Value {
         let total = self.total;
         let mut requested = self.index.unwrap_or(0);
-        if self.index.is_none() {
-            if let (Some(start), Some((before, count))) = (&self.start, self.anchor) {
-                requested = before + start.occurrence.min(count);
-                if requested >= total {
-                    requested = 0;
-                }
+        if self.index.is_none()
+            && let (Some(start), Some((before, count))) = (&self.start, self.anchor)
+        {
+            requested = before + start.occurrence.min(count);
+            if requested >= total {
+                requested = 0;
             }
         }
         let active = if self.index.is_none() && total > 0 {

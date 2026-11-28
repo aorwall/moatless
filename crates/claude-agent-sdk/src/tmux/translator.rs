@@ -77,10 +77,10 @@ impl TurnAccumulator {
             None => true,
         };
         if !counted {
-            if let Some(text) = last_text {
-                if !text.is_empty() {
-                    self.last_text = text;
-                }
+            if let Some(text) = last_text
+                && !text.is_empty()
+            {
+                self.last_text = text;
             }
             self.last_assistant_uuid = Some(assistant_uuid);
             return;
@@ -112,10 +112,10 @@ impl TurnAccumulator {
                 .server_tool_use
                 .clone_from(&usage.server_tool_use);
         }
-        if let Some(text) = last_text {
-            if !text.is_empty() {
-                self.last_text = text;
-            }
+        if let Some(text) = last_text
+            && !text.is_empty()
+        {
+            self.last_text = text;
         }
         self.last_assistant_uuid = Some(assistant_uuid);
     }
@@ -242,10 +242,10 @@ fn translate_assistant(mut value: Value, acc: &mut TurnAccumulator) -> Translate
             } else {
                 // Some assistant records (e.g. error fallbacks) have no usage —
                 // still update last_text / last_uuid.
-                if let Some(text) = last_text {
-                    if !text.is_empty() {
-                        acc.last_text = text;
-                    }
+                if let Some(text) = last_text
+                    && !text.is_empty()
+                {
+                    acc.last_text = text;
                 }
                 acc.last_assistant_uuid = Some(msg.uuid.clone());
             }
@@ -257,10 +257,10 @@ fn translate_assistant(mut value: Value, acc: &mut TurnAccumulator) -> Translate
             // errored and salvage the error text so the run fails loudly.
             if value.get("isApiErrorMessage").and_then(Value::as_bool) == Some(true) {
                 acc.api_error = true;
-                if let Some(text) = first_text_block(&value) {
-                    if !text.is_empty() {
-                        acc.last_text = text;
-                    }
+                if let Some(text) = first_text_block(&value)
+                    && !text.is_empty()
+                {
+                    acc.last_text = text;
                 }
                 warn!(
                     error = %e,
@@ -461,10 +461,10 @@ fn translate_turn_duration(value: &Value, acc: &mut TurnAccumulator) -> Translat
 
 /// Rename a key on the top-level object in-place.
 fn rename_top_level_key(value: &mut Value, from: &str, to: &str) {
-    if let Some(obj) = value.as_object_mut() {
-        if let Some(v) = obj.remove(from) {
-            obj.insert(to.to_string(), v);
-        }
+    if let Some(obj) = value.as_object_mut()
+        && let Some(v) = obj.remove(from)
+    {
+        obj.insert(to.to_string(), v);
     }
 }
 

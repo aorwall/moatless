@@ -159,10 +159,10 @@ fn select_replies(
     messages
         .into_iter()
         .filter(|m| {
-            if let Some(ref uid) = m.user {
-                if let Some(bot_id) = bot_user_id {
-                    return uid != bot_id;
-                }
+            if let Some(ref uid) = m.user
+                && let Some(bot_id) = bot_user_id
+            {
+                return uid != bot_id;
             }
             true
         })

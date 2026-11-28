@@ -99,10 +99,10 @@ pub fn serve_on_socket(
     use std::os::unix::fs::PermissionsExt;
     use tokio::net::UnixListener;
 
-    if let Some(parent) = socket_path.parent() {
-        if let Err(e) = std::fs::create_dir_all(parent) {
-            return Err(format!("create_dir_all({}): {e}", parent.display()));
-        }
+    if let Some(parent) = socket_path.parent()
+        && let Err(e) = std::fs::create_dir_all(parent)
+    {
+        return Err(format!("create_dir_all({}): {e}", parent.display()));
     }
     // Best-effort cleanup of stale socket from a previous run.
     let _ = std::fs::remove_file(socket_path);

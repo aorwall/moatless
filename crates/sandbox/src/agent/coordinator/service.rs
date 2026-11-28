@@ -301,13 +301,11 @@ impl CoordinatorService {
                         // buffer it (latest-wins), to be armed at turn end. In
                         // tmux mode the CLI owns its own wakeup timer, so only
                         // subprocess mode buffers one here.
-                        if !self.config.use_tmux {
-                            if let Signal::Source(ref block) = signal {
-                                if let Some(job) = extract_wakeup_from_block(block) {
+                        if !self.config.use_tmux
+                            && let Signal::Source(ref block) = signal
+                                && let Some(job) = extract_wakeup_from_block(block) {
                                     self.pending_wakeup = Some(job);
                                 }
-                            }
-                        }
 
                         // Decide retry before the coordinator publishes: a
                         // re-driven failure must suppress the terminal
@@ -1004,14 +1002,13 @@ impl CoordinatorService {
                 crate::credentials::fetch::apply_git_identity(&resp.credentials).await;
                 // Through the sink, so the `moat` CLI and proxied git follow a
                 // driver change with the turn rather than the next refresh.
-                if let Some(token) = resp.credentials.get(USER_AUTH_TOKEN) {
-                    if let Err(error) = self
+                if let Some(token) = resp.credentials.get(USER_AUTH_TOKEN)
+                    && let Err(error) = self
                         .credential_dispatcher
                         .dispatch(USER_AUTH_TOKEN, token)
                         .await
-                    {
-                        warn!(%error, "Failed to apply the fetched task token");
-                    }
+                {
+                    warn!(%error, "Failed to apply the fetched task token");
                 }
                 *self.credentials.write().await =
                     agent_credentials(&resp.credentials, self.config.backend_api_url.as_deref());

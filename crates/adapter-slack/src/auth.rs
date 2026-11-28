@@ -95,15 +95,15 @@ pub(super) async fn resolve_inbound_sender(
     // skip the drop AND treat the sender as a bot for the rest of the
     // pipeline, so it is never resolved by email or cached.
     let mut is_bot = already_bot;
-    if let Some(ref info) = info {
-        if info.is_bot || info.is_app_user {
-            if !allow_bot_messages {
-                return Ok(SenderIdentity::Rejected {
-                    handle: info.handle.clone(),
-                });
-            }
-            is_bot = true;
+    if let Some(ref info) = info
+        && (info.is_bot || info.is_app_user)
+    {
+        if !allow_bot_messages {
+            return Ok(SenderIdentity::Rejected {
+                handle: info.handle.clone(),
+            });
         }
+        is_bot = true;
     }
 
     let handle = info.as_ref().and_then(|info| info.handle.clone());

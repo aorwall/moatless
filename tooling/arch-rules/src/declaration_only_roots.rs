@@ -31,10 +31,10 @@ pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
         .filter(|r| matches!(r.item, syn::Item::Mod(_)))
         .flat_map(|r| {
             let mut modules = vec![(r.file.clone(), r.module.clone())];
-            if let syn::Item::Mod(m) = &r.item {
-                if m.content.is_some() {
-                    modules.push((r.file.clone(), format!("{}::{}", r.module, m.ident)));
-                }
+            if let syn::Item::Mod(m) = &r.item
+                && m.content.is_some()
+            {
+                modules.push((r.file.clone(), format!("{}::{}", r.module, m.ident)));
             }
             modules
         })

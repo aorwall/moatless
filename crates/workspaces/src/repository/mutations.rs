@@ -154,10 +154,10 @@ pub async fn update_repository(
     // ends up holding rather than the one the request carried. A patch sending
     // neither is exempt: a row registered before this check must stay editable
     // by a rename, and repairing it needs `provider` anyway.
-    if req.provider.is_some() || req.remote_url.is_some() {
-        if let Some(remote_url) = target_remote_url.as_deref() {
-            ensure_no_provider_mismatch(req.provider.or(existing.provider), remote_url)?;
-        }
+    if (req.provider.is_some() || req.remote_url.is_some())
+        && let Some(remote_url) = target_remote_url.as_deref()
+    {
+        ensure_no_provider_mismatch(req.provider.or(existing.provider), remote_url)?;
     }
 
     ensure_unique_remote_url(

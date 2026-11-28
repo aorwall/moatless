@@ -117,11 +117,10 @@ pub(crate) async fn discover_transcript_path(
                 // Resume: claude appends to the existing <session_id>.jsonl (no
                 // new file), so snapshot-diff never fires. Target the known
                 // transcript directly before falling back to snapshot-diff.
-                if let Some(target) = &resume_target {
-                    if tokio::fs::try_exists(target).await.unwrap_or(false) {
+                if let Some(target) = &resume_target
+                    && tokio::fs::try_exists(target).await.unwrap_or(false) {
                         return Ok(target.clone());
                     }
-                }
                 // Fallback: snapshot-diff to catch the new JSONL even when
                 // Stop hasn't fired yet (typical first-turn case).
                 if let Some(path) = snapshot_diff_for_new(&project_dir, &before).await? {
@@ -144,12 +143,12 @@ async fn snapshot_diff_for_new(
     let mut best: Option<(PathBuf, std::time::SystemTime)> = None;
     for stem in new_stems {
         let path = project_dir.join(format!("{stem}.jsonl"));
-        if let Ok(meta) = tokio::fs::metadata(&path).await {
-            if let Ok(mtime) = meta.modified() {
-                match &best {
-                    Some((_, t)) if *t > mtime => {}
-                    _ => best = Some((path, mtime)),
-                }
+        if let Ok(meta) = tokio::fs::metadata(&path).await
+            && let Ok(mtime) = meta.modified()
+        {
+            match &best {
+                Some((_, t)) if *t > mtime => {}
+                _ => best = Some((path, mtime)),
             }
         }
     }

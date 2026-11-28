@@ -175,10 +175,10 @@ async fn execute(
             );
         }
         Ok(Ok(Err(failure))) => {
-            if let Some(not_before) = failure.throttled_until() {
-                if defer_throttled(store, &delivery, not_before, &describe(&failure)).await {
-                    return;
-                }
+            if let Some(not_before) = failure.throttled_until()
+                && defer_throttled(store, &delivery, not_before, &describe(&failure)).await
+            {
+                return;
             }
             let terminal = failure.is_permanent() || delivery.is_last_attempt();
             finish_failed(store, &delivery, terminal, &describe(&failure)).await;

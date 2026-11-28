@@ -207,10 +207,10 @@ impl Journal {
         let owed = owed(entries);
 
         if owed.is_empty() {
-            if let Err(error) = tokio::fs::remove_file(&self.path).await {
-                if error.kind() != std::io::ErrorKind::NotFound {
-                    warn!(path = %self.path.display(), %error, "Failed to clear the command journal");
-                }
+            if let Err(error) = tokio::fs::remove_file(&self.path).await
+                && error.kind() != std::io::ErrorKind::NotFound
+            {
+                warn!(path = %self.path.display(), %error, "Failed to clear the command journal");
             }
             return;
         }

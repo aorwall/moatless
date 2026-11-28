@@ -129,10 +129,11 @@ impl AccessCache {
         // arrive together take one grant between them rather than one each.
         let mut held = self.0.lock().await;
         let usable_until = chrono::Utc::now() + chrono::TimeDelta::seconds(REFRESH_MARGIN_SECS);
-        if let Some(cached) = held.as_ref() {
-            if cached.task_id == task_id && cached.expires_at > usable_until {
-                return Ok(cached.access.clone());
-            }
+        if let Some(cached) = held.as_ref()
+            && cached.task_id == task_id
+            && cached.expires_at > usable_until
+        {
+            return Ok(cached.access.clone());
         }
 
         let granted = backend_client

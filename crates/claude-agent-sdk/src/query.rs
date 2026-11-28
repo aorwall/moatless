@@ -446,23 +446,22 @@ pub async fn query_streaming(options: ClaudeOptions) -> Result<QueryHandle> {
 /// The CLI expects user message content as a string (`"content": "hello"`), not
 /// an array of blocks; text blocks are joined into one string.
 fn flatten_content_to_string(obj: &mut serde_json::Map<String, serde_json::Value>) {
-    if let Some(msg) = obj.get_mut("message").and_then(|m| m.as_object_mut()) {
-        if let Some(content) = msg.get("content") {
-            if let Some(arr) = content.as_array() {
-                let text: String = arr
-                    .iter()
-                    .filter_map(|block| {
-                        if block.get("type").and_then(|t| t.as_str()) == Some("text") {
-                            block.get("text").and_then(|t| t.as_str()).map(String::from)
-                        } else {
-                            None
-                        }
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                msg.insert("content".to_string(), serde_json::Value::String(text));
-            }
-        }
+    if let Some(msg) = obj.get_mut("message").and_then(|m| m.as_object_mut())
+        && let Some(content) = msg.get("content")
+        && let Some(arr) = content.as_array()
+    {
+        let text: String = arr
+            .iter()
+            .filter_map(|block| {
+                if block.get("type").and_then(|t| t.as_str()) == Some("text") {
+                    block.get("text").and_then(|t| t.as_str()).map(String::from)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        msg.insert("content".to_string(), serde_json::Value::String(text));
     }
 }
 

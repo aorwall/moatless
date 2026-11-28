@@ -24,21 +24,19 @@ pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
                 &r.file,
             ));
         }
-        if r.module.starts_with("moatless_loops::adapters") {
-            if let syn::Item::Use(u) = &r.item {
-                if matches!(u.vis, syn::Visibility::Public(_))
-                    && index
-                        .paths(r)
-                        .any(|p| p.starts_with("moatless_") && !p.starts_with("moatless_loops::"))
-                {
-                    out.push(Violation::at(
-                        RULE,
-                        format!("{} forwards a foreign item", r.id),
-                        "name Adapter vocabulary directly from its owner",
-                        &r.file,
-                    ));
-                }
-            }
+        if r.module.starts_with("moatless_loops::adapters")
+            && let syn::Item::Use(u) = &r.item
+            && matches!(u.vis, syn::Visibility::Public(_))
+            && index
+                .paths(r)
+                .any(|p| p.starts_with("moatless_") && !p.starts_with("moatless_loops::"))
+        {
+            out.push(Violation::at(
+                RULE,
+                format!("{} forwards a foreign item", r.id),
+                "name Adapter vocabulary directly from its owner",
+                &r.file,
+            ));
         }
     }
     // This legacy restriction includes documentation and tests, not only compiled paths.

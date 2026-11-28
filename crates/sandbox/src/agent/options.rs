@@ -626,17 +626,17 @@ fn build_plugins(config: &Config) -> Vec<PluginConfig> {
 fn build_plugins_with_root(plugins_dir: &Path) -> Vec<PluginConfig> {
     let mut plugins: Vec<PluginConfig> = Vec::new();
 
-    if plugins_dir.is_dir() {
-        if let Ok(entries) = std::fs::read_dir(plugins_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    for plugin_path in plugin_dirs_for_repo(&path) {
-                        plugins.push(PluginConfig {
-                            plugin_type: "local".to_string(),
-                            path: plugin_path.to_string_lossy().to_string(),
-                        });
-                    }
+    if plugins_dir.is_dir()
+        && let Ok(entries) = std::fs::read_dir(plugins_dir)
+    {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                for plugin_path in plugin_dirs_for_repo(&path) {
+                    plugins.push(PluginConfig {
+                        plugin_type: "local".to_string(),
+                        path: plugin_path.to_string_lossy().to_string(),
+                    });
                 }
             }
         }

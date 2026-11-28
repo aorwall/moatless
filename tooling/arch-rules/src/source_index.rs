@@ -257,18 +257,18 @@ impl Index {
             let name = name(item).unwrap_or_else(|| format!("@{ordinal}"));
             let id = format!("{module}::{name}");
             self.definitions.insert(id.clone());
-            if let syn::Item::Trait(t) = item {
-                if t.attrs.iter().any(|a| match &a.meta {
+            if let syn::Item::Trait(t) = item
+                && t.attrs.iter().any(|a| match &a.meta {
                     syn::Meta::List(l) => l.tokens.to_string().contains("automock"),
                     _ => a
                         .path()
                         .segments
                         .last()
                         .is_some_and(|s| s.ident == "automock"),
-                }) {
-                    self.definitions
-                        .insert(format!("{module}::Mock{}", t.ident));
-                }
+                })
+            {
+                self.definitions
+                    .insert(format!("{module}::Mock{}", t.ident));
             }
             let mut paths = ReferenceCollector {
                 include_tests: item_test,
@@ -376,10 +376,9 @@ impl Index {
                         target.extend_from_slice(path);
                         if let Some(resolved) =
                             self.resolve_inner(package, module, &target, &[], &mut seen.clone())
+                            && self.has_prefix(&resolved)
                         {
-                            if self.has_prefix(&resolved) {
-                                return Some(resolved);
-                            }
+                            return Some(resolved);
                         }
                     }
                     let candidate = format!("{root}::{}", path.join("::"));
@@ -414,10 +413,9 @@ impl Index {
                             );
                             if let Some(resolved) =
                                 self.resolve_inner(owner, &scope, &target, &[], &mut seen.clone())
+                                && (import.name.is_some() || self.has_prefix(&resolved))
                             {
-                                if import.name.is_some() || self.has_prefix(&resolved) {
-                                    return Some(resolved);
-                                }
+                                return Some(resolved);
                             }
                         }
                     }
@@ -450,7 +448,7 @@ impl Index {
     }
 
     /// Canonical paths used by this declaration.
-    pub fn paths<'a>(&'a self, record: &Record) -> impl Iterator<Item = &'a String> {
+    pub fn paths<'a>(&'a self, record: &Record) -> impl Iterator<Item = &'a String> + use<'a> {
         self.resolved
             .get(&(record.file.clone(), record.id.clone()))
             .into_iter()
@@ -586,12 +584,11 @@ fn name(item: &syn::Item) -> Option<String> {
 
 /// A string-valued attribute, including doc and path attributes.
 pub fn doc_value(attr: &syn::Attribute) -> Option<String> {
-    if let syn::Meta::NameValue(n) = &attr.meta {
-        if let syn::Expr::Lit(l) = &n.value {
-            if let syn::Lit::Str(s) = &l.lit {
-                return Some(s.value());
-            }
-        }
+    if let syn::Meta::NameValue(n) = &attr.meta
+        && let syn::Expr::Lit(l) = &n.value
+        && let syn::Lit::Str(s) = &l.lit
+    {
+        return Some(s.value());
     }
     None
 }
@@ -611,10 +608,10 @@ fn cfg_test(meta: &syn::Meta) -> bool {
     match meta {
         syn::Meta::Path(p) => p.is_ident("test"),
         syn::Meta::NameValue(n) if n.path.is_ident("feature") => {
-            if let syn::Expr::Lit(l) = &n.value {
-                if let syn::Lit::Str(s) = &l.lit {
-                    return matches!(s.value().as_str(), "test-support" | "db-tests");
-                }
+            if let syn::Expr::Lit(l) = &n.value
+                && let syn::Lit::Str(s) = &l.lit
+            {
+                return matches!(s.value().as_str(), "test-support" | "db-tests");
             }
             false
         }

@@ -670,10 +670,10 @@ fn stop_session_process(session: &mut Session) {
     if let Some(task) = session.wait_task.take() {
         task.abort();
     }
-    if let Some(mut killer) = session.killer.take() {
-        if let Err(error) = killer.kill() {
-            debug!(%error, "failed to kill terminal child");
-        }
+    if let Some(mut killer) = session.killer.take()
+        && let Err(error) = killer.kill()
+    {
+        debug!(%error, "failed to kill terminal child");
     }
     session.writer = None;
     session.master = None;

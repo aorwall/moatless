@@ -322,11 +322,10 @@ pub(super) async fn get_pending_messages(
         let driver = deliveries
             .first()
             .and_then(|delivery| turn_driver(&pending, &delivery.message_uuids));
-        if let (Some(driver), Some(handlers)) = (driver, service.handlers.as_ref()) {
-            if let Some(token) = drive_turn(handlers.drivers.as_ref(), &req.task_id, driver).await?
-            {
-                user_auth_token = token;
-            }
+        if let (Some(driver), Some(handlers)) = (driver, service.handlers.as_ref())
+            && let Some(token) = drive_turn(handlers.drivers.as_ref(), &req.task_id, driver).await?
+        {
+            user_auth_token = token;
         }
     }
     if let (Some((memories, _)), Some(delivery)) = (preload_memories, deliveries.first()) {
@@ -483,11 +482,11 @@ pub(super) async fn acknowledge_messages(
         .await
     {
         Ok(count) => {
-            if count > 0 {
-                if let Some(handlers) = service.handlers.as_ref() {
-                    moatless_tasks::memory::preload::commit_seen(&handlers.memories, &req.task_id)
-                        .await;
-                }
+            if count > 0
+                && let Some(handlers) = service.handlers.as_ref()
+            {
+                moatless_tasks::memory::preload::commit_seen(&handlers.memories, &req.task_id)
+                    .await;
             }
             info!(
                 task_id = %req.task_id,

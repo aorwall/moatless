@@ -245,57 +245,54 @@ impl RoutingService {
         // originating / ongoing task are re-added active below.
         bindings.retain(|b| b.active);
 
-        if let Some(origin_task_id) = origin_task_id.as_deref() {
-            if !bindings.iter().any(|s| s.task_id == origin_task_id)
-                && !self.held_by_its_user(&bindings, origin_task_id).await
-            {
-                let sub = self
-                    .task_bindings
-                    .bind(
-                        connection,
-                        Some(subscription),
-                        origin_task_id,
-                        adapter_label,
-                        subject_kind,
-                        subject_key,
-                        destination_config.clone(),
-                        ORIGIN_CONNECTED_THREAD,
-                        msg.external_event_id.clone(),
-                        &BindScope::default(),
-                    )
-                    .await?;
-                bindings.push(sub);
-            }
+        if let Some(origin_task_id) = origin_task_id.as_deref()
+            && !bindings.iter().any(|s| s.task_id == origin_task_id)
+            && !self.held_by_its_user(&bindings, origin_task_id).await
+        {
+            let sub = self
+                .task_bindings
+                .bind(
+                    connection,
+                    Some(subscription),
+                    origin_task_id,
+                    adapter_label,
+                    subject_kind,
+                    subject_key,
+                    destination_config.clone(),
+                    ORIGIN_CONNECTED_THREAD,
+                    msg.external_event_id.clone(),
+                    &BindScope::default(),
+                )
+                .await?;
+            bindings.push(sub);
         }
 
-        if subscription.routing_mode == RoutingMode::Ongoing {
-            if let Some(task_id) = self.open_ongoing_task_id(subscription).await {
-                if !bindings.iter().any(|s| s.task_id == task_id)
-                    && !self.held_by_its_user(&bindings, &task_id).await
-                {
-                    // None here: a newly attached binding starts with no
-                    // cursor. `deliver_to_binding` fetches the full prior
-                    // thread as context, and `touch_cursor` advances it
-                    // after delivery. An existing binding's COALESCE in
-                    // the upsert keeps its current cursor.
-                    let sub = self
-                        .task_bindings
-                        .bind(
-                            connection,
-                            Some(subscription),
-                            &task_id,
-                            adapter_label,
-                            subject_kind,
-                            subject_key,
-                            destination_config.clone(),
-                            ORIGIN_ADAPTER_EVENT,
-                            None,
-                            &BindScope::default(),
-                        )
-                        .await?;
-                    bindings.push(sub);
-                }
-            }
+        if subscription.routing_mode == RoutingMode::Ongoing
+            && let Some(task_id) = self.open_ongoing_task_id(subscription).await
+            && !bindings.iter().any(|s| s.task_id == task_id)
+            && !self.held_by_its_user(&bindings, &task_id).await
+        {
+            // None here: a newly attached binding starts with no
+            // cursor. `deliver_to_binding` fetches the full prior
+            // thread as context, and `touch_cursor` advances it
+            // after delivery. An existing binding's COALESCE in
+            // the upsert keeps its current cursor.
+            let sub = self
+                .task_bindings
+                .bind(
+                    connection,
+                    Some(subscription),
+                    &task_id,
+                    adapter_label,
+                    subject_kind,
+                    subject_key,
+                    destination_config.clone(),
+                    ORIGIN_ADAPTER_EVENT,
+                    None,
+                    &BindScope::default(),
+                )
+                .await?;
+            bindings.push(sub);
         }
 
         let mut new_task_binding_id = None;
@@ -1129,13 +1126,12 @@ impl RoutingService {
                 {
                     text = format!("{prefix}\n\n{text}");
                 }
-                if msg.thread_id.is_some() {
-                    if let Some(hint) = presentation
+                if msg.thread_id.is_some()
+                    && let Some(hint) = presentation
                         .as_ref()
                         .and_then(|presentation| presentation.thread_reply_hint(msg))
-                    {
-                        text = format!("{hint}\n\n{text}");
-                    }
+                {
+                    text = format!("{hint}\n\n{text}");
                 }
                 Part {
                     author: msg.author.clone(),
@@ -1196,10 +1192,10 @@ impl RoutingService {
             .record_inbound_event(binding, last.external_event_id.as_deref())
             .await?;
 
-        if !is_new_task {
-            if let Some(e) = wake_for_message(self.sandbox_waker.as_ref(), &binding.task_id).await {
-                warn!(task_id = %binding.task_id, error = %e, "Failed to ensure sandbox for external message");
-            }
+        if !is_new_task
+            && let Some(e) = wake_for_message(self.sandbox_waker.as_ref(), &binding.task_id).await
+        {
+            warn!(task_id = %binding.task_id, error = %e, "Failed to ensure sandbox for external message");
         }
 
         Ok(())

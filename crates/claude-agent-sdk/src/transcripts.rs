@@ -161,10 +161,10 @@ pub(crate) async fn list_jsonl_stems(dir: &Path) -> Result<HashSet<String>> {
         .map_err(|e| SdkError::Internal(format!("read_dir.next_entry failed: {e}")))?
     {
         let path = entry.path();
-        if path.extension().and_then(|s| s.to_str()) == Some("jsonl") {
-            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                set.insert(stem.to_string());
-            }
+        if path.extension().and_then(|s| s.to_str()) == Some("jsonl")
+            && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
+        {
+            set.insert(stem.to_string());
         }
     }
     Ok(set)

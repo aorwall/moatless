@@ -664,10 +664,10 @@ impl GitHubAppService {
             format!("{owner}/{repository}").to_ascii_lowercase(),
             login.to_ascii_lowercase(),
         );
-        if let Some((role, at)) = self.role_cache.read().await.get(&key) {
-            if *at + ROLE_TTL > Utc::now() {
-                return Ok(*role);
-            }
+        if let Some((role, at)) = self.role_cache.read().await.get(&key)
+            && *at + ROLE_TTL > Utc::now()
+        {
+            return Ok(*role);
         }
 
         let token = self.get_installation_token(installation_id).await?;
@@ -784,15 +784,15 @@ impl GitHubAppService {
         // A key that signs successfully still proves nothing about *which*
         // App it is, and storing it under the wrong id produces a bot that
         // authenticates as somebody else.
-        if let Some(actual) = metadata.id {
-            if actual != self.app_id {
-                return Err(AuthError::BadRequest(format!(
-                    "This key belongs to a different App — '{}' (id {actual}), not id {}. \
+        if let Some(actual) = metadata.id
+            && actual != self.app_id
+        {
+            return Err(AuthError::BadRequest(format!(
+                "This key belongs to a different App — '{}' (id {actual}), not id {}. \
                      Nothing was stored.",
-                    metadata.name.as_deref().unwrap_or(&metadata.slug),
-                    self.app_id
-                )));
-            }
+                metadata.name.as_deref().unwrap_or(&metadata.slug),
+                self.app_id
+            )));
         }
 
         Ok(ProvedApp {

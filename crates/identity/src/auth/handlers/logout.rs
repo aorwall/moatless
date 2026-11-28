@@ -38,19 +38,17 @@ async fn do_logout(state: &AuthState, headers: &HeaderMap) -> Result<Response, A
     }
 
     // Auth0 requires server-side logout
-    if let Some(pid) = session_provider {
-        if let Some(provider) = state.providers.get(pid) {
-            if let Some(logout_url) = provider.generate_logout_url(&state.config.auth.frontend_url)
-            {
-                info!(provider = %pid, "Redirecting to provider logout");
-                return Ok((
-                    StatusCode::FOUND,
-                    resp_headers,
-                    [("Location", logout_url.as_str())],
-                )
-                    .into_response());
-            }
-        }
+    if let Some(pid) = session_provider
+        && let Some(provider) = state.providers.get(pid)
+        && let Some(logout_url) = provider.generate_logout_url(&state.config.auth.frontend_url)
+    {
+        info!(provider = %pid, "Redirecting to provider logout");
+        return Ok((
+            StatusCode::FOUND,
+            resp_headers,
+            [("Location", logout_url.as_str())],
+        )
+            .into_response());
     }
 
     Ok((

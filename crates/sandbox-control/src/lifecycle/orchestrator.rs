@@ -713,12 +713,12 @@ impl Lifecycle {
         intent: &TaskIntent,
         target: SandboxDesiredState,
     ) -> Result<(OperationGeneration, bool), LifecycleError> {
-        if !kind.is_edge() {
-            if let Some(marker) = intent.marker {
-                if marker.kind == kind && intent.desired_state == target {
-                    return Ok((marker.generation, true));
-                }
-            }
+        if !kind.is_edge()
+            && let Some(marker) = intent.marker
+            && marker.kind == kind
+            && intent.desired_state == target
+        {
+            return Ok((marker.generation, true));
         }
         Ok((self.allocate(task_id).await?, false))
     }

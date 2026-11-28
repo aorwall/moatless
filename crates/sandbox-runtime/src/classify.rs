@@ -151,12 +151,12 @@ pub fn classify(
             //    distinguishes the old pod's death (generation < marker) from
             //    the new pod's crash (generation == marker), so a stale edge
             //    with disabled suppression falls to echo/divergence below.
-            if suppression_active {
-                if let Some(m) = marker {
-                    if m.kind.is_edge() && is_superseded(obs.observed_generation, m.generation) {
-                        return Classification::ExpectedIntermediate;
-                    }
-                }
+            if suppression_active
+                && let Some(m) = marker
+                && m.kind.is_edge()
+                && is_superseded(obs.observed_generation, m.generation)
+            {
+                return Classification::ExpectedIntermediate;
             }
 
             // 4. Operation echo vs divergence, arbitrated by desired state.
@@ -194,18 +194,18 @@ mod tests {
 
     use crate::operation::OperationKind;
 
-    fn marker(kind: OperationKind, gen: i64) -> CorrelationMarker {
+    fn marker(kind: OperationKind, generation: i64) -> CorrelationMarker {
         CorrelationMarker::new(
             kind,
-            OperationGeneration(gen),
+            OperationGeneration(generation),
             Utc.timestamp_opt(1_700_000_000, 0)
                 .single()
                 .expect("valid ts"),
         )
     }
 
-    fn obs(t: T, gen: Option<i64>) -> Observation {
-        Observation::new(t, gen.map(OperationGeneration))
+    fn obs(t: T, generation: Option<i64>) -> Observation {
+        Observation::new(t, generation.map(OperationGeneration))
     }
 
     // ---- Case 1: Convergence ----

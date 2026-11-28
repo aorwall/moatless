@@ -190,14 +190,13 @@ pub async fn force_stop_agent(
     turn_number: Option<i32>,
 ) -> Result<ForceStop, TaskError> {
     let task = require_write(tasks, scope_ctx, task_id).await?;
-    if let Some(asked) = turn_number {
-        if turns
+    if let Some(asked) = turn_number
+        && turns
             .latest_turn_number(task_id)
             .await?
             .is_some_and(|latest| latest > asked)
-        {
-            return Ok(ForceStop::Superseded);
-        }
+    {
+        return Ok(ForceStop::Superseded);
     }
 
     let sandbox_id = task.sandbox_id.as_deref().unwrap_or(task_id).to_string();

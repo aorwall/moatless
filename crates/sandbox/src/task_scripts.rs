@@ -135,10 +135,10 @@ async fn read(path: &Path) -> TaskScripts {
 
 async fn write(path: &Path, scripts: &TaskScripts) -> std::io::Result<()> {
     if scripts.is_empty() {
-        if let Err(error) = tokio::fs::remove_file(path).await {
-            if error.kind() != std::io::ErrorKind::NotFound {
-                return Err(error);
-            }
+        if let Err(error) = tokio::fs::remove_file(path).await
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            return Err(error);
         }
         return Ok(());
     }

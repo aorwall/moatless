@@ -233,11 +233,11 @@ pub(crate) fn spawn_reader(
                     std::thread::sleep(Duration::from_millis(25));
                 }
                 Ok(_n) => {
-                    if let Some(line) = parse_line(&line_buf) {
-                        if tx.blocking_send(line).is_err() {
-                            debug!("hook FIFO reader: consumer dropped, exiting");
-                            return;
-                        }
+                    if let Some(line) = parse_line(&line_buf)
+                        && tx.blocking_send(line).is_err()
+                    {
+                        debug!("hook FIFO reader: consumer dropped, exiting");
+                        return;
                     }
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {

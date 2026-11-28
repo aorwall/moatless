@@ -74,10 +74,10 @@ pub(super) fn message_bubble(
                 // Only a `user` bubble can carry attachments: the uploads on a
                 // Message are what the person attached to it.
                 let attachments = message_attachments(message);
-                if !attachments.is_empty() {
-                    if let Some(object) = row.as_object_mut() {
-                        object.insert("attachments".into(), Value::Array(attachments));
-                    }
+                if !attachments.is_empty()
+                    && let Some(object) = row.as_object_mut()
+                {
+                    object.insert("attachments".into(), Value::Array(attachments));
                 }
                 row
             })
@@ -264,10 +264,10 @@ fn message_row(
     });
     // Present only on a Message that came from outside T3. An ordinary bubble
     // carries no `origin` key at all, byte-identical to before this field.
-    if let Some(origin) = origin {
-        if let Some(object) = row.as_object_mut() {
-            object.insert("origin".into(), origin);
-        }
+    if let Some(origin) = origin
+        && let Some(object) = row.as_object_mut()
+    {
+        object.insert("origin".into(), origin);
     }
     row
 }
