@@ -1705,7 +1705,13 @@ jobs:
     name: Publish multi-platform Docker Hub tags
     needs: [build-backend-image, build-sandbox-base, build-sandbox-tools, build-sandbox]
     if: >-
-      !cancelled() && contains(needs.*.result, 'success')
+      !cancelled() &&
+      (github.ref == 'refs/heads/main' ||
+       (github.ref_type == 'tag' && startsWith(github.ref_name, 'moat-cli-v'))) &&
+      (needs.build-backend-image.result == 'success' ||
+       needs.build-sandbox-base.result == 'success' ||
+       needs.build-sandbox-tools.result == 'success' ||
+       needs.build-sandbox.result == 'success')
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     environment: dockerhub
     steps:

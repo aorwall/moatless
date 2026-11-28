@@ -57,9 +57,8 @@ invalidates everything, which is what it exists to do: force a full rebuild.
 
 **Export every image to a registry cache at `<image>:buildcache` for AMD64 or
 `<image>:buildcache-arm64` for ARM64. Never export to `type=gha`.**
-`image-manifest=true,oci-mediatypes=true` pushes the cache as
-an ordinary image manifest, which Docker Hub accepts. `sandbox-base` uses
-`mode=max`, and the leaf images use `mode=min`.
+Docker Hub accepts caches with `image-manifest=true,oci-mediatypes=true`.
+Use `mode=max` for `sandbox-base` and `mode=min` for leaf images.
 
 `type=gha` breaks because `sandbox-base`'s 7 GB export evicts its own previous
 entry from the 10 GB shared, LRU Actions cache, so it never hits. Only the Rust
