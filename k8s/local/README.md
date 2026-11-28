@@ -9,32 +9,76 @@ supported local path — no Docker Hub pull, no private registry mirror, no clou
 
 ## Prerequisites
 
-- **Docker Desktop 4.74+ with Kubernetes enabled in kubeadm mode.** kubeadm mode
-  shares the local Docker image store, so pods run locally built images with no
-  registry push and no `kind load`. kind mode does not share the store.
-- **Apple Silicon (arm64).**
-- About **16GB memory** for the Docker Desktop VM and at least **40GB free host
-  disk**. A full disk stops the Docker daemon in the middle of a build.
-- A checkout of `soaplabs/t3code` beside this repository, or `T3CODE_DIR` set to
-  its path.
-- `kubectl`, `helm` and `jq`.
+Both paths need about **16GB memory** for the cluster and at least **40GB free
+host disk**: a full disk stops the Docker daemon in the middle of a build. They
+also need a checkout of `soaplabs/t3code` beside this repository (or
+`T3CODE_DIR` set to its path), up to date with its `main`, because the image is
+built from whatever it holds, and `kubectl`, `helm` and `jq`.
+
+| | macOS (Apple Silicon) | Linux (x86_64 or arm64) |
+|---|---|---|
+| Cluster | Docker Desktop 4.74+, Kubernetes in **kubeadm** mode | [k3d](https://k3d.io) 5.9+ on Docker Engine (rootful) |
+| Context | `docker-desktop` | `k3d-moatless` |
+| Images reach pods | shared Docker image store | `k3d image import` into the node's containerd |
+| Install | Docker Desktop settings | Arch: `pacman -S kubectl helm jq` and AUR `rancher-k3d-bin`; elsewhere the [k3d install script](https://k3d.io/stable/#installation) |
+
+Docker Desktop's kind mode does not share the image store, and Docker Desktop
+for Linux runs its own VM, so neither sees images built on the host.
 
 **Pass the context explicitly.** Your current context may be a remote cluster.
-Every command below names `docker-desktop`.
+Every command below names `$CTX`:
 
-## 1. Build the images (arm64, tagged `:dev`)
+```bash
+CTX=docker-desktop   # macOS
+CTX=k3d-moatless     # Linux
+```
+
+## 0. Create the cluster (Linux)
+
+On macOS, enabling Kubernetes in Docker Desktop is this step.
+
+```bash
+k3d cluster create moatless -p "80:80@loadbalancer" \
+  --k3s-arg "--disable=traefik@server:*" --kubeconfig-switch-context=false
+```
+
+The last flag keeps your current context as it is; k3d otherwise switches it
+to `k3d-moatless`.
+
+k3s bundles its own Traefik, which would clash with the one step 2 installs.
+Its `servicelb` publishes that Traefik's LoadBalancer on host port 80, and its
+`local-path` StorageClass backs the sandbox PVCs. kind has neither a
+LoadBalancer nor a host-port path without extra setup, which is why this path
+uses k3d.
+
+Check that `*.localhost` resolves to loopback for CLI tools:
+`getent hosts x.preview.moatless.localhost`. Browsers resolve it themselves.
+If it prints nothing, add `myhostname` to the `hosts:` line of
+`/etc/nsswitch.conf`. If kubelet logs `too many open files`, raise
+`fs.inotify.max_user_instances` to 512 and `fs.inotify.max_user_watches` to
+524288 under `/etc/sysctl.d/`.
+
+## 1. Build the images (host arch, tagged `:dev`)
 
 ```bash
 .agents/skills/k8s-install/scripts/build-local-images.sh            # all
 .agents/skills/k8s-install/scripts/build-local-images.sh backend    # or one: backend, sandbox, t3
 ```
 
+On Linux, prefix each call with `K3D_CLUSTER=moatless` so it imports every
+image it builds. An import copies the whole image through a tarball and stores
+it a second time inside the node: the 11GB sandbox image takes about 5 minutes.
+`PLATFORM=linux/arm64` overrides the host arch.
+
 The script compiles Rust inside Linux containers, on the `rust-toolchain.toml`
-version. `task build:backend` and `docker/build-sandbox.sh` cross-compile with
-zig, which rejects the `--fix-cortex-a53-843419` linker argument of rustc 1.100
-(seen with zig 0.15.2 and 0.16.0).
+version. On arm64, `task build:backend` and `docker/build-sandbox.sh`
+cross-compile with zig, which rejects the `--fix-cortex-a53-843419` linker
+argument of rustc 1.100 (seen with zig 0.15.2 and 0.16.0).
 
 `docker image prune -a` deletes any of these images that no container uses.
+Kubelet image GC can also evict an imported image under node disk pressure;
+a sandbox pod then fails with `ErrImageNeverPull` or `ErrImagePull`. Re-run the
+build with `K3D_CLUSTER` set, or `k3d image import -c moatless <image>`.
 
 ## 2. Traefik + namespace
 
@@ -42,16 +86,19 @@ Traefik provides the `IngressRoute` CRDs the app routing (and the backend's
 per-sandbox preview routes) depend on.
 
 ```bash
-kubectl --context docker-desktop create namespace moatless
+kubectl --context "$CTX" create namespace moatless
 helm repo add traefik https://traefik.github.io/charts && helm repo update
-helm --kube-context docker-desktop install traefik traefik/traefik -n moatless \
-  --set service.type=LoadBalancer --set ports.web.exposedPort=80
+helm --kube-context "$CTX" install traefik traefik/traefik --version 43.0.0 -n moatless \
+  --set service.spec.type=LoadBalancer --set ports.web.exposedPort=80
 ```
+
+The chart's values schema rejects unknown keys, and 43.0.0 moved the service
+type to `service.spec.type`. Check the key before raising the pin.
 
 ## 3. Secrets (never in a committed values file)
 
 ```bash
-kubectl --context docker-desktop -n moatless create secret generic moatless-secrets \
+kubectl --context "$CTX" -n moatless create secret generic moatless-secrets \
   --from-literal=DATABASE_URL='postgres://moatless:moatless@postgres:5432/moatless' \
   --from-literal=SECRETS_ENCRYPTION_KEY="$(openssl rand -base64 32)" \
   --from-literal=TASK_TOKEN_SECRET="$(openssl rand -hex 32)" \
@@ -79,7 +126,7 @@ WARN on first boot.
 ## 4. Install
 
 ```bash
-helm --kube-context docker-desktop install moatless ./k8s/helm/moatless -n moatless -f k8s/local/values-local.yaml
+helm --kube-context "$CTX" install moatless ./k8s/helm/moatless -n moatless -f k8s/local/values-local.yaml
 ```
 
 ## 5. Verify boot
@@ -87,7 +134,7 @@ helm --kube-context docker-desktop install moatless ./k8s/helm/moatless -n moatl
 ```bash
 # A bad DATABASE_URL does not crash the pod and /health still returns 200, so
 # check for the migration line.
-kubectl --context docker-desktop -n moatless logs deploy/moatless-backend | grep "Database migrations complete"
+kubectl --context "$CTX" -n moatless logs deploy/moatless-backend | grep "Database migrations complete"
 
 # Anonymous /auth/me is 401, which is correct.
 curl -H 'Host: moatless.localhost' localhost/api/v1/auth/me
@@ -103,7 +150,7 @@ on "Still connecting": `curl` cannot show whether the UI connects.
   random password is logged once at WARN:
 
   ```bash
-  kubectl --context docker-desktop -n moatless logs deploy/moatless-backend | grep "generated a bootstrap admin password"
+  kubectl --context "$CTX" -n moatless logs deploy/moatless-backend | grep "generated a bootstrap admin password"
   ```
 
 - **Claude:** run `claude setup-token`, then save the token under Settings →
@@ -115,6 +162,12 @@ on "Still connecting": `curl` cannot show whether the UI connects.
   same name, and a task needs a workspace. A repository without a `provider`
   gets none. Save the GitHub token first: without it a task is refused, for a
   public repository too.
+- **To try a public repository without a GitHub token,** add it with
+  `"kind": "template"`. Preflight skips the credential check and the sandbox
+  clones anonymously; pushing is still refused.
+- **A preview needs a Script with a `port`.** A Workspace takes its Scripts
+  from the repository's `.moatless/workspaces.json`; a repository without one
+  can declare a Script on a single task (below).
 
 ### Through the API
 
@@ -136,10 +189,15 @@ curl "${H[@]}" localhost/api/v1/repositories \
 curl "${H[@]}" localhost/api/v1/workspaces        # note the new workspace id
 
 curl "${H[@]}" localhost/api/v1/tasks \
-  -d '{"name":"smoke","repositoryId":"<repository id>","workspaceId":"<workspace id>","agentProfile":"claude-code"}'
+  -d '{"name":"smoke","repositoryId":"<repository id>","workspaceId":"<workspace id>","agentProfile":"claude-code","message":"Change the main heading. Do not commit."}'
 
 # The response carries `taskId`. The sandbox pod reaches 1/1 Running.
-kubectl --context docker-desktop -n moatless get pods
+kubectl --context "$CTX" -n moatless get pods
+
+# Declare and start a Script on that task alone. The response's `url` is the
+# preview; open it in the signed-in browser, since anonymous requests get 401.
+curl "${H[@]}" localhost/api/orchestration/scripts/<task id>/preview/run \
+  -d '{"command":"bun install && PORT=5173 bun run dev","port":5173}'
 ```
 
 A ready sandbox has cloned the repository into
@@ -148,9 +206,9 @@ A ready sandbox has cloned the repository into
 ## 7. Rebuild and redeploy
 
 ```bash
-.agents/skills/k8s-install/scripts/build-local-images.sh backend
-kubectl --context docker-desktop -n moatless rollout restart deploy/moatless-backend
-kubectl --context docker-desktop -n moatless rollout status deploy/moatless-backend
+K3D_CLUSTER=moatless .agents/skills/k8s-install/scripts/build-local-images.sh backend   # drop K3D_CLUSTER on macOS
+kubectl --context "$CTX" -n moatless rollout restart deploy/moatless-backend
+kubectl --context "$CTX" -n moatless rollout status deploy/moatless-backend
 ```
 
 For `t3`, restart `deploy/moatless-t3`. A new sandbox pod picks up a new
@@ -160,7 +218,7 @@ image running until the restart.
 After a chart or values change:
 
 ```bash
-helm --kube-context docker-desktop upgrade moatless ./k8s/helm/moatless -n moatless -f k8s/local/values-local.yaml
+helm --kube-context "$CTX" upgrade moatless ./k8s/helm/moatless -n moatless -f k8s/local/values-local.yaml
 ```
 
 ## Upgrading an old release
@@ -169,7 +227,7 @@ Postgres here has no persistent volume: replacing its pod empties the database.
 Dump it first:
 
 ```bash
-kubectl --context docker-desktop -n moatless exec deploy/postgres -- pg_dump -U moatless moatless > moatless.sql
+kubectl --context "$CTX" -n moatless exec deploy/postgres -- pg_dump -U moatless moatless > moatless.sql
 ```
 
 | Symptom | Fix |
@@ -184,10 +242,10 @@ kubectl --context docker-desktop -n moatless exec deploy/postgres -- pg_dump -U 
 |---|---|
 | `backend.image`, `sandboxImage`, `t3.image`: `pullPolicy: IfNotPresent`, tag `dev` | The chart defaults to `latest`, mostly with `Always`, which forces a Docker Hub pull and silently ignores locally built images. |
 | `kubernetes.imagePrepull.enabled: false` | Pre-pulls the full 5-8GB sandbox image with `pullPolicy: Always`. |
-| `kubernetes.sandboxStorage.defaultPvc: true`, `defaultS3: false` | The S3 snapshot needs a real bucket a local install does not have, so the per-task PVC alone carries the workspace. Docker Desktop's built-in hostpath provisioner backs it, so workspaces survive pod replacement and retained close/reopen without any cloud storage. |
+| `kubernetes.sandboxStorage.defaultPvc: true`, `defaultS3: false` | The S3 snapshot needs a real bucket a local install does not have, so the per-task PVC alone carries the workspace. The cluster's default StorageClass backs it (Docker Desktop's hostpath, k3s's `local-path`), so workspaces survive pod replacement and retained close/reopen without any cloud storage. |
 | `kubernetes.sandboxSysctls` — drop `tcp_keepalive_*` | Some kubelets reject them as unsafe → block sandbox pod admission. |
 | `networkPolicy.sandbox.enabled: false` | Expects a namespace literally named `traefik`; locally Traefik lives in `moatless`. |
-| `proxy.domain: preview.moatless.localhost`, `protocol: http`, `traefikEntryPoint: web` | macOS resolves arbitrary `*.localhost` → `127.0.0.1`. Previews sit under the app host so they share its registrable domain (see `auth.cookieDomain`). No dnsmasq, no nip.io. |
+| `proxy.domain: preview.moatless.localhost`, `protocol: http`, `traefikEntryPoint: web` | Browsers, macOS, and Linux with systemd-resolved or `nss-myhostname` resolve any `*.localhost` → `127.0.0.1`. Previews sit under the app host so they share its registrable domain (see `auth.cookieDomain`). No dnsmasq, no nip.io. |
 | `proxy.traefikIngressRoute.enabled: true` | Renders the app's Traefik `IngressRoute` CRDs (locally Traefik *is* the router). |
 | `proxy.traefikMiddleware.enabled: true`, `noAuth: false` | The backend stamps the `preview-auth` middleware onto every per-sandbox preview `IngressRoute`; without the CRD Traefik invalidates those routers and 404s every preview host. As real ForwardAuth it sends each preview request to `/api/v1/auth/verify`, which enforces the session and per-task access. Works over http because previews share the app's registrable domain, so the `SameSite=Lax` session cookie is sent to them. |
 | `auth.cookieDomain: moatless.localhost` | Scopes the session cookie to the app host **and** every preview subdomain (`*.preview.moatless.localhost`), so preview ForwardAuth receives it. |
@@ -204,3 +262,5 @@ kubectl --context docker-desktop -n moatless exec deploy/postgres -- pg_dump -U 
   use the `helm install ... -f k8s/local/values-local.yaml` above.
 - **Docker Desktop Kubernetes can reset on restart** on some versions. If the
   cluster comes back empty, re-run steps 2-4 (the images are still in the store).
+- **`k3d cluster delete moatless`** removes the cluster and its imported
+  images; the host's Docker images stay. Recreate it from step 0 and re-import.

@@ -31,7 +31,7 @@ RUN git clone --depth 1 --branch ${TASK_VERSION} https://github.com/go-task/task
         google.golang.org/grpc@v1.83.1 \
         go.opentelemetry.io/otel@v1.45.0 && \
     go mod tidy && \
-    go build -o /go/bin/task ./cmd/task
+    go build -trimpath -ldflags="-s -w" -o /go/bin/task ./cmd/task
 
 FROM ubuntu:24.04
 
@@ -276,11 +276,12 @@ RUN mkdir -p /home/$USERNAME/.cache \
 # a 0600 directory cannot be traversed and kubectl cannot open the config.
 COPY --chown=$USER_UID:$USER_GID --chmod=600 docker/sandbox-kubeconfig /home/$USERNAME/.kube/config
 
-# Install the Rust toolchain (rustup default profile: rustc, cargo, clippy,
-# rustfmt) so agents can build/test Rust projects — including moatless —
-# inside the sandbox. RUSTUP_HOME/CARGO_HOME live under /opt and are owned by the
-# moatless user so `cargo build`/`cargo install` can write the registry cache and
-# any downloaded toolchains at runtime.
+# Install the Rust toolchain so agents can build/test Rust projects — including
+# moatless — inside the sandbox. The minimal profile plus clippy and rustfmt
+# rather than the default one, which adds rust-docs (920 MB of HTML).
+# RUSTUP_HOME/CARGO_HOME live under /opt and are owned by the moatless user so
+# `cargo build`/`cargo install` can write the registry cache and any downloaded
+# toolchains at runtime.
 #
 # RUST_VERSION must stay in lockstep with the workspace pin in
 # rust-toolchain.toml — the `toolchain-drift` CI job fails when they diverge.
@@ -293,6 +294,7 @@ ENV RUSTUP_HOME="/opt/rust"
 ENV CARGO_HOME="/opt/cargo"
 ENV PATH="/opt/cargo/bin:$PATH"
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --default-toolchain "${RUST_VERSION}" \
+        --profile minimal --component clippy,rustfmt \
     && chown -R $USERNAME:$USERNAME /opt/rust /opt/cargo \
     && echo 'export RUSTUP_HOME="/opt/rust"' >> /etc/profile \
     && echo 'export CARGO_HOME="/opt/cargo"' >> /etc/profile \
@@ -355,19 +357,24 @@ RUN ARCH=$(dpkg --print-architecture) && \
 # and code execution, all fixed by 11.8.0).
 # typescript@7 because the `typescript` language server is `tsc --lsp`, which
 # TypeScript 6 lacks.
-RUN npm install -g pnpm@11.9.0 yarn typescript@7 tsx
+RUN --mount=type=tmpfs,target=/root/.npm npm install -g pnpm@11.9.0 yarn typescript@7 tsx
 
 # Install Vite+ (`vp`), the unified JS toolchain — https://viteplus.dev/guide/
 # VP_HOME sits under /opt like the other toolchains (outside the workspace mount)
 # and is owned by moatless so `vp` can self-update and write its caches at runtime.
 # VP_NODE_MANAGER=no skips the installer's interactive prompt and leaves the
 # nodesource Node above in charge; the opt-in path shims node/npm/npx ahead of it.
+# Keep js_runtime, deliberately: `vp` runs its own Node from there even with a
+# system Node, and re-downloads it on first use if removed. The installer's pnpm
+# store under /root/.local is only a cache and is dropped.
 # renovate: datasource=npm depName=vite-plus
 ARG VITE_PLUS_VERSION=1.7.0
 ENV VP_HOME=/opt/vite-plus
 ENV PATH="$VP_HOME/bin:$PATH"
-RUN curl -fsSL https://vite.plus | VP_VERSION="${VITE_PLUS_VERSION}" VP_NODE_MANAGER=no bash \
+RUN --mount=type=tmpfs,target=/root/.npm curl -fsSL https://vite.plus | VP_VERSION="${VITE_PLUS_VERSION}" VP_NODE_MANAGER=no bash \
     && test -x "$VP_HOME/bin/vp" \
+    && rm -rf /root/.local/share/pnpm \
+    && "$VP_HOME/bin/vp" --version \
     && ln -sf "$VP_HOME/bin/vp" /usr/local/bin/vp \
     && chown -R $USERNAME:$USERNAME "$VP_HOME" \
     && echo 'export VP_HOME=/opt/vite-plus' >> /etc/profile \
@@ -390,7 +397,7 @@ ARG PLAYWRIGHT_COMPAT_VERSIONS=""
 # renovate: datasource=npm depName=playwright
 ARG PLAYWRIGHT_CLI_VERSION=1.65.1
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
-RUN apt-get update \
+RUN --mount=type=tmpfs,target=/root/.npm apt-get update \
     && apt-get install -y --no-install-recommends xvfb dbus \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /usr/share/moatless-plugins \
@@ -465,7 +472,7 @@ COPY packages/inspector /tmp/inspector-build/packages/inspector
 # over 89 MB of it, and overlayfs copies up a whole file to change its owner —
 # so the image would carry the same 93 packages twice, for a warm cache of the
 # inspector's own dependencies that no consuming repo shares.
-RUN cd /tmp/inspector-build/packages/inspector \
+RUN --mount=type=tmpfs,target=/root/.npm cd /tmp/inspector-build/packages/inspector \
     && BUN_INSTALL_CACHE_DIR=/tmp/bun-build-cache bun install \
     && bun run build \
     && npm pack --pack-destination /tmp \
@@ -524,8 +531,13 @@ RUN git config --system gc.auto 0 \
 ARG MINI_SWE_VERSION=2.4.6
 ARG MINI_SWE_LITELLM_VERSION=1.106.6
 ARG MINI_SWE_MCP_VERSION=2.3.0
+# `datasets` (and the pandas, pyarrow and numpy it pulls in, 320 MB) serves only
+# mini-swe's SWE-bench runners, which bridge.py never imports. Keep this
+# uninstall in step with the `test_bridge.py` job in ci.yml, which fails when an
+# upgrade starts importing them.
 RUN python3 -m venv /opt/mini-swe \
     && /opt/mini-swe/bin/pip install --no-cache-dir "mini-swe-agent==${MINI_SWE_VERSION}" "litellm==${MINI_SWE_LITELLM_VERSION}" "mcp==${MINI_SWE_MCP_VERSION}" \
+    && /opt/mini-swe/bin/pip uninstall -y datasets pandas pyarrow numpy \
     && printf '#!/bin/sh\nexec /opt/mini-swe/bin/python "$@"\n' > /usr/local/bin/mini-swe-python \
     && chmod +x /usr/local/bin/mini-swe-python \
     && mini-swe-python -c 'import minisweagent'
@@ -542,17 +554,17 @@ RUN python3 -m venv /opt/mini-swe \
 # precedes npm's bin dir on PATH, so once the symlink exists `which` returns it
 # and the link points at itself (ELOOP at runtime).
 ARG CODEX_CLI_VERSION=0.172.0
-RUN npm install -g "@openai/codex@${CODEX_CLI_VERSION}" \
+RUN --mount=type=tmpfs,target=/root/.npm npm install -g "@openai/codex@${CODEX_CLI_VERSION}" \
     && ln -sf "$(npm prefix -g)/bin/codex" /usr/local/bin/codex \
     && (codex --version 2>/dev/null || echo "unknown") > /opt/moatless/.codex-cli-version
 
 ARG CLAUDE_CLI_VERSION=2.1.332
-RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}" \
+RUN --mount=type=tmpfs,target=/root/.npm npm install -g "@anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}" \
     && ln -sf "$(npm prefix -g)/bin/claude" /usr/local/bin/claude \
     && (claude --version 2>/dev/null || echo "unknown") > /opt/moatless/.claude-cli-version
 
 ARG PI_CLI_VERSION=1.6.1
-RUN npm install -g "@earendil-works/pi-coding-agent@${PI_CLI_VERSION}" \
+RUN --mount=type=tmpfs,target=/root/.npm npm install -g "@earendil-works/pi-coding-agent@${PI_CLI_VERSION}" \
     && ln -sf "$(npm prefix -g)/bin/pi" /usr/local/bin/pi \
     && pi --version > /opt/moatless/.pi-cli-version
 

@@ -84,6 +84,7 @@ jobs:
           ARG MINI_SWE_LITELLM_VERSION
           ARG MINI_SWE_MCP_VERSION
           RUN pip install --no-cache-dir "mini-swe-agent==$MINI_SWE_VERSION" "litellm==$MINI_SWE_LITELLM_VERSION" "mcp==$MINI_SWE_MCP_VERSION"
+          RUN pip uninstall -y datasets pandas pyarrow numpy
           WORKDIR /bridge
           COPY bridge.py test_bridge.py ./
           RUN python test_bridge.py
@@ -1210,11 +1211,13 @@ jobs:
     # `rust-test` gates `:latest`, which the backend Deployment repulls on every
     # restart: a red `main` published as-is crash-loops startup on a migration
     # it cannot apply, as `4f78eaf7b`'s two `0213_*` files did. A dispatch runs
-    # no `rust-test`, so it skips this gate.
+    # no `rust-test`, so it skips this gate. The Docker Hub publish jobs run on
+    # `main` alone: the `dockerhub` environment admits no other branch, and a
+    # branch build goes to `publish-prerelease` instead.
     needs: [detect-changes, build-rust, rust-test]
     if: >-
-      !cancelled() &&
-      ((github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      !cancelled() && github.ref == 'refs/heads/main' &&
+      ((github.event_name == 'push') ||
        (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)) &&
       (needs.detect-changes.outputs.docker-backend == 'true' ||
        (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)) &&
@@ -1338,8 +1341,8 @@ jobs:
     name: Build & push sandbox-base (stable)
     needs: detect-changes
     if: >-
-      !cancelled() &&
-      ((github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      !cancelled() && github.ref == 'refs/heads/main' &&
+      ((github.event_name == 'push') ||
        (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)) &&
       (
         needs.detect-changes.outputs.sandbox-base == 'true' ||
@@ -1405,8 +1408,8 @@ jobs:
     name: Build & push sandbox-tools
     needs: [detect-changes, build-rust]
     if: >-
-      !cancelled() &&
-      ((github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      !cancelled() && github.ref == 'refs/heads/main' &&
+      ((github.event_name == 'push') ||
        (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)) &&
       (
         needs.detect-changes.outputs.sandbox-binaries == 'true' ||
@@ -1470,8 +1473,8 @@ jobs:
     name: Build & push sandbox (+ sandbox-js alias)
     needs: [detect-changes, build-rust, build-sandbox-tools, build-sandbox-base]
     if: >-
-      !cancelled() &&
-      ((github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      !cancelled() && github.ref == 'refs/heads/main' &&
+      ((github.event_name == 'push') ||
        (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)) &&
       (
         needs.detect-changes.outputs.sandbox-binaries == 'true' ||
@@ -1542,13 +1545,172 @@ jobs:
           cache-from: type=registry,ref=${{ env.SANDBOX_IMAGE }}:buildcache
           cache-to: type=registry,ref=${{ env.SANDBOX_IMAGE }}:buildcache,mode=min,image-manifest=true,oci-mediatypes=true
 
+  # ── Push a branch build to the deployment's prerelease registry ──
+  # Every image of a `workflow_dispatch` off `main` goes to
+  # `vars.PRERELEASE_REGISTRY`, tagged `branch-<ref>` and `sha-<short>`, under
+  # the OIDC role in `vars.PRERELEASE_ROLE_ARN`. Without the variable a branch
+  # dispatch publishes nothing. ECR only: the login is `amazon-ecr-login`.
+  publish-prerelease:
+    name: Push prerelease images
+    needs: [build-rust]
+    if: >-
+      !cancelled() &&
+      github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run &&
+      github.ref != 'refs/heads/main' &&
+      vars.PRERELEASE_REGISTRY != '' &&
+      needs.build-rust.result == 'success'
+    runs-on: ${{ vars.CI_RUNNER_LARGE || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      PRERELEASE_REGISTRY: ${{ vars.PRERELEASE_REGISTRY }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      # Runs on GitHub-hosted runners only; see `validate-sandbox-base`.
+      - name: Free disk space
+        if: runner.environment == 'github-hosted'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Load CLI versions
+        run: grep -E '^[A-Z0-9_]+=' docker/cli-versions.env >> "$GITHUB_ENV"
+
+      - name: Restore backend binary
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: target/ci/moatless-backend
+          key: backend-binary-${{ github.sha }}
+          fail-on-cache-miss: true
+
+      - name: Restore sandbox binaries
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            target/ci/sandbox
+            target/ci/moat
+          key: sandbox-binaries-${{ github.sha }}
+          fail-on-cache-miss: true
+
+      - name: Prepare binaries
+        run: |
+          mkdir -p /tmp/backend-binary /tmp/sandbox-binaries/amd64
+          cp target/ci/moatless-backend /tmp/backend-binary/
+          cp target/ci/sandbox target/ci/moat /tmp/sandbox-binaries/amd64/
+          chmod +x /tmp/backend-binary/moatless-backend /tmp/sandbox-binaries/amd64/*
+
+      - name: Compute image tags
+        id: tags
+        run: |
+          echo "sha=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "branch=branch-${GITHUB_REF_NAME//[^A-Za-z0-9_.-]/-}" >> "$GITHUB_OUTPUT"
+
+      - name: Authenticate to AWS
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.PRERELEASE_ROLE_ARN }}
+          aws-region: ${{ vars.PRERELEASE_AWS_REGION || 'eu-north-1' }}
+
+      - name: Log in to ECR
+        uses: aws-actions/amazon-ecr-login@7290e214a610b32bc0eef81748948b6d466a8783 # v2.2.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+
+      # Only for base-image pulls and the buildcache. A miss costs rate limits.
+      - name: Login to Docker Hub
+        continue-on-error: true
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Reads main's Docker Hub cache and writes none, so main's stays intact.
+      - name: Build and push sandbox-base
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          file: docker/Dockerfile.sandbox-base
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.PRERELEASE_REGISTRY }}/moatless-sandbox-base:${{ steps.tags.outputs.branch }}
+            ${{ env.PRERELEASE_REGISTRY }}/moatless-sandbox-base:${{ steps.tags.outputs.sha }}
+          build-args: |
+            CLAUDE_CLI_VERSION=${{ env.CLAUDE_CLI_VERSION }}
+            CODEX_CLI_VERSION=${{ env.CODEX_CLI_VERSION }}
+            PI_CLI_VERSION=${{ env.PI_CLI_VERSION }}
+            MINI_SWE_VERSION=${{ env.MINI_SWE_VERSION }}
+            AGY_CLI_VERSION=${{ env.AGY_CLI_VERSION }}
+            AGY_CLI_SHA512_AMD64=${{ env.AGY_CLI_SHA512_AMD64 }}
+            AGY_CLI_SHA512_ARM64=${{ env.AGY_CLI_SHA512_ARM64 }}
+            MINI_SWE_LITELLM_VERSION=${{ env.MINI_SWE_LITELLM_VERSION }}
+            MINI_SWE_MCP_VERSION=${{ env.MINI_SWE_MCP_VERSION }}
+            TASK_VERSION=${{ env.TASK_VERSION }}
+          cache-from: type=registry,ref=${{ env.SANDBOX_BASE_IMAGE }}:buildcache
+
+      - name: Build and push sandbox-tools
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          file: docker/Dockerfile.sandbox-tools
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.PRERELEASE_REGISTRY }}/moatless-sandbox-tools:${{ steps.tags.outputs.branch }}
+            ${{ env.PRERELEASE_REGISTRY }}/moatless-sandbox-tools:${{ steps.tags.outputs.sha }}
+          build-contexts: |
+            binaries=/tmp/sandbox-binaries
+          cache-from: type=registry,ref=${{ env.SANDBOX_TOOLS_IMAGE }}:buildcache
+
+      - name: Build and push sandbox
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          file: docker/Dockerfile.sandbox
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.PRERELEASE_REGISTRY }}/moatless-sandbox:${{ steps.tags.outputs.branch }}
+            ${{ env.PRERELEASE_REGISTRY }}/moatless-sandbox:${{ steps.tags.outputs.sha }}
+          build-args: |
+            SANDBOX_BASE=${{ env.PRERELEASE_REGISTRY }}/moatless-sandbox-base:${{ steps.tags.outputs.sha }}
+          build-contexts: |
+            binaries=/tmp/sandbox-binaries
+          cache-from: type=registry,ref=${{ env.SANDBOX_IMAGE }}:buildcache
+
+      - name: Build and push backend
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          file: docker/Dockerfile.backend-cross
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.PRERELEASE_REGISTRY }}/moatless-backend:${{ steps.tags.outputs.branch }}
+            ${{ env.PRERELEASE_REGISTRY }}/moatless-backend:${{ steps.tags.outputs.sha }}
+          build-contexts: |
+            binary=/tmp/backend-binary
+          cache-from: type=registry,ref=${{ env.BACKEND_IMAGE_NAME }}:buildcache
+
+      - name: Summarize
+        run: |
+          {
+            echo "### Prerelease images"
+            for img in moatless-backend moatless-sandbox-base moatless-sandbox-tools moatless-sandbox; do
+              echo "- \`${PRERELEASE_REGISTRY}/${img}:${{ steps.tags.outputs.sha }}\`"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
   # ── Publish dev Helm chart (push to main + manual dispatch) ──
   publish-helm-dev:
     name: Publish dev Helm chart
     needs: [detect-changes, build-backend-image]
     if: >-
-      !cancelled() &&
-      ((github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      !cancelled() && github.ref == 'refs/heads/main' &&
+      ((github.event_name == 'push') ||
        (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)) &&
       !contains(needs.*.result, 'failure') &&
       (
@@ -1602,6 +1764,7 @@ jobs:
       - build-sandbox-tools
       - build-sandbox-base
       - build-sandbox
+      - publish-prerelease
     if: >-
       always() &&
       needs.build-rust.result != 'skipped' &&

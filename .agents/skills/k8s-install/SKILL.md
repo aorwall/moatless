@@ -1,12 +1,12 @@
 ---
 name: k8s-install
-description: "Install Moatless on Kubernetes using moat k8s. Use for a fresh Helm installation, a local Docker Desktop cluster, AKS or EKS prerequisites, values generation, secrets, and deployment verification."
+description: "Install Moatless on Kubernetes using moat k8s. Use for a fresh Helm installation, a local cluster (Docker Desktop on macOS, k3d on Linux), AKS or EKS prerequisites, values generation, secrets, and deployment verification."
 ---
 
 # Kubernetes installation
 
 Use an explicit context and namespace throughout. For a cluster on your own
-machine, follow [local Docker Desktop](references/provider-local.md). Otherwise read
+machine, follow [local cluster](references/provider-local.md). Otherwise read
 [prerequisites](references/prerequisites.md), then the applicable
 [AKS](references/provider-aks.md) or [EKS](references/provider-eks.md) reference.
 The [CLI parser](../../../crates/cli/src/commands/k8s/mod.rs) owns flags and defaults.

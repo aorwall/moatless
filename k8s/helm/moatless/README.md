@@ -100,10 +100,10 @@ helm install moatless ./k8s/helm/moatless \
 
 ### Local single-node cluster
 
-For a full local bring-up on Docker Desktop Kubernetes (native arm64 images,
-first-party Postgres, `*.localhost` routing through Traefik), use the
-committed config and runbook in [`k8s/local/`](../../local/README.md). Install
-with:
+For a full local bring-up on Docker Desktop (macOS) or k3d (Linux), with
+host-arch images, first-party Postgres and `*.localhost` routing through
+Traefik, use the committed config and runbook in
+[`k8s/local/`](../../local/README.md). Install with:
 
 ```bash
 helm install moatless ./k8s/helm/moatless -n moatless -f k8s/local/values-local.yaml

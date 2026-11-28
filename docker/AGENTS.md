@@ -3,11 +3,9 @@
 ## Building an image locally
 
 ```bash
-./docker/build-backend.sh
+./docker/build-backend.sh    # each takes --local to skip the push
 ./docker/build-sandbox.sh    # on Apple Silicon: --local --only base
 ```
-
-Each takes `--local` to skip the push.
 
 ## How the images depend on each other
 
@@ -70,7 +68,10 @@ target dirs and per-run binary handoffs belong in that cache.
 `docker-container` buildx driver, and a cache mount is builder-local and
 `--cache-to` does not export it.
 
-## Linking an npm global tool
+## Installing an npm global tool
+
+**Give every `RUN` that calls `npm` a `--mount=type=tmpfs,target=/root/.npm`.**
+npm caches downloads there even for `-g`, and no later `rm -rf` shrinks a layer.
 
 Link into `/usr/local/bin` from `$(npm prefix -g)/bin/<tool>`. Never link from
 `$(which <tool>)`. `/usr/local/bin` precedes npm's bin dir on `PATH`, so once

@@ -1,4 +1,5 @@
-# Moatless — local single-node Kubernetes (Docker Desktop, kubeadm mode).
+# Moatless — local single-node Kubernetes: Docker Desktop in kubeadm mode on
+# macOS, k3d on Linux.
 #
 # Bring-up runbook and gotchas: k8s/local/README.md
 # Contains NO secrets — create Secret/moatless-secrets by hand (see README).
@@ -21,7 +22,7 @@ sandboxImage:
   tag: "dev"
 
 # --- T3 Code UI ----------------------------------------------------------------
-# Built locally: the published image is amd64 only.
+# Built locally, with the CSP that admits `*.preview.moatless.localhost` frames.
 t3:
   image:
     pullPolicy: IfNotPresent
@@ -39,10 +40,10 @@ kubernetes:
     enabled: false
   sandboxStorage:
     # S3 needs a real bucket, which a local install does not have — turn the
-    # snapshot off and lean on the PVC alone. Docker Desktop's built-in hostpath
-    # provisioner backs it, so workspaces survive pod replacement and retained
-    # close/reopen flows without any cloud storage. (This replaces the removed
-    # `node` hostPath tier, which did the same thing less durably.)
+    # snapshot off and lean on the PVC alone. The cluster's default StorageClass
+    # (Docker Desktop's hostpath, k3s's local-path) backs it, so workspaces
+    # survive pod replacement and retained close/reopen flows without any cloud
+    # storage.
     defaultPvc: true
     defaultS3: false
   # Drop the tcp_keepalive_* entries: some kubelets reject them as unsafe, which
@@ -72,7 +73,7 @@ proxy:
   # Previews are a subdomain of the app host (`{task}--{port}.preview.moatless.localhost`),
   # not a separate `*.preview.localhost` site. Same registrable domain as
   # `moatless.localhost`, so the session cookie (COOKIE_DOMAIN below) reaches
-  # preview hosts and ForwardAuth works. macOS resolves any *.localhost → 127.0.0.1.
+  # preview hosts and ForwardAuth works. Browsers resolve any *.localhost → 127.0.0.1.
   domain: "preview.moatless.localhost"
   protocol: "http"
   # "web" (plain HTTP) entryPoint, not the TLS "websecure".

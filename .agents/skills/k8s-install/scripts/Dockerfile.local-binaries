@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1
 ARG RUST_VERSION
 FROM rust:${RUST_VERSION}-slim-bookworm AS builder
+ARG TARGETARCH
 RUN apt-get update && apt-get install -y cmake make protobuf-compiler pkg-config && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY . .
@@ -8,6 +9,6 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/app/target \
     cargo build --release -p moatless-sandbox -p moatless-cli && \
-    mkdir -p /out/arm64 && cp target/release/sandbox target/release/moat /out/arm64/
+    mkdir -p /out/${TARGETARCH} && cp target/release/sandbox target/release/moat /out/${TARGETARCH}/
 FROM scratch
 COPY --from=builder /out /

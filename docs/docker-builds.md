@@ -74,5 +74,10 @@ repository needs:
 | `REGISTRY_ORG` | variable, optional | the Docker Hub namespace; `aorwall` when unset |
 | `CI_RUNNER`, `CI_RUNNER_LARGE` | variables, optional | runner labels for the CI jobs; `ubuntu-latest` when unset |
 
+A `workflow_dispatch` from another branch publishes nothing to Docker Hub. When
+the `PRERELEASE_REGISTRY` variable is set, `publish-prerelease` pushes the
+backend and sandbox images there instead, tagged `branch-<ref>` and
+`sha-<short>`, through the OIDC role in `PRERELEASE_ROLE_ARN` (ECR only).
+
 Restrict the `dockerhub` environment to `main`. A job that names a runner label
 no runner serves stays queued for 24 hours and is then cancelled, with no error.
