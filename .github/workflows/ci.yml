@@ -1062,39 +1062,26 @@ jobs:
         if: env.BUILD_BACKEND == 'true'
         run: target/ci/moatless-backend --dump-openapi > openapi-specs.json
 
-      # `actions/cache` hashes its compression into the version and picks zstd
-      # when `zstd` is on PATH, as on GitHub-hosted runners but not here or on
-      # `arc-runner`. So zstd only when the restoring jobs run hosted, i.e. no
-      # `CI_RUNNER`/`CI_RUNNER_LARGE`; on `arc-runner` they ask for gzip and
-      # miss a zstd save. Only for these saves, deliberately: the post-job Rust
-      # cache saves would switch version too.
-      - name: Expose zstd for the handoff saves
-        if: >-
-          (env.BUILD_BACKEND == 'true' || env.BUILD_SANDBOX == 'true') &&
-          vars.CI_RUNNER == '' && vars.CI_RUNNER_LARGE == ''
-        run: |
-          .github/scripts/apt-https-mirrors.sh
-          apt-get update
-          cd /tmp && apt-get download zstd && dpkg -x zstd_*.deb /opt/zstd
-          ln -sf /opt/zstd/usr/bin/zstd /usr/local/bin/zstd
-          ln -sf /opt/zstd/usr/bin/zstd /usr/local/bin/zstdmt
-          zstdmt --version
-
-      - name: Cache backend binary for downstream jobs
+      # `actions/cache` hashes its compression into the version: gzip, or zstd
+      # when the job that runs it has `zstd` on PATH. This container has none;
+      # the restoring jobs run on the host, where it depends on the runner image
+      # (hosted and current `arc-runner` have it). So each handoff is saved under
+      # both versions, rather than guessing the restorer's image and missing.
+      - name: Cache backend binary for downstream jobs (gzip)
         if: env.BUILD_BACKEND == 'true'
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: target/ci/moatless-backend
           key: backend-binary-${{ github.sha }}
 
-      - name: Cache OpenAPI spec for downstream jobs
+      - name: Cache OpenAPI spec for downstream jobs (gzip)
         if: env.BUILD_BACKEND == 'true'
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: openapi-specs.json
           key: openapi-spec-${{ github.sha }}
 
-      - name: Cache sandbox binaries for downstream jobs
+      - name: Cache sandbox binaries for downstream jobs (gzip)
         if: env.BUILD_SANDBOX == 'true'
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
@@ -1103,6 +1090,40 @@ jobs:
             target/ci/moat
           key: sandbox-binaries-${{ github.sha }}
 
+      - name: Expose zstd for the handoff saves
+        if: env.BUILD_BACKEND == 'true' || env.BUILD_SANDBOX == 'true'
+        run: |
+          .github/scripts/apt-https-mirrors.sh
+          apt-get update
+          cd /tmp && apt-get download zstd && dpkg -x zstd_*.deb /opt/zstd
+          ln -sf /opt/zstd/usr/bin/zstd /usr/local/bin/zstd
+          ln -sf /opt/zstd/usr/bin/zstd /usr/local/bin/zstdmt
+          zstdmt --version
+
+      - name: Cache backend binary for downstream jobs (zstd)
+        if: env.BUILD_BACKEND == 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: target/ci/moatless-backend
+          key: backend-binary-${{ github.sha }}
+
+      - name: Cache OpenAPI spec for downstream jobs (zstd)
+        if: env.BUILD_BACKEND == 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: openapi-specs.json
+          key: openapi-spec-${{ github.sha }}
+
+      - name: Cache sandbox binaries for downstream jobs (zstd)
+        if: env.BUILD_SANDBOX == 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            target/ci/sandbox
+            target/ci/moat
+          key: sandbox-binaries-${{ github.sha }}
+
+      # Deliberately: left on PATH, the post-job Rust cache saves switch version.
       - name: Hide zstd from the post-job cache saves
         if: always()
         run: rm -f /usr/local/bin/zstd /usr/local/bin/zstdmt
