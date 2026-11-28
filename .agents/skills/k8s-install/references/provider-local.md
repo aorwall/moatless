@@ -12,9 +12,8 @@ domain, or TLS.
   Desktop for Linux or kind: neither sees host-built images or serves port 80
   without extra setup.
 - Check for an earlier release with `helm list` before you install.
-- Build images with [build-local-images.sh](../scripts/build-local-images.sh).
-  On Linux, set `K3D_CLUSTER=moatless` so it imports each image; a pod cannot
-  use an image that was only built on the host.
+- Use the published `aorwall` backend, sandbox, and T3 images. The local
+  runbook explains how to select a local build when developing an image.
 - Ask the user before you prune Docker data, reset the database, or store one of
   their tokens in the cluster.
 - Verify in a browser. `curl` succeeds while the UI cannot connect.
