@@ -1,0 +1,6 @@
+[env]
+# The `sqlx::query!` family reads `.sqlx/` rather than a database, even where
+# `DATABASE_URL` is exported (the db-tests tier, a shadow backend): live, a
+# build would depend on that database's schema. `scripts/sqlx-prepare.sh`
+# overrides it to regenerate `.sqlx/`.
+SQLX_OFFLINE = "true"

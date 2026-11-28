@@ -271,6 +271,12 @@ tasks:
     cmds:
       - ./scripts/clippy-db-tests.sh {{.CLI_ARGS}}
 
+  # Pass --check to fail on stale data instead of rewriting it, as CI does.
+  rust:sqlx:prepare:
+    desc: Regenerate .sqlx/, the offline data for the sqlx::query! macros, against a throwaway Postgres
+    cmds:
+      - ./scripts/sqlx-prepare.sh {{.CLI_ARGS}}
+
   # ── Testing ────────────────────────────────────────────────────
 
   test:integration:

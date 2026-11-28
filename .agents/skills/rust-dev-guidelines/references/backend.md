@@ -34,8 +34,14 @@ Apply this reference to backend Rust across `crates/`. Read [where a type belong
 
 ## SQL and Pagination
 
-- Bind data values. Dynamic SQL may vary only through validated structural
-  fragments before `AssertSqlSafe`.
+- Write a new query with `sqlx::query!`, `query_as!` or `query_scalar!`, which
+  compile against the committed `.sqlx/`. After adding one or changing a
+  migration, run `task rust:sqlx:prepare` and commit `.sqlx/`; CI fails a
+  stale one. Keep the SQL an inline literal rather than `query_file!`, which
+  `table-ownership` cannot read, and out of `db-tests`-gated code, which
+  `prepare` does not compile. An existing runtime query need not be converted.
+- Bind data values. Dynamic SQL stays on `sqlx::query` and may vary only
+  through validated structural fragments before `AssertSqlSafe`.
 - Match fetch cardinality to the query: optional for zero-or-one, one only when
   guaranteed, and bounded list reads for collections.
 - List the columns a query reads and returns; never `SELECT *`, `alias.*` or

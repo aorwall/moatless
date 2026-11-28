@@ -56,6 +56,10 @@ packages/inspector/node_modules/
 !crates/sandbox/
 !tooling/
 !scripts/
+# Offline data for the `sqlx::query!` family, and the `SQLX_OFFLINE` that
+# selects it; without them a build needs a database.
+!.sqlx/
+!.cargo/
 
 # Exclude Rust build artifacts from whitelisted dirs
 **/target/

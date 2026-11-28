@@ -65,7 +65,7 @@ fi
 
 # Anything that can change feature resolution or the toolchain invalidates the
 # per-crate reasoning below.
-if grep -qE '^(Cargo\.toml|Cargo\.lock|rust-toolchain\.toml|clippy\.toml|\.config/nextest\.toml|\.github/(workflows/ci\.yml|scripts/))' "$CHANGED_FILES_FILE"; then
+if grep -qE '^(Cargo\.toml|Cargo\.lock|rust-toolchain\.toml|clippy\.toml|\.cargo/config\.toml|\.config/nextest\.toml|\.github/(workflows/ci\.yml|scripts/))' "$CHANGED_FILES_FILE"; then
     emit_all "workspace manifest, toolchain or CI tooling changed"
 fi
 

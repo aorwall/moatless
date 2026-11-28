@@ -129,10 +129,12 @@ pub async fn claim_dispatch(
 
 /// Drop `positions` from the dispatch queue, marking them dispatched.
 pub async fn release_dispatch(pool: &PgPool, positions: &[i64]) -> Result<(), sqlx::Error> {
-    sqlx::query(r#"DELETE FROM task_event_dispatch_queue WHERE position = ANY($1)"#)
-        .bind(positions)
-        .execute(pool)
-        .await?;
+    sqlx::query!(
+        "DELETE FROM task_event_dispatch_queue WHERE position = ANY($1)",
+        positions
+    )
+    .execute(pool)
+    .await?;
     Ok(())
 }
 

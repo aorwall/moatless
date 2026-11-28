@@ -26,8 +26,12 @@ fn execution(path: &str) -> bool {
                 "query"
                     | "query_as"
                     | "query_scalar"
+                    | "query_unchecked"
+                    | "query_as_unchecked"
+                    | "query_scalar_unchecked"
                     | "query_file"
                     | "query_file_as"
+                    | "query_file_scalar"
                     | "raw_sql"
                     | "QueryBuilder"
             )
@@ -67,6 +71,27 @@ mod tests {
         );
         let found = check(&f.load()).expect("check");
         assert_eq!(found.len(), 1);
+    }
+
+    #[test]
+    fn checked_query_macros_stay_with_their_owner() {
+        let mut f = Fixture::new();
+        f.member("sample", "", "mod dao; mod handlers;");
+        f.write(
+            "sample/src/dao.rs",
+            "fn read(id: i64) { sqlx::query!(\"SELECT $1::int8\", id); }",
+        );
+        f.write(
+            "sample/src/handlers.rs",
+            "fn read() { sqlx::query_as!(Row, \"SELECT 1\"); } fn count() { sqlx::query_scalar!(\"SELECT 1\"); }",
+        );
+        let found = check(&f.load()).expect("check");
+        assert_eq!(found.len(), 2);
+        assert!(
+            found
+                .iter()
+                .all(|v| v.locations[0].contains("/handlers.rs:"))
+        );
     }
 
     #[test]

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM task_event_dispatch_queue WHERE position = ANY($1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "343f3e808b07d5fd20e1f0afabfefbe870de44cfb6d6ea9023cc01697214dfa6"
+}

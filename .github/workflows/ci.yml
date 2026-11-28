@@ -184,6 +184,9 @@ jobs:
               - 'crates/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
+              - '.cargo/config.toml'
+              - '.sqlx/**'
+              - 'scripts/sqlx-prepare.sh'
             skill-scripts:
               - '.agents/skills/**'
               - 'scripts/**'
@@ -486,6 +489,19 @@ jobs:
     runs-on: ${{ vars.CI_RUNNER_LARGE || 'ubuntu-latest' }}
     container:
       image: rust:1.97-bookworm
+    # Only `scripts/sqlx-prepare.sh --check` connects; reachable by its label.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
     timeout-minutes: 30
     env:
       # Deps build under `dev`, not `test` — trimming only the test profile
@@ -601,6 +617,21 @@ jobs:
           else
             scripts/clippy-db-tests.sh
           fi
+
+      - name: Install sqlx-cli
+        if: needs.detect-changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch'
+        uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: sqlx-cli@0.9.0
+
+      # Last: `prepare` touches the sources of every crate that uses sqlx, so a
+      # clippy step after it would relint them all. Its `cargo check` reuses
+      # the dependency metadata the floor built.
+      - name: SQLx offline data is current
+        if: needs.detect-changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch'
+        env:
+          SQLX_PREPARE_DATABASE_URL: postgres://postgres:postgres@postgres:5432/postgres
+        run: scripts/sqlx-prepare.sh --check
 
       - name: sccache stats
         if: always() && env.RUSTC_WRAPPER != ''

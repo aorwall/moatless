@@ -90,6 +90,15 @@ mod tests {
         assert_eq!(live, BTreeSet::from(["actual".to_string()]));
     }
     #[test]
+    fn checked_query_macro_sql_is_indexed() {
+        let item: syn::Item = syn::parse_str(
+            "fn release(ids: &[i64]) { sqlx::query!(\"DELETE FROM tasks WHERE id = ANY($1)\", ids); }",
+        )
+        .unwrap_or_else(|e| panic!("fixture parses: {e}"));
+        let found: BTreeSet<_> = literals(&item).iter().flat_map(|l| tables(l)).collect();
+        assert_eq!(found, BTreeSet::from([("tasks".to_string(), true)]));
+    }
+    #[test]
     fn joins_and_quoted_schema_tables_are_found() {
         assert_eq!(
             tables("SELECT * FROM public.\"tasks\" JOIN workspaces w ON true -- JOIN ghost"),

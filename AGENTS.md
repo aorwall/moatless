@@ -26,6 +26,7 @@ cargo clippy -p moatless-core --all-targets -- -D warnings
 cargo clippy -p moatless-ports --all-targets --all-features -- -D warnings
 cargo clippy -p moatless-ports --all-targets --no-default-features -- -D warnings
 task rust:clippy:db-tests                   # every package declaring db-tests
+task rust:sqlx:prepare                      # .sqlx/ after a query! or migration
 cargo test -p <crate>                       # never --workspace
 bash .github/scripts/test-workspace-contracts.sh
 task rust:gc                                # reclaim target/debug/incremental

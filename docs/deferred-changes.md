@@ -802,6 +802,12 @@ of its own.
 |---|---|---|
 | A killed pod's migration keeps running on Postgres | `crates/core/src/db/migrations.rs::run_migrations` holds sqlx's advisory lock on one connection. When the pod is killed, the server keeps running the statement until it notices the dead socket, and the next pod waits on the lock (7–35s on 26 Nov). The chart's `migrate` init container is never killed by a probe, so this no longer loops | When something other than a probe kills a migration often enough to stall rollouts. Set TCP keepalives or `statement_timeout` on the migration connection |
 
+## SQLx offline data
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| `.sqlx/` holds no query from `db-tests`-gated code | `scripts/sqlx-prepare.sh` runs `cargo sqlx prepare` over the clippy floor's `--workspace --all-targets`, which enables no `db-tests` feature, so a `sqlx::query!` behind one fails the db-tests tier with no cached data | When a gated test needs a checked query. Add the db-tests features to the prepare's `cargo check`, and measure the dependency rebuild its unified features cost the clippy job |
+
 ## Generated API client
 
 | Deferred | Anchor | Entry condition |
