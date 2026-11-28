@@ -470,11 +470,11 @@ Agent process.
 _Avoid_: agent run; "agent" as a synonym for a running Task
 
 **Agent harness**:
-The execution implementation that controls the Agent process: exactly
-`claude-code` or `codex`. The Task's Agent profile selects it, and switching the
-profile switches it between Turns; the next Turn starts a Session of the new
-harness from the Trajectory. Transport, model, and mode variants are
-configuration, not distinct harnesses.
+The execution implementation that controls the Agent process: one of
+`claude-code`, `codex`, `pi`, `mini-swe` or `acp`. The Task's Agent profile
+selects it, and switching the profile switches it between Turns; the next Turn
+starts a Session of the new harness from the Trajectory. Transport, model, and
+mode variants are configuration, not distinct harnesses.
 _Avoid_: Agent type, treating `claude-code-tui` / `-cli` / `-fable` as harnesses
 
 **Agent harness credential**:

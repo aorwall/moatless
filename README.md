@@ -11,37 +11,25 @@ repositories checked out.
 
 ## How it works
 
-A **Task** is one piece of agent work: a conversation with a coding agent
-(Claude Code, Codex, Pi and others), started by a person or by a Loop. It runs
-in a **Workspace**, which declares the repositories to check out, the image,
-setup commands, secrets and dev-server scripts. Each Task gets its own
-**Sandbox**: a Kubernetes pod with the Workspace materialized on disk. Sandboxes
-stop when idle and resume where they left off.
+| Guide | What it covers |
+| --- | --- |
+| [Loops and routing](docs/guides/loops.md) | Recurring agent work fired by a schedule, Slack, Linear or GitHub, and how events reach tasks |
+| [Harnesses](docs/guides/harnesses.md) | The coding agents Moatless runs, bringing your own credentials, and fallback between providers |
+| [Workspaces and sandboxes](docs/guides/workspaces-and-sandboxes.md) | Declaring repositories and run settings, and the pod each task runs in |
+| [Orchestration](docs/guides/orchestration.md) | When to start a new task, parent and child tasks, and agents messaging each other |
+| [Artifacts](docs/guides/artifacts.md) | Pages an agent publishes for reports and specs, interactive pages, and forking from one |
+| [Self-improvement](docs/guides/self-improvement.md) | Feedback from agents, weekday triage into fix tasks, and memory between runs |
+| [The T3 Code UI](docs/guides/t3-code.md) | The browser client, what the Moatless fork adds, and how it connects to the backend |
 
-## What an agent can do from its sandbox
-
-- **Use the `moat` CLI.** Every harness already runs shell commands, so the
-  backend is reached through one CLI rather than per-harness MCP servers: reply
-  in Slack or Linear, open a pull request, publish an Artifact, write to Memory,
-  run a long build.
-- **Run a preview.** An agent starts the app's dev server as a Script and gets a
-  preview URL, so you can open the running app in the web UI next to the
-  conversation, as on a vibe-coding platform.
-- **Start and talk to other Tasks.** An agent splits work with
-  `moat tasks create`, each child in its own sandbox, and the Tasks message each
-  other with `moat send`. A child reports back to its parent when it is done.
-- **Artifacts.** HTML pages that outlive the sandbox. They can be interactive: a
-  person can fill in a form, pick options, leave comments or edit values on the
-  page. What they enter is stored with the Artifact, and the agent can read it
-  and be notified when it is saved.
-- **Run on events.** A Loop, declared in a `LOOP.md`, starts Tasks on a
-  schedule or when something happens in GitHub, Slack or Linear, and the Task
-  replies on the same thread.
+| Use case | What it shows |
+| --- | --- |
+| [PR reviews](docs/use-cases/pr-reviews.md) | An agent that reviews every pull request on a repository |
+| [Moatless fixing itself](docs/use-cases/moatless-fixing-itself.md) | An alert monitor that explains alerts or starts fix tasks that open PRs |
+| [On-demand admin UIs](docs/use-cases/admin-uis-with-artifacts.md) | Managing users and configuration through pages an agent builds on request |
 
 ## How we use it at Soap Labs
 
-We are a team of six. In 2026 we have run about 18,000 Tasks, growing from under
-100 a month in January to more than 6,000 in the last month.
+We are a team of six, and we ran more than 6,000 Tasks in the last month.
 On a typical working day about 17 Tasks have a running sandbox at any moment,
 peaking at over 50, and roughly half of them were started by Loops and bots
 rather than people.
@@ -53,9 +41,10 @@ At least one sandbox is running at any time of day or night.
 - **Linear tickets.** Mention or assign the agent on a ticket and a triage Loop
   reads it. It answers the question, asks what is unclear, or does the work and
   opens the pull requests.
-- **Software factory.** We are experimenting with a Loop that takes a ticket
-  from refined requirement to design spec to implementation across several
-  repositories, checked by tests and preview environments.
+- **Software factory.** A Loop takes a ticket from refined requirement to design
+  spec to implementation across several repositories, checked by tests and
+  preview environments. People approve the requirement and the design, and
+  merge the pull requests.
 - **Alert triage.** One Loop per alert channel and environment reads every alert
   in Slack, checks the logs, traces and metrics behind it, and reproduces it
   outside production. It then proposes a fix or opens a pull request, and
@@ -80,8 +69,8 @@ Code or Codex at this repository and ask it to install Moatless for you.
 
 ## Security
 
-Moatless is largely vibe-coded: most of it is written by agents, and it has not
-had a security audit. There is no guarantee that it is secure. Agents run code
+All of Moatless's code is written by agents, and it has not had a security
+audit. There is no guarantee that it is secure. Agents run code
 you did not write, with your repositories and every credential you give a
 Workspace. Run it in isolation: its own cluster or cloud account, credentials
 scoped to what the agents need and that you can afford to lose, and nothing
