@@ -32,6 +32,9 @@ fn execution(path: &str) -> bool {
                     | "query_file"
                     | "query_file_as"
                     | "query_file_scalar"
+                    | "query_file_unchecked"
+                    | "query_file_as_unchecked"
+                    | "query_file_scalar_unchecked"
                     | "raw_sql"
                     | "QueryBuilder"
             )
@@ -83,10 +86,12 @@ mod tests {
         );
         f.write(
             "sample/src/handlers.rs",
-            "fn read() { sqlx::query_as!(Row, \"SELECT 1\"); } fn count() { sqlx::query_scalar!(\"SELECT 1\"); }",
+            "fn read() { sqlx::query_as!(Row, \"SELECT 1\"); } \
+             fn count() { sqlx::query_unchecked!(\"SELECT 1\"); } \
+             fn load() { sqlx::query_file_scalar_unchecked!(\"q.sql\"); }",
         );
         let found = check(&f.load()).expect("check");
-        assert_eq!(found.len(), 2);
+        assert_eq!(found.len(), 3);
         assert!(
             found
                 .iter()

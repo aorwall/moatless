@@ -57,7 +57,7 @@ ENV BUN_INSTALL_CACHE_DIR=/opt/bun-cache
 USER root
 
 # .dockerignore whitelists exactly the Rust workspace (Cargo.toml, Cargo.lock,
-# crates/, tooling/, scripts/) plus every workspace package.json +
+# crates/, tooling/, scripts/, .sqlx/, .cargo/) plus every workspace package.json +
 # bun.lock, and strips **/target/ and **/node_modules/ — so this copies clean
 # sources/manifests with no build artifacts.
 COPY . /tmp/moatless-src

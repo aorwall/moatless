@@ -808,6 +808,7 @@ of its own.
 | Deferred | Anchor | Entry condition |
 |---|---|---|
 | `.sqlx/` holds no query from `db-tests`-gated code | `scripts/sqlx-prepare.sh` runs `cargo sqlx prepare` over the clippy floor's `--workspace --all-targets`, which enables no `db-tests` feature, so a `sqlx::query!` behind one fails the db-tests tier with no cached data | When a gated test needs a checked query. Add the db-tests features to the prepare's `cargo check`, and measure the dependency rebuild its unified features cost the clippy job |
+| A crate other than `moatless-core` would keep an artifact built against stale `.sqlx/` | On stable Rust, sqlx 0.9's offline `query!` puts no `.sqlx/*.json` in dep-info, so neither cargo nor sccache rebuilds a crate whose query text is unchanged when a migration changes its column types. `moatless-core` is safe: `sqlx::migrate!` in `db/migrations.rs` embeds every migration with `include_str!`. `scripts/sqlx-prepare.sh --check` compiles live and still catches a type mismatch | When a crate other than `moatless-core` adopts a checked macro. Make its sources depend on `.sqlx/`, for example with a build script that `include_bytes!`s the files from `OUT_DIR`, because sccache keys on dep-info content and `rerun-if-changed` alone does not change that key |
 
 ## Generated API client
 
