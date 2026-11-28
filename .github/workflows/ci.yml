@@ -204,6 +204,7 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'docker/Dockerfile.backend-cross'
+              - '.github/workflows/ci.yml'
             # The sandbox filters below gate the sandbox images; the binaries are
             # gated by the `sandbox-binaries` step. `.github/workflows/ci.yml` is
             # in each of them so an edit to this file republishes what it describes.
@@ -906,11 +907,11 @@ jobs:
         if: always() && env.RUSTC_WRAPPER != ''
         run: "$RUSTC_WRAPPER --show-stats || true"
 
-  # ── Build every Rust binary the images need, in one job (push + manual) ──
+  # ── Build every Rust binary the images need (push + manual) ──
   #
   # Backend, sandbox and `moat` share `crates/**` and nearly all of their
   # dependency graph, so building them in one container is one dependency
-  # compile against one warm `target/` instead of two jobs racing on two caches.
+  # compile per architecture against one warm `target/`.
   # Which binaries get built is the closure the changed files actually publish.
   #
   # Off on PRs: nothing a PR gates on consumes these binaries. `rust-checks`
@@ -926,7 +927,7 @@ jobs:
   # Keyed on the commit so a run reads back exactly what it wrote, and every
   # consumer sets fail-on-cache-miss so a miss is loud rather than a stale build.
   build-rust:
-    name: Build Rust binaries
+    name: Build Rust binaries (${{ matrix.arch }})
     needs: detect-changes
     if: >-
       !cancelled() &&
@@ -944,9 +945,13 @@ jobs:
         ) ||
         (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)
       )
-    runs-on: ${{ vars.CI_RUNNER_LARGE || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ${{ fromJSON(github.ref == 'refs/heads/main' && '["amd64","arm64"]' || '["amd64"]') }}
+    runs-on: ${{ matrix.arch == 'arm64' && (vars.CI_RUNNER_ARM64 || 'ubuntu-24.04-arm') || vars.CI_RUNNER_LARGE || 'ubuntu-latest' }}
     # Build inside Debian 12 (bookworm) container so the binaries link against
-    # GLIBC 2.36, matching the distroless/cc-debian12 runtime image.
+    # GLIBC 2.36 or older, compatible with the runtime images.
     container:
       image: rust:1.97-bookworm
     env:
@@ -980,6 +985,11 @@ jobs:
           role-to-assume: ${{ github.ref == 'refs/heads/main' && vars.SCCACHE_AWS_ROLE || vars.SCCACHE_AWS_READ_ROLE }}
           aws-region: ${{ vars.SCCACHE_S3_REGION || 'eu-north-1' }}
 
+      - name: Verify runner architecture
+        env:
+          BUILD_ARCH: ${{ matrix.arch }}
+        run: test "$(dpkg --print-architecture)" = "$BUILD_ARCH"
+
       - name: Install mold linker
         run: .github/scripts/install-mold.sh
 
@@ -1004,7 +1014,7 @@ jobs:
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: ". -> target"
-          shared-key: rust-ci
+          shared-key: rust-ci${{ matrix.arch == 'arm64' && '-arm64' || '' }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Measure restored Rust cache footprint
@@ -1015,10 +1025,9 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.cache/sccache
-          key: ${{ runner.os }}-sccache-rust-ci-${{ hashFiles('Cargo.lock') }}
+          key: ${{ runner.os }}-sccache-rust-ci${{ matrix.arch == 'arm64' && '-arm64' || '' }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-sccache-rust-ci-
-            ${{ runner.os }}-sccache-
+            ${{ runner.os }}-sccache-rust-ci${{ matrix.arch == 'arm64' && '-arm64' || '' }}-
 
       - name: Build binaries (ci profile)
         run: |
@@ -1054,12 +1063,10 @@ jobs:
             "$RUSTC_WRAPPER" --show-stats || true
           fi
 
-      # Dumped here rather than in a job of its own: the binary links GLIBC 2.36
-      # and the arc-runner image is Ubuntu 22.04 (2.35), so running it anywhere
-      # else costs a second bookworm container plus a 20 MB artifact round trip.
-      # This container already has both the binary and the right GLIBC.
+      # Generate the shared spec once. The arc-runner image has an older GLIBC,
+      # so running the binary there would require another bookworm container.
       - name: Generate OpenAPI spec
-        if: env.BUILD_BACKEND == 'true'
+        if: matrix.arch == 'amd64' && env.BUILD_BACKEND == 'true'
         run: target/ci/moatless-backend --dump-openapi > openapi-specs.json
 
       # `actions/cache` hashes its compression into the version and picks zstd
@@ -1081,10 +1088,10 @@ jobs:
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: target/ci/moatless-backend
-          key: backend-binary-${{ github.sha }}
+          key: backend-binary-${{ matrix.arch == 'arm64' && 'arm64-' || '' }}${{ github.sha }}
 
       - name: Cache OpenAPI spec for downstream jobs
-        if: env.BUILD_BACKEND == 'true'
+        if: matrix.arch == 'amd64' && env.BUILD_BACKEND == 'true'
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: openapi-specs.json
@@ -1097,7 +1104,7 @@ jobs:
           path: |
             target/ci/sandbox
             target/ci/moat
-          key: sandbox-binaries-${{ github.sha }}
+          key: sandbox-binaries-${{ matrix.arch == 'arm64' && 'arm64-' || '' }}${{ github.sha }}
 
       - name: Hide zstd from the post-job cache saves
         if: always()
@@ -1271,7 +1278,7 @@ jobs:
   # which has no route to the DinD sidecar's daemon, so buildx can't run there.
   # Hence the cached binary handoff.
   build-backend-image:
-    name: Build & push backend image
+    name: Build backend image (${{ matrix.arch }})
     # `rust-test` gates `:latest`, which the backend Deployment repulls on every
     # restart: a red `main` published as-is crash-loops startup on a migration
     # it cannot apply, as `4f78eaf7b`'s two `0213_*` files did. A dispatch runs
@@ -1287,7 +1294,11 @@ jobs:
        (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)) &&
       needs.build-rust.result == 'success' &&
       (github.event_name == 'workflow_dispatch' || needs.rust-test.result == 'success')
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    runs-on: ${{ matrix.arch == 'arm64' && (vars.CI_RUNNER_ARM64 || 'ubuntu-24.04-arm') || vars.CI_RUNNER || 'ubuntu-latest' }}
     environment: dockerhub
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -1296,7 +1307,7 @@ jobs:
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: target/ci/moatless-backend
-          key: backend-binary-${{ github.sha }}
+          key: backend-binary-${{ matrix.arch == 'arm64' && 'arm64-' || '' }}${{ github.sha }}
           fail-on-cache-miss: true
 
       # Isolated into its own directory because it is passed to buildx as a
@@ -1309,7 +1320,7 @@ jobs:
 
       - name: Compute short SHA
         id: sha
-        run: echo "short=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+        run: echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
@@ -1325,15 +1336,14 @@ jobs:
         with:
           context: .
           file: docker/Dockerfile.backend-cross
-          platforms: linux/amd64
+          platforms: linux/${{ matrix.arch }}
           push: true
           tags: |
-            ${{ env.BACKEND_IMAGE_NAME }}:latest
-            ${{ env.BACKEND_IMAGE_NAME }}:sha-${{ steps.sha.outputs.short }}
+            ${{ env.BACKEND_IMAGE_NAME }}:sha-${{ steps.sha.outputs.short }}-${{ matrix.arch }}
           build-contexts: |
             binary=/tmp/backend-binary
-          cache-from: type=registry,ref=${{ env.BACKEND_IMAGE_NAME }}:buildcache
-          cache-to: type=registry,ref=${{ env.BACKEND_IMAGE_NAME }}:buildcache,mode=min,image-manifest=true,oci-mediatypes=true
+          cache-from: type=registry,ref=${{ env.BACKEND_IMAGE_NAME }}:buildcache${{ matrix.arch == 'arm64' && '-arm64' || '' }}
+          cache-to: type=registry,ref=${{ env.BACKEND_IMAGE_NAME }}:buildcache${{ matrix.arch == 'arm64' && '-arm64' || '' }},mode=min,image-manifest=true,oci-mediatypes=true
 
   # ── Prove a sandbox-base change builds, on the PR that makes it ──
   # The publish job below only runs on `main`, so before this the first build of
@@ -1402,7 +1412,7 @@ jobs:
           cache-from: type=registry,ref=${{ env.SANDBOX_BASE_IMAGE }}:buildcache
 
   build-sandbox-base:
-    name: Build & push sandbox-base (stable)
+    name: Build sandbox-base (${{ matrix.arch }})
     needs: detect-changes
     if: >-
       !cancelled() && github.ref == 'refs/heads/main' &&
@@ -1412,7 +1422,11 @@ jobs:
         needs.detect-changes.outputs.sandbox-base == 'true' ||
         (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)
       )
-    runs-on: ${{ vars.CI_RUNNER_LARGE || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    runs-on: ${{ matrix.arch == 'arm64' && (vars.CI_RUNNER_ARM64 || 'ubuntu-24.04-arm') || vars.CI_RUNNER_LARGE || 'ubuntu-latest' }}
     environment: dockerhub
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -1429,7 +1443,7 @@ jobs:
 
       - name: Compute short SHA
         id: sha
-        run: echo "short=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+        run: echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
@@ -1445,11 +1459,10 @@ jobs:
         with:
           context: .
           file: docker/Dockerfile.sandbox-base
-          platforms: linux/amd64
+          platforms: linux/${{ matrix.arch }}
           push: true
           tags: |
-            ${{ env.SANDBOX_BASE_IMAGE }}:latest
-            ${{ env.SANDBOX_BASE_IMAGE }}:sha-${{ steps.sha.outputs.short }}
+            ${{ env.SANDBOX_BASE_IMAGE }}:sha-${{ steps.sha.outputs.short }}-${{ matrix.arch }}
           build-args: |
             CLAUDE_CLI_VERSION=${{ env.CLAUDE_CLI_VERSION }}
             CODEX_CLI_VERSION=${{ env.CODEX_CLI_VERSION }}
@@ -1464,12 +1477,12 @@ jobs:
           # Registry cache — a mode=max export of this image does not fit the
           # repo's Actions-cache budget (docker/AGENTS.md). image-manifest and
           # oci-mediatypes make it an ordinary manifest, which Docker Hub accepts.
-          cache-from: type=registry,ref=${{ env.SANDBOX_BASE_IMAGE }}:buildcache
-          cache-to: type=registry,ref=${{ env.SANDBOX_BASE_IMAGE }}:buildcache,mode=max,image-manifest=true,oci-mediatypes=true
+          cache-from: type=registry,ref=${{ env.SANDBOX_BASE_IMAGE }}:buildcache${{ matrix.arch == 'arm64' && '-arm64' || '' }}
+          cache-to: type=registry,ref=${{ env.SANDBOX_BASE_IMAGE }}:buildcache${{ matrix.arch == 'arm64' && '-arm64' || '' }},mode=max,image-manifest=true,oci-mediatypes=true
 
   # ── Build and push the sandbox-tools image (binaries only) ──
   build-sandbox-tools:
-    name: Build & push sandbox-tools
+    name: Build sandbox-tools (${{ matrix.arch }})
     needs: [detect-changes, build-rust]
     if: >-
       !cancelled() && github.ref == 'refs/heads/main' &&
@@ -1481,7 +1494,11 @@ jobs:
         (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)
       ) &&
       needs.build-rust.result == 'success'
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    runs-on: ${{ matrix.arch == 'arm64' && (vars.CI_RUNNER_ARM64 || 'ubuntu-24.04-arm') || vars.CI_RUNNER || 'ubuntu-latest' }}
     environment: dockerhub
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -1492,18 +1509,18 @@ jobs:
           path: |
             target/ci/sandbox
             target/ci/moat
-          key: sandbox-binaries-${{ github.sha }}
+          key: sandbox-binaries-${{ matrix.arch == 'arm64' && 'arm64-' || '' }}${{ github.sha }}
           fail-on-cache-miss: true
 
       - name: Prepare binaries
         run: |
-          mkdir -p /tmp/sandbox-binaries/amd64
-          cp target/ci/sandbox target/ci/moat /tmp/sandbox-binaries/amd64/
-          chmod +x /tmp/sandbox-binaries/amd64/sandbox /tmp/sandbox-binaries/amd64/moat
+          mkdir -p /tmp/sandbox-binaries/${{ matrix.arch }}
+          cp target/ci/sandbox target/ci/moat /tmp/sandbox-binaries/${{ matrix.arch }}/
+          chmod +x /tmp/sandbox-binaries/${{ matrix.arch }}/sandbox /tmp/sandbox-binaries/${{ matrix.arch }}/moat
 
       - name: Compute short SHA
         id: sha
-        run: echo "short=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+        run: echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
@@ -1519,22 +1536,21 @@ jobs:
         with:
           context: .
           file: docker/Dockerfile.sandbox-tools
-          platforms: linux/amd64
+          platforms: linux/${{ matrix.arch }}
           push: true
           tags: |
-            ${{ env.SANDBOX_TOOLS_IMAGE }}:latest
-            ${{ env.SANDBOX_TOOLS_IMAGE }}:sha-${{ steps.sha.outputs.short }}
+            ${{ env.SANDBOX_TOOLS_IMAGE }}:sha-${{ steps.sha.outputs.short }}-${{ matrix.arch }}
           build-contexts: |
             binaries=/tmp/sandbox-binaries
-          cache-from: type=registry,ref=${{ env.SANDBOX_TOOLS_IMAGE }}:buildcache
-          cache-to: type=registry,ref=${{ env.SANDBOX_TOOLS_IMAGE }}:buildcache,mode=min,image-manifest=true,oci-mediatypes=true
+          cache-from: type=registry,ref=${{ env.SANDBOX_TOOLS_IMAGE }}:buildcache${{ matrix.arch == 'arm64' && '-arm64' || '' }}
+          cache-to: type=registry,ref=${{ env.SANDBOX_TOOLS_IMAGE }}:buildcache${{ matrix.arch == 'arm64' && '-arm64' || '' }},mode=min,image-manifest=true,oci-mediatypes=true
 
   # ── The runtime sandbox = sandbox-base + scripts + Rust binaries ──
   # Pushed under both ${SANDBOX_IMAGE} and ${SANDBOX_JS_IMAGE} (same content,
   # different repository name). The sandbox-js tag is kept for back-compat with
   # downstream consumers; new consumers should use SANDBOX_IMAGE directly.
   build-sandbox:
-    name: Build & push sandbox (+ sandbox-js alias)
+    name: Build sandbox images (${{ matrix.arch }})
     needs: [detect-changes, build-rust, build-sandbox-tools, build-sandbox-base]
     if: >-
       !cancelled() && github.ref == 'refs/heads/main' &&
@@ -1550,7 +1566,11 @@ jobs:
       needs.build-rust.result == 'success' &&
       (needs.build-sandbox-tools.result == 'success' || needs.build-sandbox-tools.result == 'skipped') &&
       (needs.build-sandbox-base.result == 'success' || needs.build-sandbox-base.result == 'skipped')
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    runs-on: ${{ matrix.arch == 'arm64' && (vars.CI_RUNNER_ARM64 || 'ubuntu-24.04-arm') || vars.CI_RUNNER || 'ubuntu-latest' }}
     environment: dockerhub
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -1568,18 +1588,38 @@ jobs:
           path: |
             target/ci/sandbox
             target/ci/moat
-          key: sandbox-binaries-${{ github.sha }}
+          key: sandbox-binaries-${{ matrix.arch == 'arm64' && 'arm64-' || '' }}${{ github.sha }}
           fail-on-cache-miss: true
 
       - name: Prepare binaries
         run: |
-          mkdir -p /tmp/sandbox-binaries/amd64
-          cp target/ci/sandbox target/ci/moat /tmp/sandbox-binaries/amd64/
-          chmod +x /tmp/sandbox-binaries/amd64/sandbox /tmp/sandbox-binaries/amd64/moat
+          mkdir -p /tmp/sandbox-binaries/${{ matrix.arch }}
+          cp target/ci/sandbox target/ci/moat /tmp/sandbox-binaries/${{ matrix.arch }}/
+          chmod +x /tmp/sandbox-binaries/${{ matrix.arch }}/sandbox /tmp/sandbox-binaries/${{ matrix.arch }}/moat
 
       - name: Compute short SHA
         id: sha
-        run: echo "short=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+        run: echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Select sandbox image dependencies
+        id: dependencies
+        env:
+          BASE_RESULT: ${{ needs.build-sandbox-base.result }}
+          TOOLS_RESULT: ${{ needs.build-sandbox-tools.result }}
+          ARCH_TAG: sha-${{ steps.sha.outputs.short }}-${{ matrix.arch }}
+        run: |
+          base=latest
+          tools=latest
+          if [ "$BASE_RESULT" = success ]; then
+            base="$ARCH_TAG"
+          fi
+          if [ "$TOOLS_RESULT" = success ]; then
+            tools="$ARCH_TAG"
+          fi
+          {
+            echo "base=$base"
+            echo "tools=$tools"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
@@ -1595,19 +1635,64 @@ jobs:
         with:
           context: .
           file: docker/Dockerfile.sandbox
-          platforms: linux/amd64
+          platforms: linux/${{ matrix.arch }}
           push: true
           tags: |
-            ${{ env.SANDBOX_IMAGE }}:latest
-            ${{ env.SANDBOX_IMAGE }}:sha-${{ steps.sha.outputs.short }}
-            ${{ env.SANDBOX_JS_IMAGE }}:latest
-            ${{ env.SANDBOX_JS_IMAGE }}:sha-${{ steps.sha.outputs.short }}
+            ${{ env.SANDBOX_IMAGE }}:sha-${{ steps.sha.outputs.short }}-${{ matrix.arch }}
+            ${{ env.SANDBOX_JS_IMAGE }}:sha-${{ steps.sha.outputs.short }}-${{ matrix.arch }}
           build-args: |
-            SANDBOX_BASE=${{ env.SANDBOX_BASE_IMAGE }}:latest
+            SANDBOX_BASE=${{ env.SANDBOX_BASE_IMAGE }}:${{ steps.dependencies.outputs.base }}
+            SANDBOX_TOOLS=${{ env.SANDBOX_TOOLS_IMAGE }}:${{ steps.dependencies.outputs.tools }}
           build-contexts: |
             binaries=/tmp/sandbox-binaries
-          cache-from: type=registry,ref=${{ env.SANDBOX_IMAGE }}:buildcache
-          cache-to: type=registry,ref=${{ env.SANDBOX_IMAGE }}:buildcache,mode=min,image-manifest=true,oci-mediatypes=true
+          cache-from: type=registry,ref=${{ env.SANDBOX_IMAGE }}:buildcache${{ matrix.arch == 'arm64' && '-arm64' || '' }}
+          cache-to: type=registry,ref=${{ env.SANDBOX_IMAGE }}:buildcache${{ matrix.arch == 'arm64' && '-arm64' || '' }},mode=min,image-manifest=true,oci-mediatypes=true
+
+  publish-dockerhub:
+    name: Publish multi-platform Docker Hub tags
+    needs: [build-backend-image, build-sandbox-base, build-sandbox-tools, build-sandbox]
+    if: >-
+      !cancelled() && contains(needs.*.result, 'success')
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    environment: dockerhub
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Publish image indexes
+        shell: bash
+        env:
+          BACKEND_RESULT: ${{ needs.build-backend-image.result }}
+          SANDBOX_BASE_RESULT: ${{ needs.build-sandbox-base.result }}
+          SANDBOX_TOOLS_RESULT: ${{ needs.build-sandbox-tools.result }}
+          SANDBOX_RESULT: ${{ needs.build-sandbox.result }}
+        run: |
+          tag="sha-${GITHUB_SHA::7}"
+          publish() {
+            local image="$1"
+            docker buildx imagetools create -t "$image:$tag" -t "$image:latest" \
+              "$image:$tag-amd64" "$image:$tag-arm64"
+          }
+
+          if [ "$BACKEND_RESULT" = success ]; then
+            publish "$BACKEND_IMAGE_NAME"
+          fi
+          if [ "$SANDBOX_BASE_RESULT" = success ]; then
+            publish "$SANDBOX_BASE_IMAGE"
+          fi
+          if [ "$SANDBOX_TOOLS_RESULT" = success ]; then
+            publish "$SANDBOX_TOOLS_IMAGE"
+          fi
+          if [ "$SANDBOX_RESULT" = success ]; then
+            publish "$SANDBOX_IMAGE"
+            publish "$SANDBOX_JS_IMAGE"
+          fi
 
   # ── Push a branch build to the deployment's prerelease registry ──
   # Every image of a `workflow_dispatch` off `main` goes to
@@ -1771,7 +1856,7 @@ jobs:
   # ── Publish dev Helm chart (push to main + manual dispatch) ──
   publish-helm-dev:
     name: Publish dev Helm chart
-    needs: [detect-changes, build-backend-image]
+    needs: [detect-changes, build-backend-image, publish-dockerhub]
     if: >-
       !cancelled() && github.ref == 'refs/heads/main' &&
       ((github.event_name == 'push') ||
@@ -1809,7 +1894,7 @@ jobs:
 
   # ── Drop this run's binary-handoff cache entries ──
   #
-  # The four keys below are written once and read once within a single run, but
+  # The keys below are written once and read once within a single run, but
   # Actions cache entries survive until LRU eviction against the repo's 10 GB
   # budget — where each one evicts a Rust dependency cache instead.
   #
@@ -1828,6 +1913,7 @@ jobs:
       - build-sandbox-tools
       - build-sandbox-base
       - build-sandbox
+      - publish-dockerhub
       - publish-prerelease
     if: >-
       always() &&
@@ -1844,8 +1930,10 @@ jobs:
         run: |
           for key in \
             "backend-binary-${GITHUB_SHA}" \
+            "backend-binary-arm64-${GITHUB_SHA}" \
             "openapi-spec-${GITHUB_SHA}" \
             "sandbox-binaries-${GITHUB_SHA}" \
+            "sandbox-binaries-arm64-${GITHUB_SHA}" \
             "generated-client-${GITHUB_SHA}"; do
             code=$(curl -sS -o /dev/null -w '%{http_code}' -X DELETE \
               -H "Authorization: Bearer ${GITHUB_TOKEN}" \
@@ -1887,6 +1975,7 @@ jobs:
             "rust-nextest 2" \
             "rust-test 0" \
             "rust-ci 2" \
+            "rust-ci-arm64 2" \
             "rust-arch 1"; do
             set -- $spec
             shared_key=$1
