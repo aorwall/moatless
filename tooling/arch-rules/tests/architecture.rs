@@ -1,6 +1,6 @@
 // A failed rule read is a failed test either way; the panic carries the
 // message, as in `crates/server/tests/`.
-#![allow(clippy::expect_used)]
+#![expect(clippy::expect_used, reason = "tests fail by panicking")]
 
 //! The enforcing half.
 //!

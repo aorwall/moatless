@@ -1,9 +1,8 @@
 #![cfg(feature = "db-tests")]
-#![allow(
+#![expect(
     clippy::unwrap_used,
-    clippy::expect_used,
     clippy::print_stdout,
-    clippy::print_stderr
+    reason = "tests panic on failure and print diagnostics"
 )]
 //! The position a watching client resumes from, and the one property it rests
 //! on.

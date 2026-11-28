@@ -195,8 +195,10 @@ mod tests {
         // The filter's first positional param is `is_admin`; for the system
         // principal it binds `true`, which makes the whole disjunct match all
         // rows — identical semantics to an unscoped `SELECT ... WHERE id = $1`.
-        // reason: verify the internal principal binds the admin parameter.
-        #[allow(clippy::disallowed_methods)]
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the test exercises the internal principal"
+        )]
         let ctx = ScopeContext::system();
         assert!(ctx.is_admin);
         let f = access_filter(ScopedEntity::Task, "", 1);

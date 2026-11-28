@@ -75,7 +75,7 @@ async fn delete_reaches_the_store_with_the_id_it_was_given() {
         .await;
 
     assert_eq!(output.frames[0]["exit"]["_tag"], "Success");
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used, reason = "tests fail by panicking")]
     let deleted = attachments.deleted.lock().unwrap().clone();
     assert_eq!(deleted, vec!["6b1f7b2e-0000-4000-8000-000000000001"]);
 }
@@ -117,7 +117,7 @@ async fn delete_of_something_that_is_not_an_id_never_reaches_the_store() {
         .await;
 
     assert_eq!(output.frames[0]["exit"]["cause"][0]["_tag"], "Die");
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used, reason = "tests fail by panicking")]
     let deleted = attachments.deleted.lock().unwrap().len();
     assert_eq!(deleted, 0);
 }

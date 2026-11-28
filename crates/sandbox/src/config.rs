@@ -595,12 +595,12 @@ impl Config {
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(50052),
 
-            #[allow(clippy::expect_used)] // required env var, crash at startup if missing
+            #[expect(clippy::expect_used, reason = "a required env var; crash at startup")]
             sandbox_id: env::var("SANDBOX_ID")
                 .or_else(|_| env::var("TASK_ID"))
                 .expect("SANDBOX_ID or TASK_ID is required"),
 
-            #[allow(clippy::expect_used)] // initial member env var, crash at startup if missing
+            #[expect(clippy::expect_used, reason = "a required env var; crash at startup")]
             task_id: env::var("TASK_ID").expect("TASK_ID is required"),
 
             agent_profile: resolve_agent_profile_env(),
@@ -608,8 +608,7 @@ impl Config {
             workspace_dir,
             repo_dir,
 
-            data_dir: env::var("DATA_DIR")
-                .unwrap_or_else(|_| "/opt/moatless/data".to_string()),
+            data_dir: env::var("DATA_DIR").unwrap_or_else(|_| "/opt/moatless/data".to_string()),
 
             // Sandboxes sharing one host (`SANDBOX_PROVIDER=local`) each need
             // their own credential socket directory.
@@ -617,12 +616,10 @@ impl Config {
 
             upload_dir,
 
-            log_level: env::var("LOG_LEVEL")
-                .unwrap_or_else(|_| "info".to_string()),
+            log_level: env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string()),
 
-            #[allow(clippy::expect_used)] // required env var, crash at startup if missing
-            backend_grpc_url: env::var("BACKEND_GRPC_URL")
-                .expect("BACKEND_GRPC_URL is required"),
+            #[expect(clippy::expect_used, reason = "a required env var; crash at startup")]
+            backend_grpc_url: env::var("BACKEND_GRPC_URL").expect("BACKEND_GRPC_URL is required"),
 
             backend_api_url,
 

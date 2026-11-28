@@ -104,7 +104,10 @@ pub fn build_harness(
 }
 
 /// Spawn the coordinator-backed agent lifecycle owner and return a handle.
-#[allow(clippy::too_many_arguments)] // reason: lifecycle wiring; every argument is a distinct dependency
+#[expect(
+    clippy::too_many_arguments,
+    reason = "lifecycle wiring; every argument is a distinct dependency"
+)]
 pub fn spawn_agent(
     config: Arc<Config>,
     agent_state: Arc<AgentState>,

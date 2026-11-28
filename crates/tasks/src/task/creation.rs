@@ -253,10 +253,10 @@ pub struct TaskCreationService {
 }
 
 impl TaskCreationService {
-    // reason: independent injected collaborators (five DAOs, the user lookup,
-    // the event publisher, the lifecycle seams, the preflight seam); bundling them behind
-    // a one-use struct only shuffles the same fields.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one argument per injected collaborator"
+    )]
     pub(crate) fn new(
         tasks: Arc<dyn TaskDao>,
         tags: Arc<dyn TagDao>,
@@ -364,10 +364,10 @@ impl TaskCreationService {
             (Some(repo), _) => Some(repo),
             (None, None) => None,
             (None, Some(repository_id)) => {
-                // reason: non-HTTP creation paths (adapters, loops) resolve
-                // the repository configured on the Loop, not user input; the
-                // HTTP path passes an already access-checked repository.
-                #[allow(clippy::disallowed_methods)]
+                #[expect(
+                    clippy::disallowed_methods,
+                    reason = "non-HTTP paths resolve the Loop's configured repository"
+                )]
                 let sys_ctx = ScopeContext::system();
                 Some(
                     self.repositories
@@ -620,9 +620,10 @@ impl TaskCreationService {
         {
             return Ok(());
         }
-        // reason: the parent is read for its Sandbox alone, and the caller
-        // already chose to join that Sandbox under its own access check.
-        #[allow(clippy::disallowed_methods)]
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the caller already joined this Sandbox under its own check"
+        )]
         let sys_ctx = ScopeContext::system();
         let parent_sandbox = self
             .tasks
@@ -683,9 +684,10 @@ impl TaskCreationService {
             return TaskCreationError::FirstMessage(error);
         }
 
-        // reason: creation owns this status transition; the caller's authority
-        // was already checked to reach here.
-        #[allow(clippy::disallowed_methods)]
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "creation owns this transition; the caller was checked"
+        )]
         let sys_ctx = ScopeContext::system();
         if let Err(status_error) = self
             .tasks

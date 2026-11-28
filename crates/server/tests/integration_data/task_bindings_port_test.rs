@@ -1,10 +1,5 @@
 #![cfg(feature = "db-tests")]
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::print_stdout,
-    clippy::print_stderr
-)]
+#![expect(clippy::expect_used, reason = "tests fail by panicking")]
 //! Integration tests for the handler-facing task-binding and adapter-connection
 //! ports on [`AppState`].
 //!

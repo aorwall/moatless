@@ -233,7 +233,7 @@ fn disallowed_tools(config: &Config, is_plan_mode: bool) -> Vec<String> {
 }
 
 /// Build the system prompt configuration.
-#[allow(clippy::unnecessary_wraps)] // Option for caller API consistency
+#[expect(clippy::unnecessary_wraps, reason = "callers take an `Option`")]
 fn build_system_prompt(config: &Config, request: &AgentRunRequest) -> Option<SystemPrompt> {
     let mut append = build_prompt_append(config, request);
     if language_servers::plugin_dir_if_staged(Path::new(&config.claude_config_dir)).is_some() {

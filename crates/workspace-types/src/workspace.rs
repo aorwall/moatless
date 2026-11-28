@@ -8,8 +8,14 @@
 //! and serialized keeping the original spelling, so persisted JSON round-trips
 //! byte for byte.
 
-// reason: test code may unwrap freely; production code keeps the workspace `deny`.
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+#![cfg_attr(
+    test,
+    expect(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        reason = "tests fail by panicking"
+    )
+)]
 
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;

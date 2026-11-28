@@ -504,7 +504,7 @@ impl ports::AttachmentStore for RecordingAttachments {
         declared: ports::DeclaredAttachment,
         bytes: Vec<u8>,
     ) -> Result<(), ports::AttachmentStoreError> {
-        #[allow(clippy::unwrap_used)]
+        #[expect(clippy::unwrap_used, reason = "tests fail by panicking")]
         self.stored.lock().unwrap().push((
             attachment_id.to_string(),
             declared.filename,
@@ -519,7 +519,7 @@ impl ports::AttachmentStore for RecordingAttachments {
         _viewer: &ScopeContext,
         attachment_id: &str,
     ) -> Result<(), ports::AttachmentStoreError> {
-        #[allow(clippy::unwrap_used)]
+        #[expect(clippy::unwrap_used, reason = "tests fail by panicking")]
         self.deleted.lock().unwrap().push(attachment_id.to_string());
         self.refusal()
     }
@@ -550,7 +550,7 @@ impl ports::ViewerSettingsStore for MemorySettings {
         &self,
         _user_id: &uuid::Uuid,
     ) -> Result<serde_json::Map<String, Value>, moatless_types::store::StoreError> {
-        #[allow(clippy::unwrap_used)]
+        #[expect(clippy::unwrap_used, reason = "tests fail by panicking")]
         Ok(self.0.lock().unwrap().clone())
     }
 
@@ -559,7 +559,7 @@ impl ports::ViewerSettingsStore for MemorySettings {
         _user_id: &uuid::Uuid,
         patch: serde_json::Map<String, Value>,
     ) -> Result<serde_json::Map<String, Value>, moatless_types::store::StoreError> {
-        #[allow(clippy::unwrap_used)]
+        #[expect(clippy::unwrap_used, reason = "tests fail by panicking")]
         let mut stored = self.0.lock().unwrap();
         stored.extend(patch);
         Ok(stored.clone())

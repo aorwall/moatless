@@ -1,6 +1,11 @@
-// reason: test code may unwrap/expect freely; production code keeps the
-// workspace `deny`/`warn`.
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+#![cfg_attr(
+    test,
+    expect(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        reason = "tests fail by panicking"
+    )
+)]
 
 //! Tasks band (band 5): task lifecycle, messages, agent turns, and the feeds
 //! over them.

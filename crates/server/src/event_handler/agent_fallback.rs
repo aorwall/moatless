@@ -186,8 +186,10 @@ pub async fn fall_back_to_other_agent(state: &FallbackPorts, event: &AgentEvent)
         tracing::info!(task_id, "Agent fallback skipped: the error names no turn");
         return;
     };
-    // reason: agent-lifecycle event handler runs as background system with no caller identity
-    #[allow(clippy::disallowed_methods)]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "agent-lifecycle event handler runs as background system with no caller identity"
+    )]
     let sys_ctx = ScopeContext::system();
     let task = match state.tasks.find_by_id(task_id, &sys_ctx).await {
         Ok(Some(task)) if task.status != TaskStatus::Closed => task,

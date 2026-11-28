@@ -5,8 +5,10 @@
 //! `ScopeContext` comes from [`scope_context`]: admin when no owner is named,
 //! and the named owner otherwise. The audit actor is `cli` either way.
 
-// reason: CLI subcommand writes results to stdout by design.
-#![allow(clippy::print_stdout)]
+#![expect(
+    clippy::print_stdout,
+    reason = "CLI subcommand writes results to stdout by design"
+)]
 
 use std::io::{self, Read};
 

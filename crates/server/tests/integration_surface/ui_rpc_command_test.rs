@@ -1,9 +1,8 @@
 #![cfg(feature = "db-tests")]
-#![allow(
+#![expect(
     clippy::unwrap_used,
     clippy::expect_used,
-    clippy::print_stdout,
-    clippy::print_stderr
+    reason = "tests fail by panicking"
 )]
 //! Database-facing effects of T3 commands that `t3code::commands`'s
 //! recording-sink unit tests can't see.
@@ -1577,7 +1576,7 @@ async fn unlinking_a_pull_request_on_another_host_is_refused(pool: PgPool) {
 /// Every method on the port is `Send + Sync` behind an `Arc`, because the
 /// socket holds it across await points on several concurrent streams. A method
 /// that is not compiles here and nowhere else.
-#[allow(dead_code)]
+#[expect(dead_code, reason = "a compile-time check with no caller")]
 fn the_sink_is_usable_from_the_socket(pool: PgPool) -> Arc<dyn ThreadCommandSink> {
     Arc::new(AppStateCommands(test_app_state(pool)))
 }

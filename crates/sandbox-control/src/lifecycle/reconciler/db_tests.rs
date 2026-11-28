@@ -261,7 +261,10 @@ fn build(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one argument per fixture collaborator"
+)]
 fn build_with(
     pool: PgPool,
     lock_pool: PgPool,

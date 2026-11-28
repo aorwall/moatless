@@ -1,9 +1,4 @@
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::print_stdout,
-    clippy::print_stderr
-)]
+#![expect(clippy::expect_used, reason = "tests fail by panicking")]
 //! Root-supervision behaviour: what the backend process does when one of its
 //! long-lived tasks terminates, and how it shuts them all down.
 //!

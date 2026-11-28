@@ -247,7 +247,7 @@ async fn every_remaining_change_kind_moves_the_row(pool: PgPool) {
     // with the value it must hold afterwards. `None` asserts only that the row was delivered — the tag set
     // and the expiry are not values the shell row carries, and a change to them
     // still has to move the conversation in the sidebar.
-    #[allow(clippy::type_complexity)]
+    #[expect(clippy::type_complexity, reason = "a one-off table of test cases")]
     let cases: &[(
         &str,
         fn(PgPool, ScopeContext, String) -> BoxFuture<'static, ()>,

@@ -1,6 +1,11 @@
-// reason: test code may unwrap/expect freely; production code keeps the
-// workspace `deny`/`warn`.
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+#![cfg_attr(
+    test,
+    expect(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        reason = "tests fail by panicking"
+    )
+)]
 
 //! Sandbox-control (band 6): the orchestrator that drives a sandbox runtime.
 //!

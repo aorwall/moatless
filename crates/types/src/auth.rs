@@ -236,7 +236,6 @@ pub struct GitHubAppConfig {
     pub default_installation_id: Option<u64>,
 }
 
-#[allow(clippy::missing_fields_in_debug)]
 impl fmt::Debug for GitHubAppConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("GitHubAppConfig")
@@ -309,7 +308,10 @@ pub fn parse_allowed_origins(value: &str) -> Vec<AllowedOrigin> {
         .collect()
 }
 
-#[allow(clippy::missing_fields_in_debug)]
+#[expect(
+    clippy::missing_fields_in_debug,
+    reason = "`Debug` omits secret fields"
+)]
 impl fmt::Debug for AuthConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AuthConfig")

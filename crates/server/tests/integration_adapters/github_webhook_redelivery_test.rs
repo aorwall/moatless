@@ -1,9 +1,8 @@
 #![cfg(feature = "db-tests")]
-#![allow(
+#![expect(
     clippy::unwrap_used,
     clippy::expect_used,
-    clippy::print_stdout,
-    clippy::print_stderr
+    reason = "tests fail by panicking"
 )]
 //! The GitHub Adapter has no in-process delivery cache; durable admission is
 //! the only thing that collapses a redelivery.

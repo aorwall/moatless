@@ -2,7 +2,7 @@
 // (`feature = "test-support"`), never shipping, so the seeder's `.expect()`
 // calls are test scaffolding — allowed here since the crate-level
 // `#[cfg(test)]` allow doesn't cover the feature-gated build.
-#![allow(clippy::expect_used, clippy::unwrap_used)]
+#![expect(clippy::expect_used, reason = "tests fail by panicking")]
 
 //! Row factories for the workspaces band's PostgreSQL tiers.
 //!

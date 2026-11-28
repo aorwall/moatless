@@ -73,7 +73,6 @@ pub struct T3UiRpcConfig {
     pub linear_default_team: Option<String>,
 }
 
-#[allow(clippy::missing_fields_in_debug)]
 impl fmt::Debug for T3UiRpcConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("T3UiRpcConfig")

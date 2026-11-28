@@ -1,4 +1,4 @@
-#![allow(clippy::print_stdout, clippy::print_stderr)]
+#![expect(clippy::print_stderr, reason = "the CLI reports errors on stderr")]
 //! `moat` — CLI for the Moatless backend API.
 //!
 //! Two modes selected at startup by the `USER_AUTH_TOKEN` env var:

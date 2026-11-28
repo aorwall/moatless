@@ -156,8 +156,10 @@ pub(crate) async fn sse_handler(
 
     let body = Body::from_stream(ndjson_stream.map(|r| r.map(std::string::String::into_bytes)));
 
-    #[allow(clippy::expect_used)]
-    // Response::builder() only fails with invalid header names (ours are static)
+    #[expect(
+        clippy::expect_used,
+        reason = "the builder fails only on invalid static headers"
+    )]
     Response::builder()
         .header("Content-Type", "application/x-ndjson")
         .header("Cache-Control", "no-cache")

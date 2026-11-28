@@ -97,7 +97,10 @@ impl AgentHandle {
     ///
     /// The returned receiver resolves with the running run's id on injection
     /// or with `SessionInit`'s id on a new turn.
-    #[allow(clippy::too_many_arguments)] // reason: one parameter per per-Turn field the command carries
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one parameter per per-Turn field the command carries"
+    )]
     pub fn send(
         &self,
         text: String,

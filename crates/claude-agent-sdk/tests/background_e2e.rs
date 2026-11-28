@@ -1,8 +1,7 @@
-#![allow(
-    clippy::unwrap_used,
+#![expect(
     clippy::expect_used,
-    clippy::print_stdout,
-    clippy::print_stderr
+    clippy::print_stderr,
+    reason = "tests panic on failure and print diagnostics"
 )]
 //! E2E reproduction: what happens to a `run_in_background` Bash job when the
 //! one-shot `claude -p` (subprocess) process exits at the end of a turn.

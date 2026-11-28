@@ -600,9 +600,11 @@ fn create_config(args: CreateConfigArgs) -> Result<CreateLoopConfig, ClientError
     })
 }
 
-// reason: the loop-config update API exposes a clear/value pair per
-// nullable field, so the bool count is intrinsic to the surface.
-#[allow(clippy::too_many_arguments, clippy::fn_params_excessive_bools)]
+#[expect(
+    clippy::too_many_arguments,
+    clippy::fn_params_excessive_bools,
+    reason = "the API pairs a clear flag with each nullable field"
+)]
 fn update_config(
     workspace_id: Option<String>,
     routing_mode: Option<RoutingMode>,
@@ -698,7 +700,11 @@ fn update_config(
     }
 }
 
-#[allow(clippy::too_many_arguments, clippy::option_option)]
+#[expect(
+    clippy::too_many_arguments,
+    clippy::option_option,
+    reason = "one argument per updatable field, each absent, cleared or set"
+)]
 fn update_source(
     connection_id: Option<String>,
     source_matcher: Option<String>,
@@ -848,7 +854,6 @@ fn apply_config_ops(
 ///
 /// `--set/--append/--unset` fetch-merge the current config (other keys kept);
 /// `--adapter-config` replaces it wholesale.
-#[allow(clippy::option_option)]
 async fn resolve_update_adapter_config(
     client: &MoatClient,
     id: &str,
@@ -896,7 +901,7 @@ async fn fetch_current_adapter_config(
 }
 
 /// Combine `--field VAL` and `--clear-field` into `Option<Option<T>>`.
-#[allow(clippy::option_option)]
+#[expect(clippy::option_option, reason = "absent, cleared and set are distinct")]
 fn fold_clearable<T>(
     value: Option<T>,
     clear: bool,

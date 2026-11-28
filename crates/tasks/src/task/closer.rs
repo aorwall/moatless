@@ -124,9 +124,10 @@ impl TaskCloser {
     }
 
     async fn close_one(&self, task_id: &str, event: &CloseEvent) -> Result<(), TaskError> {
-        // reason: close cascade reaches child tasks owned by other users; system ctx
-        // is required to traverse the full tree without re-checking per-child ownership.
-        #[allow(clippy::disallowed_methods)]
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the close cascade reaches other users' child tasks"
+        )]
         let sys_ctx = ScopeContext::system();
 
         let Some(row) = self.tasks.find_by_id(task_id, &sys_ctx).await? else {
@@ -304,8 +305,10 @@ impl TaskCloser {
         let subtree = self.subtree(task_id, &mut HashSet::new()).await?;
         let disposed_messages = messages.dispose_pending(&subtree).await?;
 
-        // reason: the subtree reaches child tasks owned by other users, as in `close_single`.
-        #[allow(clippy::disallowed_methods)]
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the subtree reaches other users' child tasks"
+        )]
         let sys_ctx = ScopeContext::system();
         let mut stopped_task_ids = Vec::new();
         for current_task_id in subtree {

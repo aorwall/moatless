@@ -74,7 +74,7 @@ async fn issue_auth_session(
 ///
 /// Upserts the user, creates a session row (audit trail + provider token
 /// persistence), and returns an opaque token for the auth-session cookie.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "one argument per session column")]
 pub(in crate::auth) async fn create_session(
     users: &dyn UserDao,
     sessions: &dyn SessionDao,

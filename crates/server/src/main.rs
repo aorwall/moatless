@@ -11,7 +11,7 @@ static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if std::env::args().any(|a| a == "--dump-openapi") {
         let spec = startup::build_merged_openapi();
-        #[allow(clippy::print_stdout)] // CLI tool output, not server logging
+        #[expect(clippy::print_stdout, reason = "CLI output, not server logging")]
         {
             println!("{}", spec.to_pretty_json()?);
         }

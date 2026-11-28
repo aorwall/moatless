@@ -185,8 +185,10 @@ async fn gated_interrupted_turn(
 ) -> Result<Option<(InterruptedTurn, Option<moatless_types::task::Task>)>, RecoveryError> {
     // Unknown task or intent reads fail open; only confirmed terminal state gates replay.
     let task = if let Some(tasks) = tasks {
-        // reason: recovery gate reads task status across all owners (no user ctx)
-        #[allow(clippy::disallowed_methods)]
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the recovery gate has no user context"
+        )]
         let sys = ScopeContext::system();
         tasks.find_by_id(task_id, &sys).await.ok().flatten()
     } else {

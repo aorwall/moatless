@@ -89,7 +89,7 @@ impl LoopContext {
     /// Runnable Loop queries exclude rows without this value.
     // The database query establishes this invariant before constructing a
     // runnable Loop context.
-    #[allow(clippy::expect_used)]
+    #[expect(clippy::expect_used, reason = "the query guarantees a run-as user")]
     pub fn effective_user_id(&self) -> &str {
         self.run_as_user_id
             .as_deref()
@@ -225,7 +225,7 @@ impl SubscriptionMatch {
 
     /// The administrator-approved execution identity.
     // Runnable subscription queries exclude rows without this value.
-    #[allow(clippy::expect_used)]
+    #[expect(clippy::expect_used, reason = "the query guarantees a run-as user")]
     pub fn effective_user_id(&self) -> &str {
         self.run_as_user_id
             .as_deref()

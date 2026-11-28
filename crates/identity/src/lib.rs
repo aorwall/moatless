@@ -1,6 +1,11 @@
-// reason: test code may unwrap/expect freely; production code keeps the
-// workspace `deny`/`warn`.
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+#![cfg_attr(
+    test,
+    expect(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        reason = "tests fail by panicking"
+    )
+)]
 
 //! Identity band (band 3): authentication, provider-token credentials,
 //! adapter-app registry, secret storage, and first-run setup.

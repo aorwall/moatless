@@ -2,7 +2,7 @@
 //! order however long each decision takes, and a failed item does not stop
 //! the batch.
 
-#![allow(clippy::expect_used, clippy::panic)]
+#![expect(clippy::expect_used, reason = "tests fail by panicking")]
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

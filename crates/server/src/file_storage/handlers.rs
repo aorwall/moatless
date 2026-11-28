@@ -104,8 +104,10 @@ pub async fn download_file(
 ) -> Result<Response, FileStorageError> {
     let download = files.read(&auth.scope_context(), &file_id).await?;
 
-    #[allow(clippy::expect_used)]
-    // Response::builder() only fails with invalid header names (ours are static)
+    #[expect(
+        clippy::expect_used,
+        reason = "the builder fails only on invalid static headers"
+    )]
     let response = Response::builder()
         .header(header::CONTENT_TYPE, download.content_type)
         .header(

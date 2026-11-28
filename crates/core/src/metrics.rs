@@ -37,7 +37,7 @@ struct MetricsState {
 /// `histogram_quantile` cannot aggregate; non-`_seconds` ones stay summaries.
 /// A name both matchers hit takes the prefix ladder: the exporter tries
 /// `Prefix` matchers before `Suffix` ones.
-#[allow(clippy::expect_used)] // fail-fast: metrics is a startup prerequisite
+#[expect(clippy::expect_used, reason = "metrics are a startup prerequisite")]
 fn builder() -> PrometheusBuilder {
     PrometheusBuilder::new()
         .set_buckets_for_metric(
@@ -53,7 +53,7 @@ fn builder() -> PrometheusBuilder {
 }
 
 /// Initialize the metrics system and return a handle.
-#[allow(clippy::expect_used)] // fail-fast: metrics is a startup prerequisite
+#[expect(clippy::expect_used, reason = "metrics are a startup prerequisite")]
 pub fn init_metrics() -> PrometheusHandle {
     builder()
         .install_recorder()

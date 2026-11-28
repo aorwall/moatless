@@ -38,7 +38,6 @@ pub struct TaskPresenter {
 
 impl TaskPresenter {
     /// Wire the presenter from the ports the backend composition root owns.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         tags: Arc<dyn TagDao>,
         repositories: Arc<dyn RepositoryReader>,
@@ -72,9 +71,10 @@ impl TaskPresenter {
             })
             .collect();
 
-        // reason: display enrichment of a task the caller already read; the
-        // task's configured repository name is part of that task's own data.
-        #[allow(clippy::disallowed_methods)]
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "enriches a task the caller already read"
+        )]
         let sys_ctx = ScopeContext::system();
         let repo_name = match &row.repository_id {
             Some(repository_id) => self

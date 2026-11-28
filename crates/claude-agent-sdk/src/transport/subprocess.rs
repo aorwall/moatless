@@ -189,7 +189,7 @@ impl SubprocessTransport {
             if let Some(pid) = self.child.id() {
                 // SAFETY: sending SIGTERM to a known child PID we spawned;
                 // worst case the process already exited and the call is a no-op.
-                #[allow(unsafe_code)]
+                #[expect(unsafe_code, reason = "signals the child with `libc::kill`")]
                 unsafe {
                     libc::kill(pid as libc::pid_t, libc::SIGTERM);
                 }
@@ -227,7 +227,10 @@ impl SubprocessTransport {
 }
 
 /// Resolve the CLI binary path.
-#[allow(clippy::unnecessary_wraps)] // may fail in future with stricter path validation
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "keeps a fallible signature for stricter path validation"
+)]
 fn resolve_cli_path(options: &ClaudeOptions) -> Result<String> {
     if let Some(path) = &options.cli_path {
         return Ok(path.clone());

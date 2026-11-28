@@ -15,7 +15,10 @@ pub(crate) async fn compose_runtime(config: &Config) -> (SandboxState, Superviso
     // Create gRPC client for backend communication (required). The sandbox
     // starts with the best available initial token and swaps to the long-lived
     // user token delivered over `GetCredentials`.
-    #[allow(clippy::expect_used)] // fail-fast: sandbox cannot operate without backend connectivity
+    #[expect(
+        clippy::expect_used,
+        reason = "the sandbox cannot run without the backend"
+    )]
     let backend_client = BackendGrpcClient::connect(
         &config.backend_grpc_url,
         config.resolve_initial_auth_token(),

@@ -9,7 +9,10 @@
 //! set `CODEX_WRITE_BACK=1` to write it back to the source file (off by
 //! default).
 
-#![allow(clippy::print_stdout)] // reason: smoke example writes to stdout by design
+#![expect(
+    clippy::print_stdout,
+    reason = "smoke example writes to stdout by design"
+)]
 
 use std::error::Error;
 

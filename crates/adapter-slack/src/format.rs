@@ -9,29 +9,29 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 // Pre-compiled regexes for Slack mrkdwn patterns (constant patterns, cannot fail).
-#[allow(clippy::expect_used)]
+#[expect(clippy::expect_used, reason = "the literal pattern compiles")]
 static USER_MENTION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"<@([UW][A-Z0-9]+)(?:\|([^>]+))?>").expect("valid regex"));
-#[allow(clippy::expect_used)]
+#[expect(clippy::expect_used, reason = "the literal pattern compiles")]
 static CHANNEL_LINK: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"<#([A-Z0-9]+)\|([^>]+)>").expect("valid regex"));
-#[allow(clippy::expect_used)]
+#[expect(clippy::expect_used, reason = "the literal pattern compiles")]
 static URL_WITH_LABEL: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"<(https?://[^|>]+)\|([^>]+)>").expect("valid regex"));
-#[allow(clippy::expect_used)]
+#[expect(clippy::expect_used, reason = "the literal pattern compiles")]
 static URL_BARE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"<(https?://[^>]+)>").expect("valid regex"));
-#[allow(clippy::expect_used)]
+#[expect(clippy::expect_used, reason = "the literal pattern compiles")]
 static SPECIAL_MENTION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"<!([a-z_]+)>").expect("valid regex"));
-#[allow(clippy::expect_used)]
+#[expect(clippy::expect_used, reason = "the literal pattern compiles")]
 static SUBTEAM_MENTION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"<!subteam\^[A-Z0-9]+(?:\|@?([^>]+))?>").expect("valid regex"));
 
 /// A Slack user id left standing by [`format_slack_text`], which renders
 /// `<@U123>` as `@U123` when Slack sends no `|name` half (almost always). The
 /// id shape is distinctive enough that ordinary prose does not match it.
-#[allow(clippy::expect_used)]
+#[expect(clippy::expect_used, reason = "the literal pattern compiles")]
 static BARE_USER_ID: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"@([UW][A-Z0-9]{6,})\b").expect("valid regex"));
 

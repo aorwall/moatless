@@ -7,7 +7,14 @@
 //! — legal here, invisible to band 6 above. The backend composition root wires
 //! this into `AppState`, never named here; sibling `moatless-sandbox-k8s` (same
 //! band) is never named from here.
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+#![cfg_attr(
+    test,
+    expect(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        reason = "tests fail by panicking"
+    )
+)]
 
 pub mod client;
 mod container_builder;

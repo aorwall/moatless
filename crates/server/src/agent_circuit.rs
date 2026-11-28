@@ -101,9 +101,10 @@ impl LoopTurnAcceptor {
     }
 
     async fn route_task(&self, task_id: &str) {
-        // reason: a Loop delivery runs as the platform; `run_as` scopes the
-        // credential checks of any switch.
-        #[allow(clippy::disallowed_methods)]
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "a Loop delivery runs as the platform"
+        )]
         let system = ScopeContext::system();
         let task = match self.ports.tasks.find_by_id(task_id, &system).await {
             Ok(Some(task)) if task.status != TaskStatus::Closed => task,

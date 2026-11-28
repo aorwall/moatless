@@ -19,7 +19,6 @@ pub struct SecretsConfig {
     pub kms_key_id: Option<String>,
 }
 
-#[allow(clippy::missing_fields_in_debug)]
 impl fmt::Debug for SecretsConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SecretsConfig")

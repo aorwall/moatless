@@ -5,7 +5,11 @@
 //! CLI, we test the dispatcher routing, acknowledgment logic, and multi-send
 //! command channel mechanics.
 
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![expect(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "tests fail by panicking"
+)]
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -56,7 +60,7 @@ impl MockBackendClient {
         }
     }
 
-    #[allow(dead_code)] // reason: used by some tests
+    #[expect(dead_code, reason = "used by only some tests")]
     fn publish_count(&self) -> usize {
         self.publish_count.load(Ordering::SeqCst)
     }

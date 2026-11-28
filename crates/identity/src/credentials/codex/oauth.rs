@@ -121,7 +121,7 @@ pub enum RefreshTokenError {
 }
 
 #[derive(Deserialize)]
-#[allow(clippy::struct_field_names)] // reason: matches OAuth wire format
+#[expect(clippy::struct_field_names, reason = "matches OAuth wire format")]
 struct RefreshResponse {
     #[serde(default)]
     id_token: Option<String>,
@@ -257,7 +257,7 @@ struct PollTokenResponse {
 }
 
 #[derive(Deserialize)]
-#[allow(clippy::struct_field_names)] // reason: matches OAuth wire format
+#[expect(clippy::struct_field_names, reason = "matches OAuth wire format")]
 struct OAuthTokenResponse {
     id_token: String,
     access_token: String,

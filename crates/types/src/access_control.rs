@@ -127,8 +127,8 @@ impl ScopeContext {
     /// matches every row.
     ///
     /// Each call site is a deliberate bypass; `clippy.toml`'s
-    /// `disallowed-methods` refuses one without `#[allow(...)]` and a `//
-    /// reason:` line.
+    /// `disallowed-methods` refuses one without an `#[expect(...)]` whose
+    /// `reason` names why no caller scope applies.
     pub fn system() -> Self {
         Self {
             user_id: Self::SYSTEM_USER_ID.to_string(),

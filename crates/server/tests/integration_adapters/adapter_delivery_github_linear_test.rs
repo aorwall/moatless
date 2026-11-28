@@ -1,10 +1,5 @@
 #![cfg(feature = "db-tests")]
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::print_stdout,
-    clippy::print_stderr
-)]
+#![expect(clippy::expect_used, reason = "tests fail by panicking")]
 //! Integration tests for ING-3: GitHub and Linear webhook work crossing the
 //! durable adapter-delivery handoff before the provider is acknowledged.
 //!

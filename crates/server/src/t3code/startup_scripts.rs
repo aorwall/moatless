@@ -59,9 +59,10 @@ impl TaskEventSubscriber for StartupScriptSubscriber {
         let events = self.events.clone();
         let task_id = event.task_id.clone();
         tokio::spawn(async move {
-            // reason: a Sandbox becoming Ready is the runtime's observation and
-            // has no user behind it to scope the Workspace read to.
-            #[allow(clippy::disallowed_methods)]
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "a Sandbox turning Ready has no user behind it"
+            )]
             let viewer = moatless_types::access_control::ScopeContext::system();
 
             let run = match scripts.run_for_task(&viewer, &task_id).await {

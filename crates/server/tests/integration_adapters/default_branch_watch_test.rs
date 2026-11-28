@@ -1,10 +1,5 @@
 #![cfg(feature = "db-tests")]
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::print_stdout,
-    clippy::print_stderr
-)]
+#![expect(clippy::unwrap_used, reason = "tests fail by panicking")]
 //! The automatic Loop sync a moved default branch starts
 //! (`repository_sync::watch`) and an administrator's sync-config, against a
 //! GitHub stub serving `.moatless/`.

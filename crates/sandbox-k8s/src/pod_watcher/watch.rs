@@ -27,10 +27,10 @@ pub(super) struct WatcherDeps {
 ///
 /// Loops leadership acquisition (K8s Lease) and pod watching; re-enters the
 /// loop on watch-stream error or lost leadership.
-// reason: the watcher wires eight collaborators (client, publisher, cancel, the
-// crash threshold, archive feature gate, the lifecycle handle, the storage
-// fallback, and its lease identity) into one spawned task.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the watcher wires eight collaborators into one task"
+)]
 pub fn spawn_pod_lifecycle_watcher(
     k8s: K8sClient,
     event_publisher: Arc<dyn EventPublisher>,

@@ -134,10 +134,10 @@ pub trait EventPublisher: Send + Sync {
     ///
     /// `event_id` must match the durable record's: the feed dedups on it, which
     /// is what keeps a relay re-publish from reaching clients twice.
-    // reason: mirrors the event envelope's own field set (id + task + type +
-    // sub_type + agent + turn + payload); splitting into a struct would only
-    // shuffle the same fields behind a one-use type.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one argument per event envelope field"
+    )]
     async fn publish_raw_event_with_id(
         &self,
         event_id: &str,
@@ -221,9 +221,10 @@ impl FeedEventPublisher {
     ///
     /// `event_id` pins the id; `None` generates a UUIDv4, which can never
     /// collide and so can never dedup.
-    // reason: one argument per envelope field; a params struct would add a
-    // one-use type without reducing the fan-out surface.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one argument per event envelope field"
+    )]
     async fn publish_event_internal(
         &self,
         event_id: Option<String>,

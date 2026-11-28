@@ -1,15 +1,13 @@
-#![allow(
+#![expect(
     clippy::unwrap_used,
     clippy::expect_used,
     clippy::print_stdout,
     clippy::print_stderr,
-    // Every test here is #[ignore]d for the same reason, documented in the
-    // module doc below (they spawn the real `claude` CLI + make API calls); a
-    // per-attr reason string would just repeat it 20 times.
+    reason = "tests panic on failure and print diagnostics"
+)]
+#![expect(
     clippy::ignore_without_reason,
-    // Timeout consts read more clearly as `from_secs(60/90/120)` than the
-    // lint's `from_mins` rewrite.
-    clippy::duration_suboptimal_units
+    reason = "the module doc gives the one reason every test is ignored"
 )]
 //! End-to-end tests against the real `claude` CLI, one module per capability.
 //!

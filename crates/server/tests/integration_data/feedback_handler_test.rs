@@ -1,9 +1,8 @@
 #![cfg(feature = "db-tests")]
-#![allow(
+#![expect(
     clippy::unwrap_used,
     clippy::expect_used,
-    clippy::print_stdout,
-    clippy::print_stderr
+    reason = "tests fail by panicking"
 )]
 //! HTTP handler integration tests for `POST /api/v1/feedback`'s best-effort
 //! scoping: a caller that names no message lands on the task's latest activity,

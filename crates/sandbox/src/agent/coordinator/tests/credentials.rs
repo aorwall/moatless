@@ -87,7 +87,6 @@ fn codex_config_with_auth(on_disk_auth: &str) -> (tempfile::TempDir, Arc<Config>
 
 /// Build a `CoordinatorService` over a scripted harness with a custom backend,
 /// detector, and dispatcher — the credential-recovery collaborators.
-#[allow(clippy::too_many_arguments)] // reason: test wiring mirrors the service constructor
 fn service_with_credentials(
     harness: HarnessRuntime,
     config: Arc<Config>,

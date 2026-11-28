@@ -159,7 +159,10 @@ pub(crate) type HarnessFactory =
     Box<dyn Fn(&Arc<Config>, &str) -> Result<HarnessRuntime, HarnessError> + Send + Sync>;
 
 impl CoordinatorService {
-    #[allow(clippy::too_many_arguments)] // reason: service wiring; every dep is a distinct Arc-shared collaborator
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "service wiring; every dep is a distinct Arc-shared collaborator"
+    )]
     pub(crate) fn new(
         coordinator: Coordinator,
         agent_state: Arc<AgentState>,
@@ -261,8 +264,10 @@ impl CoordinatorService {
         heartbeat_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
         // "Never fires" sentinel for the retry arm when no retry is scheduled.
-        // reason: `Duration::from_days` is still unstable, so build it from seconds.
-        #[allow(clippy::duration_suboptimal_units)]
+        #[expect(
+            clippy::duration_suboptimal_units,
+            reason = "`Duration::from_days` is unstable"
+        )]
         let far_future = tokio::time::Instant::now() + Duration::from_secs(31_536_000);
 
         loop {

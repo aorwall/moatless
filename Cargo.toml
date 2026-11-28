@@ -149,6 +149,8 @@ print_stderr = "deny"
 # module both get the item's purpose without reading the body. Nursery lint,
 # enabled on its own. Generated protobuf opts out at its `include_proto!` site.
 too_long_first_doc_paragraph = "deny"
+# A suppression states its cause, so a reviewer can tell when it is stale.
+allow_attributes_without_reason = "deny"
 
 # --- Pedantic lints that are too noisy / don't add value for this codebase ---
 module_name_repetitions = "allow"

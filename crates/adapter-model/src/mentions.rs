@@ -18,7 +18,7 @@ use tracing::warn;
 /// `<@token>` — the shape both the canonical mention and every Adapter's own
 /// mention share. Which one a token is, is decided by `is_native_id`.
 // A constant pattern, so it cannot fail to compile.
-#[allow(clippy::expect_used)]
+#[expect(clippy::expect_used, reason = "the literal pattern compiles")]
 static MENTION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"<@([A-Za-z0-9._\-]+)>").expect("valid regex"));
 

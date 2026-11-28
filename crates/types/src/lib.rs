@@ -11,7 +11,14 @@
 //! `openapi-specs.json` byte-identical; `#[serde(rename)]` pins travel with it.
 
 // Test code asserts a parse succeeded; production code keeps the workspace deny.
-#![cfg_attr(test, allow(clippy::expect_used, clippy::unwrap_used))]
+#![cfg_attr(
+    test,
+    expect(
+        clippy::expect_used,
+        clippy::unwrap_used,
+        reason = "tests fail by panicking"
+    )
+)]
 
 mod string_enum;
 pub(crate) use string_enum::{string_enum, string_enum_mapping};

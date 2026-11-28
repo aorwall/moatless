@@ -1,4 +1,11 @@
-#![cfg_attr(test, allow(clippy::expect_used, clippy::unwrap_used))]
+#![cfg_attr(
+    test,
+    expect(
+        clippy::expect_used,
+        clippy::unwrap_used,
+        reason = "tests fail by panicking"
+    )
+)]
 //! T3 wire compatibility over Moatless-owned operations and scoped read
 //! projections.
 

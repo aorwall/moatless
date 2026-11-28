@@ -50,9 +50,10 @@ impl WorkspaceGrants {
         if !self.grants.grants_proxy_access() {
             return Ok(None);
         }
-        // reason: a proxy's own scope check asks, before any user scope
-        // applies.
-        #[allow(clippy::disallowed_methods)]
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "a proxy's scope check runs before any user scope"
+        )]
         let sys = ScopeContext::system();
         let Some(workspace) = self.workspaces.find_by_id(workspace_id, &sys).await? else {
             return Ok(None);

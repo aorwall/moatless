@@ -1,5 +1,8 @@
-// reason: examples print results to stdout/stderr for the reader.
-#![allow(clippy::print_stdout, clippy::print_stderr)]
+#![expect(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "examples print their results"
+)]
 
 //! Tmux-mode one-shot query: drives the real interactive Claude TUI in a
 //! detached tmux session and reads its JSONL transcript as `SdkMessage`s.

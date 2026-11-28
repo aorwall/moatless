@@ -41,8 +41,10 @@ pub(crate) struct GitHubAppRecord {
     private_key: EncryptedSecretValue,
 }
 
-#[allow(clippy::missing_fields_in_debug)]
-// reason: the encrypted key is deliberately absent, not omitted by oversight.
+#[expect(
+    clippy::missing_fields_in_debug,
+    reason = "the encrypted key is deliberately absent"
+)]
 impl std::fmt::Debug for GitHubAppRecord {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("GitHubAppRecord")

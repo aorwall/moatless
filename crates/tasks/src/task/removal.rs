@@ -34,8 +34,10 @@ pub async fn delete_task(
 
     let side_chats = tasks.side_chat_ids(&task_id).await?;
     for side_chat in side_chats {
-        // reason: side chats belong to the parent whose owner was checked above.
-        #[expect(clippy::disallowed_methods)]
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "side chats belong to the parent whose owner was checked above"
+        )]
         let child_ctx = ScopeContext::system();
         Box::pin(delete_task(
             sandbox,

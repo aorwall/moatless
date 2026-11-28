@@ -495,7 +495,7 @@ pub async fn get_task_statistics(
         (status = 409, description = "The Task or its Sandbox cannot run the agentProfile", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "one argument per metadata field")]
 pub async fn update_task_metadata(
     State(config): State<Arc<moatless_core::config::Config>>,
     State(tasks): State<Arc<TaskCommands>>,

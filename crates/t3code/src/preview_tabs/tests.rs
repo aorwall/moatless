@@ -1,4 +1,4 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![expect(clippy::unwrap_used, reason = "tests fail by panicking")]
 
 use super::{PreviewTab, PreviewTabTtl, PreviewTabs};
 use serde_json::json;

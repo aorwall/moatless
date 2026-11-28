@@ -1,5 +1,5 @@
 #![cfg(feature = "db-tests")]
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![expect(clippy::expect_used, reason = "tests fail by panicking")]
 //! `POST /api/v1/tasks/{task_id}/room` admits the Task's one `room.open`
 //! delivery, on a connection resolved against the caller's scope.
 

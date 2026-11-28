@@ -5,8 +5,7 @@
 //! credential, not a provider token a user signs in with, so its settings and
 //! its credential-row discriminator live here rather than in `auth`.
 
-// reason: test code may unwrap freely; production code keeps the workspace `deny`.
-#![cfg_attr(test, allow(clippy::unwrap_used))]
+#![cfg_attr(test, expect(clippy::unwrap_used, reason = "tests fail by panicking"))]
 
 use serde::{Deserialize, Serialize};
 

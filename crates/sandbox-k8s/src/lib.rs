@@ -6,7 +6,14 @@
 //!
 //! The `moatless.io/task-id` label is how almost every read finds its
 //! resource; a resource created without it is invisible to cleanup and status.
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+#![cfg_attr(
+    test,
+    expect(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        reason = "tests fail by panicking"
+    )
+)]
 
 pub mod client;
 mod deployment;

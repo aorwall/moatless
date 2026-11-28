@@ -47,7 +47,10 @@ pub struct LoopSpawnConfig {
 impl LoopSpawnConfig {
     /// The administrator-approved execution identity.
     // Runnable spawn-config queries exclude rows without this value.
-    #[allow(clippy::expect_used)]
+    #[expect(
+        clippy::expect_used,
+        reason = "runnable spawn-config queries require the value"
+    )]
     pub fn effective_user_id(&self) -> &str {
         self.run_as_user_id
             .as_deref()

@@ -7,7 +7,14 @@
 //! server band keeps naming its existing paths unchanged.
 
 // Allow unwrap/expect in test code. Production code still enforces the deny.
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+#![cfg_attr(
+    test,
+    expect(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        reason = "tests fail by panicking"
+    )
+)]
 //!
 //! Five modules face outward, each with a caller that names it: [`adapter`]
 //! (the registry), [`delivery`] (the worker and `backend/tests/`), [`handlers`]

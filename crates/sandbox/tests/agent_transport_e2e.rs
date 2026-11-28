@@ -7,12 +7,15 @@
 //! error. Gated behind `CLAUDE_SDK_E2E=1` / `CLAUDE_TMUX_E2E=1` and
 //! `#[ignore]`; binaries resolve from `CLAUDE_CLI_PATH` / `CODEX_CLI_PATH`.
 
-#![allow(
+#![expect(
     clippy::unwrap_used,
     clippy::expect_used,
-    clippy::print_stdout,
     clippy::print_stderr,
-    clippy::ignore_without_reason
+    reason = "tests panic on failure and print diagnostics"
+)]
+#![expect(
+    clippy::ignore_without_reason,
+    reason = "the module doc gives the one reason every test is ignored"
 )]
 
 use std::collections::HashMap;

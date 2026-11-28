@@ -1,7 +1,7 @@
 //! `moat tasks create --context-file` against a stub backend: the bytes are
 //! uploaded, and the upload's id is what the create request attaches.
 
-#![allow(clippy::expect_used, clippy::panic)]
+#![expect(clippy::expect_used, clippy::panic, reason = "tests fail by panicking")]
 
 use std::sync::{Arc, Mutex};
 

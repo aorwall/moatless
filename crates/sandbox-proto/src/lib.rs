@@ -12,6 +12,7 @@ pub mod sandbox {
             clippy::all,
             clippy::pedantic,
             clippy::too_long_first_doc_paragraph,
+            clippy::allow_attributes_without_reason,
             reason = "prost and tonic generate this module"
         )]
         tonic::include_proto!("sandbox.v1");

@@ -76,8 +76,10 @@ impl MessageSendService {
     /// Whether the task exists and is in `Closed` status. Fail-open on DB
     /// errors: a DB blip must not silently drop a legitimate message.
     async fn task_is_closed(&self, task_id: &str) -> bool {
-        // reason: closed-task guard runs server-side without a user request; system ctx required.
-        #[allow(clippy::disallowed_methods)]
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the closed-task guard runs without a user request"
+        )]
         let sys_ctx = ScopeContext::system();
         match self.tasks.find_by_id(task_id, &sys_ctx).await {
             Ok(Some(task)) => task.status == crate::task::models::TaskStatus::Closed,
@@ -173,8 +175,10 @@ pub async fn enqueue_sandbox_message(
     text: &str,
     idempotency_key: Option<&str>,
 ) -> Result<Option<String>, MessageError> {
-    // reason: the pod authenticated as itself over gRPC; there is no user request behind this.
-    #[allow(clippy::disallowed_methods)]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the pod authenticated as itself over gRPC"
+    )]
     let sys_ctx = ScopeContext::system();
 
     // A closed Task is terminal, and the wake would open a turn on a
@@ -409,7 +413,10 @@ impl MessageSendService {
 
     /// The main message flow — called by message handlers, task creation, and
     /// external inbound.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one argument per message-flow input"
+    )]
     pub async fn send_message_flow(
         &self,
         task_id: &str,
@@ -607,8 +614,10 @@ impl MessageSendService {
         // Advance the conversation clock: the persisted pending row is the
         // reconciler's durable wake input after idle/user stops. Sandbox
         // intent is written only by lifecycle, never here.
-        // reason: conversation-clock bookkeeping, not a new access check.
-        #[allow(clippy::disallowed_methods)]
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "conversation-clock bookkeeping, not an access check"
+        )]
         let sys_ctx = ScopeContext::system();
         self.tasks
             .update_task(

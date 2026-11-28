@@ -122,7 +122,10 @@ impl LeaderElection {
     async fn create_lease(&self) -> Result<(), kube::Error> {
         let now = jiff::Timestamp::now();
         let now_str = now.to_string();
-        #[allow(clippy::expect_used)] // static JSON shape, deserialization cannot fail at runtime
+        #[expect(
+            clippy::expect_used,
+            reason = "the static JSON shape always deserializes"
+        )]
         let lease: Lease = serde_json::from_value(serde_json::json!({
             "apiVersion": "coordination.k8s.io/v1",
             "kind": "Lease",

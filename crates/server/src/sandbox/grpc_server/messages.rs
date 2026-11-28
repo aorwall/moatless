@@ -76,8 +76,10 @@ pub(super) async fn get_pending_messages(
     };
 
     let task = if let Some(tasks) = service.handlers.as_ref().map(|h| &h.tasks) {
-        // reason: pending-message gate reads task status across all owners (no user ctx)
-        #[allow(clippy::disallowed_methods)]
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the pending-message gate has no user context"
+        )]
         let sys = ScopeContext::system();
         tasks.find_by_id(&req.task_id, &sys).await.ok().flatten()
     } else {

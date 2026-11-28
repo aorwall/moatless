@@ -160,8 +160,10 @@ impl TaskReaper {
             return;
         }
 
-        // reason: orphan GC checks task existence across all owners; system ctx required.
-        #[allow(clippy::disallowed_methods)]
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "orphan GC checks tasks across all owners"
+        )]
         let sys_ctx = ScopeContext::system();
         let mut gc_count = 0u32;
         for task_id in task_ids {
@@ -1421,8 +1423,10 @@ impl TaskReaper {
 
         // Reopens unless closed mid-run, mirroring the agent terminal
         // handlers: automation never resurrects a Closed task.
-        // reason: orphaned-turn reconcile spans all task owners; system ctx.
-        #[allow(clippy::disallowed_methods)]
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "turn reconciliation spans all task owners"
+        )]
         let sys_ctx = ScopeContext::system();
         if let Err(e) = self
             .tasks
@@ -1506,8 +1510,10 @@ impl TaskReaper {
     /// Unlike [`moatless_tasks::task::closer::TaskCloser::close_single`],
     /// this lacks an already-Closed idempotence guard.
     async fn auto_close_task(&self, task_id: &str) {
-        // reason: reaper acts across all task owners; system ctx bypasses per-user scope.
-        #[allow(clippy::disallowed_methods)]
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the reaper acts across all task owners"
+        )]
         let sys_ctx = ScopeContext::system();
 
         let agent_profile = match self.tasks.find_by_id(task_id, &sys_ctx).await {

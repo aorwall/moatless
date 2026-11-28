@@ -56,7 +56,7 @@ async fn a_body_of_the_declared_size_is_stored_under_the_minted_id() {
         upload(state, &url, vec![7u8; 8]).await,
         StatusCode::NO_CONTENT
     );
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used, reason = "tests fail by panicking")]
     let stored = attachments.stored.lock().unwrap().clone();
     assert_eq!(stored.len(), 1, "{stored:?}");
     assert_eq!(stored[0].1, "report.pdf");
@@ -80,7 +80,7 @@ async fn a_body_is_refused_at_the_first_byte_past_its_declaration() {
         upload(state.clone(), &url, vec![7u8; 9]).await,
         StatusCode::BAD_REQUEST
     );
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used, reason = "tests fail by panicking")]
     let stored = attachments.stored.lock().unwrap().len();
     assert_eq!(stored, 0, "an oversize body must not be stored");
 

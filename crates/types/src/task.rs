@@ -1,8 +1,7 @@
 //! Task vocabulary: the Task itself, the provenance a Message carries into one,
 //! and what a Task's and a Turn's events say.
 
-// reason: test code may unwrap freely; production code keeps the workspace `deny`.
-#![cfg_attr(test, allow(clippy::unwrap_used))]
+#![cfg_attr(test, expect(clippy::unwrap_used, reason = "tests fail by panicking"))]
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

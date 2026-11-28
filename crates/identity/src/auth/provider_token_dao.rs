@@ -14,10 +14,10 @@ use moatless_types::agent::CodexScope;
 /// `automock` is intentionally omitted: mockall can't synthesize correct
 /// lifetimes for `Option<&str>` / `Option<&Value>` in async-trait methods.
 /// Tests use `PgProviderTokenDao` via `#[sqlx::test]`.
-// reason: provider-token upserts already pass 7+ atomic columns; wrapping
-// into a struct would require touching every call-site and impl for no real
-// readability gain.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one argument per upserted column"
+)]
 #[async_trait]
 pub trait ProviderTokenDao: Send + Sync {
     /// Find a provider token (`access_token` only) by `user_id` and provider

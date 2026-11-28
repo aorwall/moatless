@@ -350,7 +350,7 @@ async fn list_secrets(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "one argument per CLI flag")]
 async fn set_secret(
     client: &MoatClient,
     key: &str,

@@ -119,8 +119,10 @@ impl BackendSandboxServiceImpl {
 
     /// The task's configured agent profile, for stamping onto turn rows.
     async fn resolve_agent_profile(&self, task_id: &str) -> Option<String> {
-        // reason: event ingress reads the agent profile for turn attribution across all owners
-        #[allow(clippy::disallowed_methods)]
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "event ingress attributes turns across all owners"
+        )]
         let ctx = ScopeContext::system();
         self.handlers
             .as_ref()?

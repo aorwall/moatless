@@ -3,7 +3,7 @@
 // mutex `.expect()` calls are test scaffolding — allow them the way the crate's
 // own `#[cfg(test)]` code is allowed (the crate-level allow is `test`-gated and
 // does not cover the feature-gated build).
-#![allow(clippy::expect_used, clippy::unwrap_used)]
+#![expect(clippy::expect_used, reason = "tests fail by panicking")]
 
 //! Shared [`EventPublisher`] test double used across the workspace's test
 //! tiers.

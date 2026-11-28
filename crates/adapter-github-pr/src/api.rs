@@ -397,7 +397,10 @@ impl GithubPrApi {
 
     /// Create a pull request. Returns the raw GitHub PR payload so callers can
     /// extract the fields they need (`number`, `html_url`, ...).
-    #[allow(clippy::too_many_arguments)] // reason: mirrors the GitHub create-PR parameter set
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "mirrors the GitHub create-PR parameter set"
+    )]
     pub(super) async fn create_pr(
         &self,
         owner: &str,

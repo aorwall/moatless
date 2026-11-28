@@ -1,9 +1,8 @@
 #![cfg(feature = "db-tests")]
-#![allow(
+#![expect(
     clippy::unwrap_used,
     clippy::expect_used,
-    clippy::print_stdout,
-    clippy::print_stderr
+    reason = "tests fail by panicking"
 )]
 //! Integration tests for "Closed is terminal against automated re-open" (Fix
 //! A).

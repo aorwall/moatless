@@ -32,7 +32,10 @@ fn cache_savings_usd(model: &str, cached_input_tokens: i64) -> f64 {
     else {
         return 0.0;
     };
-    #[allow(clippy::cast_precision_loss)]
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "token counts stay far below 2^52"
+    )]
     let tokens = cached_input_tokens as f64;
     tokens * (input - cache_read) / 1_000_000.0
 }

@@ -200,12 +200,6 @@ pub struct ContextWindow {
 
 /// A normalized signal emitted by the harness. This is the entire external
 /// output vocabulary; the coordinator reacts only to these.
-// reason: the harness seam deliberately carries one canonical
-// `CanonicalContentBlock` by value throughout (`ProcessEvent::Block` and the
-// driver's early-buffer `Vec` do the same); boxing only the `Source` variant
-// would be inconsistent and add an allocation per content block on the hot
-// path.
-#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Signal {
     /// An Agent process is ready and its Session identity is known; the

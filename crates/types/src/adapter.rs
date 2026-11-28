@@ -410,7 +410,6 @@ pub struct LinearConfig {
     pub api_base_url: Option<String>,
 }
 
-#[allow(clippy::missing_fields_in_debug)]
 impl std::fmt::Debug for LinearConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("LinearConfig")

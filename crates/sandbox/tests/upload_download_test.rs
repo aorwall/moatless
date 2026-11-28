@@ -5,7 +5,7 @@
 //! reassembly logic directly: a single message larger than tonic's 4 MiB
 //! default decoding cap is rejected by the transport, not by any code here.
 
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![expect(clippy::expect_used, reason = "tests fail by panicking")]
 
 use std::pin::Pin;
 

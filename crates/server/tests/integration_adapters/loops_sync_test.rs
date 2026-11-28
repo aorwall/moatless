@@ -1,10 +1,5 @@
 #![cfg(feature = "db-tests")]
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::print_stdout,
-    clippy::print_stderr
-)]
+#![expect(clippy::unwrap_used, reason = "tests fail by panicking")]
 //! DB-backed integration tests for repo "loop" sync (`sync_loops`).
 //!
 //! These bypass the GitHub fetcher and call `sync_loops` with already-parsed

@@ -25,8 +25,10 @@ const SHUTDOWN_JOIN_DEADLINE: std::time::Duration = std::time::Duration::from_se
 
 /// Run the backend process and supervise its servers and workers.
 pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
-    #[allow(clippy::expect_used)]
-    // fail-fast: TLS provider must be installed before any networking
+    #[expect(
+        clippy::expect_used,
+        reason = "the TLS provider must install before any networking"
+    )]
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .expect("Failed to install rustls crypto provider");
@@ -662,8 +664,10 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
 ///
 /// `restore_squashed` runs [`moatless_core::db::restore_squashed_history`].
 pub async fn migrate(restore_squashed: bool) -> Result<(), Box<dyn std::error::Error>> {
-    #[allow(clippy::expect_used)]
-    // fail-fast: TLS provider must be installed before any networking
+    #[expect(
+        clippy::expect_used,
+        reason = "the TLS provider must install before any networking"
+    )]
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .expect("Failed to install rustls crypto provider");

@@ -1,11 +1,9 @@
-// Allow unwrap/expect/print in test code — production code still enforces the deny.
 #![cfg_attr(
     test,
-    allow(
+    expect(
         clippy::unwrap_used,
         clippy::expect_used,
-        clippy::print_stdout,
-        clippy::print_stderr
+        reason = "tests fail by panicking"
     )
 )]
 

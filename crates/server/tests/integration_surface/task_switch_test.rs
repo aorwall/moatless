@@ -1,5 +1,9 @@
 #![cfg(feature = "db-tests")]
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![expect(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "tests fail by panicking"
+)]
 //! `TaskSwitchService` against the REST table for `PATCH /tasks/{id}` with an
 //! `agent_profile`, row by row, and the T3 sink's switch through it.
 

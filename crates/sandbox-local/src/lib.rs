@@ -6,7 +6,7 @@
 //! process group leaves orphaned sandboxes, and a restarted one has none.
 //! Sandboxes still share the preview proxy port (8003; only the first binds
 //! it).
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+#![cfg_attr(test, expect(clippy::unwrap_used, reason = "tests fail by panicking"))]
 
 pub mod client;
 mod command_builder;

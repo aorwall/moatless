@@ -139,9 +139,10 @@ impl TaskSwitchService {
         credentials: SwitchCredentials<'_>,
         note: &SwitchNote<'_>,
     ) -> Result<SwitchOutcome, TaskError> {
-        // reason: an agent fallback is the platform reacting to an agent
-        // event; it has no caller, and `run_as` scopes the credential checks.
-        #[allow(clippy::disallowed_methods)]
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "an agent fallback has no caller; `run_as` scopes credentials"
+        )]
         let system = ScopeContext::system();
         let task = self
             .tasks

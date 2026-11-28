@@ -2,7 +2,11 @@
 // shipping build, so the seeder's `.expect()` calls are test scaffolding —
 // allowed like the crate's own `#[cfg(test)]` code (the crate-level allow is
 // `test`-gated and misses the feature-gated build).
-#![allow(clippy::expect_used, clippy::unwrap_used)]
+#![expect(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    reason = "tests fail by panicking"
+)]
 
 //! Shared `db-tests` seeding for the tasks band.
 //!

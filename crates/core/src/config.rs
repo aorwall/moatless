@@ -582,7 +582,6 @@ pub struct SlackConfig {
     pub bot_user_id: Option<String>,
 }
 
-#[allow(clippy::missing_fields_in_debug)]
 impl fmt::Debug for SlackConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SlackConfig")
@@ -605,7 +604,6 @@ pub struct GithubPrConfig {
     pub webhook_secret: Option<String>,
 }
 
-#[allow(clippy::missing_fields_in_debug)]
 impl fmt::Debug for GithubPrConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("GithubPrConfig")

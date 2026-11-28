@@ -1,5 +1,5 @@
 #![cfg(feature = "db-tests")]
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![expect(clippy::unwrap_used, reason = "tests fail by panicking")]
 //! The preview-relay feed's invariants. Needs a real database: the allocation
 //! is an `ON CONFLICT` interaction across two CTEs, and the prune's window is
 //! measured against the counter rather than against the rows.

@@ -498,9 +498,10 @@ impl GitSyncService {
         // source_key is no longer declared. Soft so in-flight tasks pointing at it
         // keep working — provision lookups don't filter `deleted`.
         let existing = super::dao::git_source_keys(&self.db, &repo.id).await?;
-        // reason: git reconcile mirrors repository content across the repo's own
-        // workspaces; the caller's access to trigger the sync was already checked.
-        #[allow(clippy::disallowed_methods)]
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the caller's access to trigger the sync was checked"
+        )]
         let sys_ctx = ScopeContext::system();
         for (id, key) in existing {
             let keep = key.as_deref().is_some_and(|k| present.contains(k));
@@ -892,9 +893,10 @@ impl GitSyncService {
         repo: &Repository,
         desired: &DesiredWorkspace,
     ) -> Result<UpsertOutcome, RepositoryError> {
-        // reason: git sync writes workspaces derived from repository content, not
-        // caller input; scope/owner are inherited from the repository row.
-        #[allow(clippy::disallowed_methods)]
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "workspaces derive from the repository row, not caller input"
+        )]
         let sys_ctx = ScopeContext::system();
         // Look up by natural key — include 'manual' so a legacy override is
         // reclaimed rather than re-created under the same key. Soft-deleted

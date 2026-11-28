@@ -99,9 +99,10 @@ fn project(workspace: Workspace) -> ResolvedWorkspace {
 #[async_trait]
 impl WorkspaceResolver for WorkspaceProjection {
     async fn resolve(&self, workspace_id: &str) -> Result<Option<ResolvedWorkspace>, StoreError> {
-        // reason: the port resolves across owners — the caller's own
-        // authorization already decided the Workspace may be run.
-        #[allow(clippy::disallowed_methods)]
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the caller's authorization already admitted the Workspace"
+        )]
         let sys = ScopeContext::system();
         let workspace = self
             .workspaces
@@ -123,8 +124,7 @@ impl WorkspaceResolver for WorkspaceProjection {
                 )
             })?;
 
-        // reason: the port resolves across owners, as above.
-        #[allow(clippy::disallowed_methods)]
+        #[expect(clippy::disallowed_methods, reason = "the port resolves across owners")]
         let sys = ScopeContext::system();
         let mut resolved = Vec::with_capacity(placements.len());
         for placement in placements {

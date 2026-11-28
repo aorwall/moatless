@@ -847,8 +847,10 @@ impl RoutingService {
         else {
             return Ok(false);
         };
-        #[allow(clippy::disallowed_methods)]
-        // reason: event routing is a background path with no caller identity
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "event routing is a background path with no caller identity"
+        )]
         let sys = ScopeContext::system();
         match self.tasks.describe(&task_id, &sys).await {
             Ok(Some(task)) if task.status == TaskStatus::Open => return Ok(false),
@@ -895,8 +897,10 @@ impl RoutingService {
     ///
     /// [`TaskDescriptor::created_by`]: moatless_ports::task::TaskDescriptor::created_by
     async fn acting_user(&self, task_id: &str) -> Option<String> {
-        #[allow(clippy::disallowed_methods)]
-        // reason: event routing is a background path with no caller identity
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "event routing is a background path with no caller identity"
+        )]
         let sys = ScopeContext::system();
         self.tasks.describe(task_id, &sys).await.ok()??.created_by
     }
@@ -904,8 +908,10 @@ impl RoutingService {
     /// The Loop's ongoing Task, when it names one that is still open.
     pub async fn open_ongoing_task_id(&self, subscription: &SubscriptionMatch) -> Option<String> {
         let task_id = subscription.ongoing_task_id.as_deref()?;
-        #[allow(clippy::disallowed_methods)]
-        // reason: event routing is a background path with no caller identity
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "event routing is a background path with no caller identity"
+        )]
         let sys = ScopeContext::system();
         match self.tasks.describe(task_id, &sys).await {
             Ok(Some(task)) if task.status == TaskStatus::Open => Some(task.task_id),

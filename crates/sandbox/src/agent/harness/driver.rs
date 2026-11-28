@@ -393,7 +393,10 @@ async fn next_input(
 }
 
 /// Drive one execution from opening input through its single terminal signal.
-#[allow(clippy::too_many_arguments)] // reason: the ordering loop wires several channels; extracting a struct would only relocate the arity.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the ordering loop wires several channels; extracting a struct would only relocate the arity"
+)]
 async fn run_execution<P: AgentProcess>(
     process: &mut P,
     input: Input,

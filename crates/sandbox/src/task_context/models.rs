@@ -56,7 +56,7 @@ pub struct TaskContext {
 }
 
 impl TaskContext {
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "one argument per context field")]
     pub fn new(
         task_id: String,
         workspace_dir: String,

@@ -74,10 +74,10 @@ pub struct OutboundSender {
 }
 
 impl OutboundSender {
-    #[allow(clippy::too_many_arguments)]
-    // reason: a composition-root constructor takes exactly the ports its struct
-    // holds; the alternative is threading `AppState` back in, which is the edge
-    // this slice removes.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "a composition root takes each port its struct holds"
+    )]
     pub(crate) fn new(
         task_bindings: Arc<Bindings>,
         adapter_connections: Arc<ConnectionRouting>,
@@ -179,8 +179,10 @@ impl OutboundSender {
 
         // Author the reply under the owning task's identity (preferred by the GitHub
         // adapter over binding/trigger-derived identities).
-        #[allow(clippy::disallowed_methods)]
-        // reason: outbound reply dispatched by background runtime, no caller identity
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "a background outbound reply has no caller identity"
+        )]
         let sys_author = ScopeContext::system();
         let author_user_id = self
             .tasks

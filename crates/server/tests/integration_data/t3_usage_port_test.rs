@@ -1,10 +1,5 @@
 #![cfg(feature = "db-tests")]
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::print_stdout,
-    clippy::print_stderr
-)]
+#![expect(clippy::expect_used, reason = "tests fail by panicking")]
 //! Integration tests for the `UsageReporter` port the T3 band builds.
 //!
 //! The bucket query is built by string interpolation and bound positionally, so

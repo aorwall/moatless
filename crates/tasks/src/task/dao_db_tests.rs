@@ -148,8 +148,10 @@ async fn system_context_reads_any_task(pool: PgPool) {
     assert!(found.is_none());
 
     // ...but background/system callers read through the same scoped method.
-    // reason: exercising the system-context path replacing find_by_id_internal
-    #[allow(clippy::disallowed_methods)]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test exercises the system-context read"
+    )]
     let sys = ScopeContext::system();
     let found = find_task(&pool, "task-internal", &sys).await.unwrap();
     assert!(found.is_some());

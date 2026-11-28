@@ -1,6 +1,13 @@
 //! Shared Workspace, repository, and plugin values.
 
-#![cfg_attr(test, allow(clippy::expect_used, clippy::unwrap_used))]
+#![cfg_attr(
+    test,
+    expect(
+        clippy::expect_used,
+        clippy::unwrap_used,
+        reason = "tests fail by panicking"
+    )
+)]
 
 #[path = "../../types/src/string_enum.rs"]
 mod string_enum;

@@ -27,8 +27,10 @@ use moatless_tasks::agent_event::AgentEvent;
 /// last assistant row, before updating cost, emitting follow-ups, and
 /// finalizing any active Linear session.
 pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
-    // reason: agent-lifecycle event handler runs as background system with no caller identity
-    #[allow(clippy::disallowed_methods)]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "agent-lifecycle event handler runs as background system with no caller identity"
+    )]
     let sys_ctx = ScopeContext::system();
     let sdk_result: SdkResultMessage = match serde_json::from_value(event.payload.clone()) {
         Ok(r) => r,
@@ -278,8 +280,10 @@ async fn stop_sandbox_when_done(tasks: &TaskCommands, sandbox: &Lifecycle, task_
 /// change. Without this the status waits for the run to end, and the T3 sidebar
 /// hides the Task for the whole run.
 pub async fn handle_agent_started(tasks: &TaskCommands, event: &AgentEvent) {
-    // reason: agent-lifecycle event handler runs as background system with no caller identity
-    #[allow(clippy::disallowed_methods)]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "agent-lifecycle event handler runs as background system with no caller identity"
+    )]
     let sys_ctx = ScopeContext::system();
     let status = match tasks.find_by_id(&event.task_id, &sys_ctx).await {
         Ok(Some(task)) => task.status,
@@ -348,8 +352,10 @@ pub async fn handle_agent_session_init(state: &AppState, event: &AgentEvent) {
 /// the turn state already says so, the next run reads that status to decide it
 /// needs a fresh session, and whoever stopped it — often the parent — knows.
 pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
-    // reason: agent-lifecycle event handler runs as background system with no caller identity
-    #[allow(clippy::disallowed_methods)]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "agent-lifecycle event handler runs as background system with no caller identity"
+    )]
     let sys_ctx = ScopeContext::system();
     // Idempotency: the sandbox and the /stop handler can both publish
     // `agent.stopped` for one user action, and a hammered /stop must never
@@ -441,8 +447,10 @@ pub async fn handle_agent_error(ports: &AgentErrorPorts, event: &AgentEvent) {
 /// Record an errored run; `reopen` returns the task to `Open` and tells a
 /// `created_by` parent.
 async fn finish_errored_run(ports: &AgentErrorPorts, event: &AgentEvent, reopen: bool) {
-    // reason: agent-lifecycle event handler runs as background system with no caller identity
-    #[allow(clippy::disallowed_methods)]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "agent-lifecycle event handler runs as background system with no caller identity"
+    )]
     let sys_ctx = ScopeContext::system();
     // Prometheus: count the errored run. Reached both from the `agent.error`
     // dispatch arm and from `handle_agent_completed`'s `is_error` short-circuit
@@ -689,8 +697,10 @@ async fn completion_notice(
     child_task_id: &str,
     turn_number: Option<i32>,
 ) -> String {
-    // reason: agent-lifecycle event handler runs as background system with no caller identity
-    #[allow(clippy::disallowed_methods)]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "agent-lifecycle event handler runs as background system with no caller identity"
+    )]
     let sys_ctx = ScopeContext::system();
     let name = match ports.tasks.find_by_id(child_task_id, &sys_ctx).await {
         Ok(task) => task.and_then(|t| t.name).filter(|n| !n.trim().is_empty()),
@@ -772,8 +782,10 @@ pub async fn handle_agent_session_context_lost(_state: &AppState, event: &AgentE
 
 /// Handle `task.metadata.updated` event.
 pub async fn handle_task_metadata_updated(state: &AppState, event: &AgentEvent) {
-    // reason: agent-lifecycle event handler runs as background system with no caller identity
-    #[allow(clippy::disallowed_methods)]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "agent-lifecycle event handler runs as background system with no caller identity"
+    )]
     let sys_ctx = ScopeContext::system();
     let name = event.payload.get("name").and_then(|v| v.as_str());
     let description = event.payload.get("description").and_then(|v| v.as_str());

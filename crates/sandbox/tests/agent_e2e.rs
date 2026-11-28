@@ -1,9 +1,12 @@
-#![allow(
+#![expect(
     clippy::unwrap_used,
     clippy::expect_used,
-    clippy::print_stdout,
     clippy::print_stderr,
-    clippy::ignore_without_reason
+    reason = "tests panic on failure and print diagnostics"
+)]
+#![expect(
+    clippy::ignore_without_reason,
+    reason = "the module doc gives the one reason every test is ignored"
 )]
 //! End-to-end integration tests for the sandbox agent module.
 //!

@@ -8,12 +8,11 @@
 //! Run the deterministic tests with the rest of `moatless-sandbox`. Run the
 //! credentialed evaluation through `task test:moat-cli:eval`.
 
-#![allow(
+#![expect(
     clippy::expect_used,
-    clippy::ignore_without_reason,
     clippy::print_stderr,
     clippy::print_stdout,
-    clippy::unwrap_used
+    reason = "tests panic on failure and print diagnostics"
 )]
 
 use std::collections::{BTreeMap, HashMap};

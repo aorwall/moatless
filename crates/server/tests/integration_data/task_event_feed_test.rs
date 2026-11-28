@@ -1,5 +1,5 @@
 #![cfg(feature = "db-tests")]
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![expect(clippy::unwrap_used, reason = "tests fail by panicking")]
 //! The task-event feed's three invariants, a group of cases each.
 //!
 //! Each needs a real database: the dedup is an `ON CONFLICT` interaction across

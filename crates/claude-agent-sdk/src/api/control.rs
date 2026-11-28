@@ -173,7 +173,6 @@ pub(crate) struct ControlResponsePayload {
 
 impl RawStdoutMessage {
     /// Parse a raw JSON value into a `RawStdoutMessage`.
-    #[allow(clippy::should_implement_trait)] // Not a FromStr-like conversion
     pub fn from_value(value: Value) -> Self {
         let msg_type = value.get("type").and_then(|v| v.as_str());
 

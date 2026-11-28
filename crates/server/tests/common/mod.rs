@@ -175,7 +175,7 @@ impl NotifyPort for MockNotify {
 /// `api_base_url` is the injection seam: `LinearAgentApi` is built deep inside
 /// webhook/worker paths holding only an `AppState`, so a stub's base here is
 /// the only way to keep a workflow's Linear calls off `api.linear.app`.
-#[allow(dead_code)]
+#[allow(dead_code, reason = "not every test binary uses it")]
 pub fn linear_config(webhook_secret: Option<&str>, api_base_url: Option<&str>) -> LinearConfig {
     LinearConfig {
         webhook_secret: webhook_secret.map(str::to_string),
@@ -192,7 +192,7 @@ pub fn linear_config(webhook_secret: Option<&str>, api_base_url: Option<&str>) -
 /// missing and every Linear emitter skips the call best-effort, so a test
 /// seeding only [`linear_config`] makes no calls and any API-call budget it
 /// asserts is vacuous.
-#[allow(dead_code)]
+#[allow(dead_code, reason = "not every test binary uses it")]
 pub async fn seed_linear_app(pool: &sqlx::PgPool, api_base_url: &str) {
     sqlx::query(
         "INSERT INTO adapter_apps \
@@ -208,13 +208,13 @@ pub async fn seed_linear_app(pool: &sqlx::PgPool, api_base_url: &str) {
 }
 
 /// Minimal Config for tests — no env vars needed.
-#[allow(dead_code)]
+#[allow(dead_code, reason = "not every test binary uses it")]
 pub fn test_config() -> Config {
     Config::test_minimal()
 }
 
 /// Build an `AppState` with a real `PgPool` and mock sandbox capabilities.
-#[allow(dead_code)]
+#[allow(dead_code, reason = "not every test binary uses it")]
 pub fn test_app_state(pool: PgPool) -> AppState {
     test_app_state_with_config(pool, test_config(), false)
 }
@@ -350,15 +350,15 @@ fn build_app_state(
 /// real uuid and seed the matching row's owner with the same value; DB-only DAO
 /// tests keep symbolic names (`"user-1"`) since they build `ScopeContext`
 /// directly and never parse a uuid.
-#[allow(dead_code)]
+#[allow(dead_code, reason = "not every test binary uses it")]
 pub const USER_1: &str = "11111111-1111-1111-1111-111111111111";
-#[allow(dead_code)]
+#[allow(dead_code, reason = "not every test binary uses it")]
 pub const USER_2: &str = "22222222-2222-2222-2222-222222222222";
 
 /// A user-scoped [`ScopeContext`] for `user_id`, matching rows seeded by the
 /// factories below (owner = `user_id`, no team memberships). Used to assert DB
 /// state directly from HTTP handler tests.
-#[allow(dead_code)]
+#[allow(dead_code, reason = "not every test binary uses it")]
 pub fn user_scope(user_id: &str) -> ScopeContext {
     ScopeContext::user(user_id.to_string())
 }
@@ -435,7 +435,7 @@ pub async fn drain_linear_adapter_delivery(pool: &PgPool, worker_state: AppState
 // =========================================================================
 
 /// Build an HTTP request with auth identity extension.
-#[allow(dead_code)]
+#[allow(dead_code, reason = "not every test binary uses it")]
 pub fn authed_request(
     method: &str,
     uri: &str,
@@ -459,7 +459,7 @@ pub fn authed_request(
 }
 
 /// Build an HTTP request with auth identity extension and a JSON body.
-#[allow(dead_code)]
+#[allow(dead_code, reason = "not every test binary uses it")]
 pub fn authed_json_request(
     method: &str,
     uri: &str,
@@ -484,7 +484,7 @@ pub fn authed_json_request(
 }
 
 /// Extract response body as JSON value.
-#[allow(dead_code)]
+#[allow(dead_code, reason = "not every test binary uses it")]
 pub async fn body_json(response: axum::http::Response<axum::body::Body>) -> serde_json::Value {
     let bytes = http_body_util::BodyExt::collect(response.into_body())
         .await
@@ -499,14 +499,14 @@ pub async fn body_json(response: axum::http::Response<axum::body::Body>) -> serd
 
 /// The row factories the workspaces band owns, so a fixture here writes the
 /// same shape that band's own PostgreSQL tests write.
-#[allow(unused_imports)]
+#[allow(unused_imports, reason = "not every test binary uses it")]
 pub use moatless_workspaces::test_support::{
     make_repository_row, make_workspace_repo_row, make_workspace_row, run_config,
 };
 
 /// The row factories the tasks band owns, so a fixture here writes the same
 /// shape that band's own PostgreSQL tests write.
-#[allow(unused_imports)]
+#[allow(unused_imports, reason = "not every test binary uses it")]
 pub use moatless_tasks::message::test_support::make_message_row;
-#[allow(unused_imports)]
+#[allow(unused_imports, reason = "not every test binary uses it")]
 pub use moatless_tasks::task::test_support::{FIXTURE_WORKSPACE, make_task_row};

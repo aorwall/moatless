@@ -152,9 +152,10 @@ impl AppStateBoundPullRequests {
     /// The login of the Task's creator, whose token the GitHub status fetch
     /// resolves.
     async fn task_creator(&self, task_id: &str) -> Option<String> {
-        // reason: the port's caller has already checked the viewer's access to
-        // this Task; the creator is read past it, under the system scope.
-        #[allow(clippy::disallowed_methods)]
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the caller already checked the viewer's access to this Task"
+        )]
         let system = ScopeContext::system();
         self.0
             .task_reader

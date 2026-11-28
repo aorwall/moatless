@@ -587,8 +587,10 @@ impl GithubPrInboundRouter {
         for binding in bindings {
             let task_id = &binding.task_id;
 
-            #[allow(clippy::disallowed_methods)]
-            // reason: GitHub PR close handler runs as background system, no caller identity
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "the PR close handler has no caller identity"
+            )]
             let sys = ScopeContext::system();
             match self.tasks.describe(task_id, &sys).await {
                 Ok(Some(task)) if task.status == TaskStatus::Closed => {

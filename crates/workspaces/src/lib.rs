@@ -1,6 +1,11 @@
-// reason: test code may unwrap/expect freely; production code keeps the
-// workspace `deny`/`warn`.
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+#![cfg_attr(
+    test,
+    expect(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        reason = "tests fail by panicking"
+    )
+)]
 
 //! Workspaces band (band 4): workspace git sync, repository CRUD and token
 //! access, skill fetching, and plugin activation/sync.

@@ -6,8 +6,7 @@
 //! and its consumers are the sandbox band and the HTTP schema chain — disjoint
 //! from those of `agent::AgentSubType`.
 
-// reason: test code may unwrap freely; production code keeps the workspace `deny`.
-#![cfg_attr(test, allow(clippy::unwrap_used))]
+#![cfg_attr(test, expect(clippy::unwrap_used, reason = "tests fail by panicking"))]
 
 use std::fmt;
 use std::str::FromStr;

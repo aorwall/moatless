@@ -141,7 +141,6 @@ impl SandboxAuthorizer {
     /// `allow_bootstrap` is set only for `GetCredentials`; the grant is
     /// resolved separately by [`resolve_grant`](Self::resolve_grant) since a
     /// streaming RPC's `task_id` arrives in-band, not yet known here.
-    #[allow(clippy::result_large_err)] // reason: tonic::Status is the required gRPC error type
     pub(super) fn verify_token<T>(
         &self,
         request: &Request<T>,
@@ -277,9 +276,10 @@ impl SandboxAuthorizer {
         match verified {
             #[cfg(any(test, feature = "db-tests"))]
             VerifiedToken::DevBypass => {
-                // reason: test bypass grant, only reachable via
-                // SandboxAuthorizer::dev_unauthenticated.
-                #[allow(clippy::disallowed_methods)]
+                #[expect(
+                    clippy::disallowed_methods,
+                    reason = "dev-only grant from `SandboxAuthorizer::dev_unauthenticated`"
+                )]
                 let ctx = ScopeContext::system();
                 Ok(TaskGrant {
                     sandbox_id: request_task_id.to_string(),

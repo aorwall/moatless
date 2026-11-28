@@ -263,9 +263,7 @@ impl OrgSync {
     pub async fn sync_org(&self, org: &str) -> Result<OrgSyncSummary, RepositoryError> {
         let token = self.token(org).await?;
         let listing = self.list(org, &token).await?;
-        // reason: the org sync mirrors GitHub into the global registry, acting
-        // for no caller.
-        #[allow(clippy::disallowed_methods)]
+        #[expect(clippy::disallowed_methods, reason = "the org sync acts for no caller")]
         let system = ScopeContext::system();
         let known = self.repositories.list_all(&system).await?;
         let mut plan = plan(org, &listing.repos, &known);

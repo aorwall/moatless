@@ -481,10 +481,12 @@ impl MessageAcceptor for crate::message::send::MessageSendService {
 #[async_trait]
 impl TaskFinisher for crate::task::closer::TaskCloser {
     async fn close(&self, task_id: &str, reason: CloseReason) -> Result<(), StoreError> {
-        // reason: a provider close runs as the system — a webhook carries no
-        // caller identity. The existence hiding inside `close_with_event` is
-        // what keeps the answer the same for a Task that is not there.
-        #[allow(clippy::disallowed_methods)]
+        // The existence hiding inside `close_with_event` is what keeps the
+        // answer the same for a Task that is not there.
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "a webhook-driven close carries no caller identity"
+        )]
         let sys = ScopeContext::system();
         self.close_with_event(
             &sys,

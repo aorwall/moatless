@@ -164,8 +164,10 @@ pub(super) async fn get_credentials(
     let actor = task_actor(service, &targets, &grant).await;
     let task = match handlers {
         Some(handlers) => {
-            // reason: the Sandbox grant authorized this Task before its reporter is read
-            #[allow(clippy::disallowed_methods)]
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "the Sandbox grant already authorized this Task"
+            )]
             let scope = ScopeContext::system();
             handlers
                 .tasks

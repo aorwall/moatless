@@ -49,9 +49,10 @@ pub struct ExternalReplyService {
 }
 
 impl ExternalReplyService {
-    #[allow(clippy::too_many_arguments)]
-    // reason: a composition-root constructor takes exactly the ports its struct
-    // holds; threading `AppState` back in is the edge this slice removes.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "a composition root takes each port its struct holds"
+    )]
     pub(crate) fn new(
         adapters: Option<Arc<Adapters>>,
         task_bindings: Arc<Bindings>,

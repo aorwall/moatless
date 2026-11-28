@@ -5,7 +5,14 @@
 //! band keeps naming its existing paths unchanged.
 
 // Allow unwrap/expect in test code. Production code still enforces the deny.
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+#![cfg_attr(
+    test,
+    expect(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        reason = "tests fail by panicking"
+    )
+)]
 
 mod access;
 pub mod adapter;

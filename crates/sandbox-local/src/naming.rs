@@ -4,7 +4,7 @@
 use std::path::PathBuf;
 
 /// Per-task directory layout under `{root}/tasks/{task_id}/`.
-#[allow(clippy::struct_field_names)]
+#[expect(clippy::struct_field_names, reason = "every field is a directory")]
 pub struct TaskPaths {
     /// The task's own root directory — deleted wholesale on hard removal.
     pub base_dir: PathBuf,

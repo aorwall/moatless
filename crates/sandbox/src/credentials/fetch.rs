@@ -2,7 +2,7 @@
 // during single-threaded init *and* then periodically by the credential
 // refresher loop (see `super::refresher`). There are no other writers of these
 // env vars after init — the refresher is a single serialized loop.
-#![allow(unsafe_code)]
+#![expect(unsafe_code, reason = "`std::env::set_var` is unsafe")]
 
 //! Credential fetching and application.
 //!

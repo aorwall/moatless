@@ -1,5 +1,8 @@
-// reason: examples print results to stdout/stderr for the reader.
-#![allow(clippy::print_stdout, clippy::print_stderr)]
+#![expect(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "examples print their results"
+)]
 
 //! Demonstrates custom permission handling.
 //!

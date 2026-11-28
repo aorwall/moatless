@@ -6,7 +6,11 @@
 //! flushed while its drainer is alive, and only then is the lifecycle token
 //! cancelled.
 
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![expect(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "tests fail by panicking"
+)]
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};

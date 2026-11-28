@@ -118,8 +118,10 @@ impl DefaultBranchWatch {
     /// Sync every GitHub repository whose head moved, stopping between
     /// repositories once `cancel` fires.
     pub async fn tick(&self, cancel: &CancellationToken) {
-        // reason: a background sync acts for no caller and reads every repository.
-        #[allow(clippy::disallowed_methods)]
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "a background sync reads every repository"
+        )]
         let system = ScopeContext::system();
         let repositories = match self.repositories.list_all(&system).await {
             Ok(repositories) => repositories,

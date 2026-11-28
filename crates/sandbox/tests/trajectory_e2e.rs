@@ -4,11 +4,12 @@
 //!
 //! `TRAJECTORY_E2E=1 cargo test -p moatless-sandbox --test trajectory_e2e -- --ignored --nocapture`
 
-#![allow(
+#![expect(
     clippy::unwrap_used,
     clippy::expect_used,
     clippy::print_stderr,
-    clippy::too_many_lines
+    clippy::too_many_lines,
+    reason = "an E2E test panics on failure and runs as one long scenario"
 )]
 
 use std::collections::HashMap;

@@ -507,8 +507,10 @@ impl SecretService {
             return Ok(false);
         }
         // System bookkeeping: delete the record using a system context.
-        // reason: delete_user_secret is an internal workflow path — actor already authorized
-        #[allow(clippy::disallowed_methods)]
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the caller already authorized the deletion"
+        )]
         let sys_ctx = ScopeContext::system();
         let removed = self.secrets.delete(&record.id, &sys_ctx).await?;
         if removed {
@@ -525,8 +527,10 @@ impl SecretService {
         scope: Scope,
         owner_user_id: Option<&str>,
     ) -> Result<Vec<ResolvedSecret>, SecretError> {
-        // reason: resolution paths are system/internal — already authorized by caller
-        #[allow(clippy::disallowed_methods)]
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the caller already authorized the resolution"
+        )]
         let sys_ctx = ScopeContext::system();
         let records = self.secrets.list(&sys_ctx, Some(scope.as_str())).await?;
         let mut resolved = Vec::new();

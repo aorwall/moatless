@@ -1,7 +1,13 @@
 //! Shared wire contracts for domains outside the Workspace types crate.
 
-// reason: test code may unwrap/expect freely; production code keeps the workspace `deny`.
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+#![cfg_attr(
+    test,
+    expect(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        reason = "tests fail by panicking"
+    )
+)]
 
 pub mod adapters;
 pub mod agent;

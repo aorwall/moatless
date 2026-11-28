@@ -1,10 +1,5 @@
 #![cfg(feature = "db-tests")]
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::print_stdout,
-    clippy::print_stderr
-)]
+#![expect(clippy::unwrap_used, reason = "tests fail by panicking")]
 //! HTTP handler integration tests for tag endpoints.
 
 use crate::common;

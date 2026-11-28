@@ -43,7 +43,6 @@ pub struct SkillService {
 }
 
 impl SkillService {
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         repositories: Arc<dyn RepositoryDao>,
         workspaces: Arc<dyn WorkspaceDao>,

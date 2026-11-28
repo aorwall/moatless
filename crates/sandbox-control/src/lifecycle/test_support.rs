@@ -1,6 +1,6 @@
 // This module compiles only for test builds, so the seeder's `.expect()` calls
 // are test scaffolding.
-#![allow(clippy::expect_used)]
+#![expect(clippy::expect_used, reason = "tests fail by panicking")]
 
 //! Shared seeding for the `db-tests` lifecycle modules.
 //!

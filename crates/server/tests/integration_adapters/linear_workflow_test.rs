@@ -308,7 +308,7 @@ pub(super) async fn seed_rule_routed(
 }
 
 /// A task with one active binding of `subject_kind` on `subject_key`.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "one argument per binding column")]
 pub(super) async fn seed_binding(
     state: &AppState,
     pool: &PgPool,

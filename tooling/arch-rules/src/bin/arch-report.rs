@@ -1,6 +1,9 @@
 // A report binary's whole output is stdout, the same reason `moatless-cli`
 // allows these at its own root.
-#![allow(clippy::print_stdout, clippy::print_stderr)]
+#![expect(
+    clippy::print_stdout,
+    reason = "a CLI writes its output to the terminal"
+)]
 
 //! Prints every architecture violation in the workspace; exits 0 regardless.
 //!

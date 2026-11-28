@@ -146,8 +146,10 @@ pub(crate) fn create_upload_url(
         name: declared.name,
         mime: declared.mime_type,
         size: declared.size_bytes,
-        #[allow(clippy::cast_sign_loss)]
-        // `expires_at` is now plus ten minutes; it is not before the epoch.
+        #[expect(
+            clippy::cast_sign_loss,
+            reason = "`expires_at` is ten minutes from now, after the epoch"
+        )]
         exp: expires_at.timestamp().max(0) as u64,
         iss: UPLOAD_TOKEN_ISSUER.to_string(),
     };

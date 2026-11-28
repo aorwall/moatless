@@ -203,8 +203,10 @@ impl ScheduleRunner {
         let mut is_new_task = false;
         let task_id = if route.routing_mode == moatless_types::loops::RoutingMode::Ongoing {
             if let Some(task_id) = route.ongoing_task_id.as_deref() {
-                #[allow(clippy::disallowed_methods)]
-                // reason: schedule runner is a background system with no caller identity
+                #[expect(
+                    clippy::disallowed_methods,
+                    reason = "a schedule firing has no caller identity"
+                )]
                 let sys = ScopeContext::system();
                 match self.tasks.describe(task_id, &sys).await {
                     Ok(Some(task)) if task.status == TaskStatus::Open => task.task_id,

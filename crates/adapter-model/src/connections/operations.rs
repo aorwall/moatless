@@ -147,9 +147,10 @@ impl ConnectionRouting {
 
     /// See [`ConnectionLookup::by_id_trusted`].
     pub async fn by_id_trusted(&self, id: &str) -> Result<Option<AdapterConnection>, StoreError> {
-        // reason: routing reads the connection a stored row already names, so
-        // there is no caller identity to scope by.
-        #[allow(clippy::disallowed_methods)]
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "routing reads a connection a stored row names"
+        )]
         let sys = ScopeContext::system();
         self.store.find_by_id(id, &sys).await
     }
@@ -188,9 +189,10 @@ impl ConnectionRouting {
         &self,
         connection: &AdapterConnection,
     ) -> Result<AdapterConnection, StoreError> {
-        // reason: an OAuth install writes the connection the grant just
-        // authorized, and no session backs it.
-        #[allow(clippy::disallowed_methods)]
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "an OAuth install has no session behind it"
+        )]
         let sys = ScopeContext::system();
         self.store.upsert(connection, &sys).await
     }
