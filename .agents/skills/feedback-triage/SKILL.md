@@ -52,6 +52,7 @@ or a read also returns same-named entries from the Workspace.
 |---|---|
 | `triage:runs` | `{runs: [{date, taskId, pageSlug, processed}]}`, newest last |
 | `triage:cluster:<slug>` | One cluster, shaped as below |
+| `triage:members:<slug>:<n>` | `{ids: [...]}`, part of the cluster's full member set |
 | `triage:groups` | Fix-task groups awaiting confirmation; `references/acting.md` |
 
 ```bash
@@ -81,7 +82,7 @@ A cluster entry's data, which is also the page record `clusters/<slug>`:
 {"slug": "sandbox-restart-loses-build-state", "title": "…", "label": "tool-bug",
  "owner": "moatless", "ownerReason": "…", "reportedFrom": ["moatless"],
  "summary": "…", "brief": "…", "existing": [{"label": "#953 merged", "url": "…"}],
- "members": ["<feedbackId>", "…"], "allMembers": ["<feedbackId>", "…"],
+ "members": ["<feedbackId>", "…"],
  "samples": [{"feedbackId": "…", "comment": "…"}],
  "count": 3, "firstSeen": "<createdAt>", "lastSeen": "<createdAt>",
  "bucket": "fix", "priority": {"impact": 4, "ease": 2, "score": 6, "rank": 1,
@@ -93,9 +94,16 @@ A cluster entry's data, which is also the page record `clusters/<slug>`:
  "deferUntil": "<YYYY-MM-DD>", "followUp": "…", "recurred": false}
 ```
 
-`members` holds this window's items; `allMembers` every item the cluster ever
-held, which is what a close closes. An entry written before `allMembers`
-existed reads as `allMembers // members`.
+`members` holds this window's items. Every item the cluster ever held, which
+is what a close closes, lives outside the entry in `triage:members:<slug>:<n>`
+chunks: a cluster of 400 UUIDs passes 16 KiB on its own. Read and grow that
+set only with `scripts/members.sh`, never from the entry, since older entries
+also hold ids in `allMembers` or an `allMembersKey` entry, which it merges in:
+
+```bash
+<skill>/scripts/members.sh read "$slug" > ids.json   # JSON array of every id
+jq '.members // []' "clusters/$slug.json" | <skill>/scripts/members.sh add "$slug"
+```
 
 `status` is `proposed`, `in-progress`, `fixed`, `closed`, `rejected` or
 `deferred`. Steps 2 and 3 set it; step 6 sets it back to `proposed` when a
@@ -159,9 +167,10 @@ The label only seeds step 6, so a wrong one costs little.
    whatever its label: a slug is stable for the life of the cluster, and a
    later run finds earlier decisions under it. `members`, `count`, `samples`,
    `firstSeen` and `lastSeen` describe this window only, so rewrite them from
-   the batch rather than adding to the stored ones. Add the window's members
-   to `allMembers` and never remove one: a merged fix closes them all. A known
-   cluster with no member in the window stays in memory and off the page.
+   the batch rather than adding to the stored ones. Step 10 adds the window's
+   members to the full set, which never loses one: a merged fix closes them
+   all. A known cluster with no member in the window stays in memory and off
+   the page.
 
    The known cluster's `status` decides what a match does:
 
@@ -171,7 +180,7 @@ The label only seeds step 6, so a wrong one costs little.
    | `in-progress` | Joins it; the fix is coming, and step 3 closes it with the rest |
    | `deferred`, `deferUntil` not yet reached | Joins it, and the cluster stays off the page |
    | `deferred`, `deferUntil` reached | Joins it and reopens it: `status: proposed`, `deferUntil` cleared |
-   | `fixed`, the item's `createdAt` before `mergedAt` | Joins `allMembers` only, and the cluster stays `fixed` and off the page: close the item `fixed`, note `Fixed by <pr> (feedback-triage <slug>), reported before it merged`. It predates the fix, so it is no recurrence |
+   | `fixed`, the item's `createdAt` before `mergedAt` | Joins the full set only (`members.sh add`), and the cluster stays `fixed` and off the page: close the item `fixed`, note `Fixed by <pr> (feedback-triage <slug>), reported before it merged`. It predates the fix, so it is no recurrence |
    | `fixed` reported after `mergedAt` or with no `mergedAt`, `closed` or `rejected` | Reopens it: `status: proposed`, `recurred: true`, keep `decision`, `pr` and `mergedAt` so the page shows the earlier outcome |
 
    A reopen also sets `bucket`, `priority.rank` and `childTaskId` to null:
@@ -202,14 +211,21 @@ them and a person can reject them in one decision.
 
 ## 7. Check for work already done
 
-Before a cluster goes on the page, search its owning repository for a PR on the
-same cause. `GITHUB_ORG` is the owner of the repository this run cloned:
+Before a cluster goes on the page, look in its owning repository for a PR on
+the same cause. List each owner's recent PRs once and match the clusters'
+cause words against the titles locally. `GITHUB_ORG` is the owner of the
+repository this run cloned:
 
 ```bash
 GITHUB_ORG=$(basename "$(dirname "$GIT_CLONE_URL")")
-moat gh pr list -R "$GITHUB_ORG/<owner>" --state all --search "<two or three cause words>" --limit 5 \
-  --json number,title,state,mergedAt,url
+moat gh pr list -R "$GITHUB_ORG/<owner>" --state all --limit 300 \
+  --json number,title,state,createdAt,mergedAt,url > "prs-<owner>.json"
 ```
+
+Search (`--search "<two or three cause words>" --limit 5`) only for a cluster
+the titles do not settle. Every search spends GitHub's search quota, and a run
+that searched once per cluster left the token rate-limited, so creating the
+fix tasks that followed failed.
 
 Add each match to `existing` with its state in the label. A PR merged after the
 cluster's `lastSeen` likely fixed it: say so in `brief` (*likely fixed by #953;
@@ -336,20 +352,24 @@ without republishing.
 ## 10. Record the run
 
 Write the clusters before the run, so a run listed in `triage:runs` always has
-its clusters stored:
+its clusters stored, and each cluster's members before its entry, which then
+drops any `allMembers` and `allMembersKey`:
 
 ```bash
-moat memory put "triage:cluster:$c" --scope loop --summary "<count> · <owner> · <title>" --data "$(jq -c . clusters/$c.json)"
+jq '.members // []' "clusters/$c.json" | <skill>/scripts/members.sh add "$c"
+moat memory put "triage:cluster:$c" --scope loop --summary "<count> · <owner> · <title>" \
+  --data "$(jq -c 'del(.allMembers, .allMembersKey)' clusters/$c.json)"
 jq --arg t "$TASK_ID" --arg slug "$slug" --argjson n "$(jq length batch.json)" \
   '.runs = ((.runs // []) + [{date: (now | strftime("%Y-%m-%d")), taskId: $t, pageSlug: $slug, processed: $n}])[-60:]' \
   runs-read.json > runs.json
 moat memory put triage:runs --scope loop --no-expiry --summary "Feedback triage runs and their pages" --data "$(jq -c . runs.json)"
 ```
 
-Write cluster entries without `--no-expiry`. Each write restarts the 28-day
-expiry, so a cluster lasts while its cause keeps being reported and expires
-after four quiet weeks; with `--no-expiry` they pile up until `list` hits 500
-and step 1 stops every run. A cause that returns after that gets a new slug.
+Write cluster entries and member chunks without `--no-expiry`. Each write
+restarts the 28-day expiry, and `members.sh add` rewrites every chunk, so a
+cluster lasts while its cause keeps being reported and expires after four
+quiet weeks; with `--no-expiry` they pile up until `list` hits 500 and step 1
+stops every run. A cause that returns after that gets a new slug.
 Write an `in-progress` cluster every run even when no item joined it, so it
 cannot expire while its fix task works.
 

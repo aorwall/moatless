@@ -34,7 +34,7 @@ leave `decision` alone, since `medianDaysApprovalToMerge` reads its
 `actedAt`. Say so on the page and in the reply, and name
 `moat tasks cancel <childTaskId>` for a person who wants it stopped.
 
-"Every member" means every id in the entry's `allMembers // members` that
+"Every member" means every id `scripts/members.sh read <slug>` prints that
 `scripts/open-ids.sh` lists as open, so an item already closed keeps its own
 note. Set each one's status one call at a time, and put the evidence in the note:
 
@@ -100,6 +100,10 @@ jq -c --argjson s '["<slug>", "…"]' '[.decisions[] | select(.slug as $x | $s |
 <skill>/scripts/create-fix-task.sh group.json   # SCOPE=task outside a Loop
 ```
 
+Give the call a 10-minute timeout: a `tasks create` refused because the
+GitHub token is rate-limited is retried at the time the refusal names, for at
+most 8 minutes (`MAX_WAIT`).
+
 The script picks the workspace whose primary repository is the group's
 `owner`, preferring the repository's git `default` Workspace, since names are
 not unique and several workspaces can share a repository. It takes each
@@ -120,7 +124,10 @@ moat artifact data save "$page" meta/groups "$(jq -c . groups.json)" --task "$pa
 
 Exit 1 means the owners differ, no single workspace fits, or a claim or
 `tasks create` failed, and nothing was written: the clusters stay held.
-Report it rather than guessing a workspace. Exit 2 means the task was created
+Report it rather than guessing a workspace. When stderr names a rate limit
+past the wait, keep the group in `triage:groups` and set `followUp:
+"tasks create rate-limited until <time>; confirm again"` on its clusters,
+which puts them back on the next page. Exit 2 means the task was created
 but recording it failed on the clusters named on stderr: write the printed id
 as their `childTaskId` with `status: in-progress` before anything else, or the
 next run creates a second task, and report it. Exit 0 with no id while
@@ -128,23 +135,35 @@ another run holds a claim on any cluster skips the whole group: confirm it
 again once that run ends.
 
 The brief it sends holds each cluster's `title`, `summary`, `brief` and
-approver `note`, every sample comment in full, the member ids, and these rules:
+approver `note`, every sample comment in full, every id `members.sh read`
+prints, and these rules:
 confirm each cause on `main` first, and leave out one that is gone; open one
 PR with a `Feedback-triage: <slug>` line per cluster in its body, which step 3
 finds it by; and leave `moat feedback status` to the triage Loop.
 
 ## Step 3: follow up on fix tasks
 
-For every cluster entry with `status: in-progress`:
+Search once per owner of an `in-progress` cluster, from the oldest such
+cluster's `decision.actedAt` (no `created:` qualifier when none has one), then
+match each cluster's PRs locally:
 
 ```bash
-# Phrase search splits on hyphens, so it also finds `<slug>-more`; keep exact lines only.
-moat gh pr list -R "$GITHUB_ORG/$owner" --state all --search "\"Feedback-triage: $slug\" in:body" \
-  --json number,url,state,mergedAt,body --limit 20 \
-  | jq --arg l "Feedback-triage: $slug" \
-      '[.[] | select(.body | split("\n") | map(rtrimstr("\r") | ltrimstr(" ") | rtrimstr(" ")) | index($l))]'
+moat gh pr list -R "$GITHUB_ORG/$owner" --state all --limit 200 \
+  --search "\"Feedback-triage\" in:body created:>=${oldest_acted_at%%T*}" \
+  --json number,url,state,createdAt,mergedAt,body > "triage-prs-$owner.json"
+# Phrase search splits on hyphens, so a body naming `<slug>-more` matches too; keep exact lines only.
+jq --arg l "Feedback-triage: $slug" --arg since "$acted_at" \
+  '[.[] | select(.createdAt >= $since)
+        | select(.body | split("\n") | map(gsub("^\\s+|\\s+$"; "")) | index($l))]' \
+  "triage-prs-$owner.json"
 moat tasks status "$childTaskId" --result --json | jq -r .workState
 ```
+
+`$acted_at` is the cluster's `decision.actedAt`, when its current task was
+created. Count only PRs created since then: a reopened cluster keeps the
+earlier fix's `Feedback-triage` line, and that merged PR would close it again
+at once. A listing of exactly 200 PRs is truncated, newest first: list again
+with `created:<` its oldest `createdAt` rather than match a partial set.
 
 | Finding | What to do | `status` after |
 |---|---|---|

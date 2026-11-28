@@ -9,12 +9,16 @@
 # without a task id: no cluster is still held for its approval, or another run
 # holds a claim on any one of them, which skips the whole group. Exit 1: the
 # owners differ, no workspace fits, or a claim or `tasks create` failed;
-# nothing was created or written. Exit 2: the task was created and its id
-# printed, but recording it failed on a cluster named on stderr; set its
-# `childTaskId` by hand.
+# nothing was created or written. A `tasks create` refused with a 503 rate
+# limit is retried at the time it names, waiting at most `MAX_WAIT` seconds
+# (default 480) in all; past that it is exit 1, with the time on stderr.
+# Exit 2: the task was created and its id printed, but recording it failed on
+# a cluster named on stderr; set its `childTaskId` by hand.
 set -euo pipefail
 
 scope="${SCOPE:-loop}"
+max_wait="${MAX_WAIT:-480}"
+skill=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 dir=$(mktemp -d)
 claimed=()
 cleanup() {
@@ -50,10 +54,11 @@ if [[ -z "$ws" ]]; then
   exit 1
 fi
 
-# `claim` 404s on a key nobody has written, hence the `put` first.
+# `claim` 404s on a key nobody has written, hence the `put` first. The TTL
+# outlasts a rate-limit wait, or another run could create a second task.
 for s in "${slugs[@]}"; do
   moat memory put "feedback:$s" --scope "$scope" --summary "Fix task for $s" --data '{}' >/dev/null
-  if ! moat memory claim "feedback:$s" --scope "$scope" --ttl 15m >/dev/null 2>"$dir/claim.err"; then
+  if ! moat memory claim "feedback:$s" --scope "$scope" --ttl "$((max_wait / 60 + 15))m" >/dev/null 2>"$dir/claim.err"; then
     # 409 is a claim held by another run; anything else is a real failure.
     if grep -q '(409)' "$dir/claim.err"; then
       echo "create-fix-task.sh: another run is creating the task for $s" >&2
@@ -81,7 +86,10 @@ for s in "${slugs[@]}"; do
 done
 ((${#todo[@]} > 0)) || exit 0
 
-for s in "${todo[@]}"; do cat "$dir/entry-$s.json"; done | jq -rs '
+for s in "${todo[@]}"; do
+  "$skill/members.sh" read "$s" >"$dir/ids-$s.json"
+  jq --slurpfile ids "$dir/ids-$s.json" '.data.ids = $ids[0]' "$dir/entry-$s.json"
+done | jq -rs '
   map(.data) as $c
   | (if ($c | length) == 1 then "# \($c[0].title)\n"
      else "# Fix \($c | length) feedback clusters in \($c[0].owner)\n" end),
@@ -89,7 +97,7 @@ for s in "${todo[@]}"; do cat "$dir/entry-$s.json"; done | jq -rs '
       (if .decision.note // "" | length > 0 then "**Approver note:** \(.decision.note)\n" else empty end),
       "### Reports\n",
       (.samples[]? | "> \(.comment | gsub("\n"; "\n> "))\n>\n> feedback \(.feedbackId)\n"),
-      "Member feedback ids: \(.members | join(", "))\n"),
+      "Member feedback ids: \(.ids | join(", "))\n"),
     "## How to work this\n",
     "The feedback-triage Loop clustered these reports and a Moatless admin approved a fix.\n",
     "- Confirm each cause on `main` first. If one is already gone, leave it out of the PR and say so in your final reply, naming the commit that fixed it.",
@@ -103,8 +111,41 @@ if ((${#todo[@]} == 1)); then
 else
   name="Fix: ${#todo[@]} feedback clusters in $owner"
 fi
-tid=$(moat tasks create --workspace "$ws" --agent-profile claude-code \
-  --name "$name" --message "$(cat "$dir/brief.md")" --json | jq -r '.taskId // empty')
+
+# The backend refuses with `API error (503): … Try again after 08:52 UTC.`
+# while the GitHub token is rate-limited, often by this run's own searches.
+create() {
+  local deadline=$(($(date +%s) + max_wait)) at now wake
+  while :; do
+    if moat tasks create --workspace "$ws" --agent-profile claude-code \
+      --name "$name" --message "$(cat "$dir/brief.md")" --json >"$dir/create.json" 2>"$dir/create.err"; then
+      jq -r '.taskId // empty' "$dir/create.json"
+      return
+    fi
+    if ! grep -q '(503)' "$dir/create.err" || ! grep -qi 'rate-limited' "$dir/create.err"; then
+      cat "$dir/create.err" >&2
+      return 1
+    fi
+    at=$(grep -o 'Try again after [0-9][0-9]:[0-9][0-9] UTC' "$dir/create.err" | grep -o '[0-9][0-9]:[0-9][0-9]' || true)
+    now=$(date +%s)
+    wake=$((now + 60))
+    if [[ -n "$at" ]]; then
+      wake=$(($(date -u -d "$at" +%s) + 30))
+      # The time has no date: take the one within 12 hours of now. One just
+      # passed means retry now.
+      ((wake > now - 43200)) || wake=$((wake + 86400))
+      ((wake < now + 43200)) || wake=$((wake - 86400))
+      ((wake > now)) || wake=$((now + 5))
+    fi
+    if ((wake > deadline)); then
+      echo "create-fix-task.sh: GitHub token rate-limited until ${at:-an unstated time} UTC, past the ${max_wait}s wait" >&2
+      return 1
+    fi
+    echo "create-fix-task.sh: GitHub token rate-limited; retrying at $(date -u -d "@$wake" +%H:%M:%S) UTC" >&2
+    sleep $((wake - now))
+  done
+}
+tid=$(create) || tid=""
 if [[ ! "$tid" =~ ^[0-9a-f-]{36}$ ]]; then
   echo "create-fix-task.sh: tasks create failed for ${todo[*]}; they stay proposed" >&2
   exit 1

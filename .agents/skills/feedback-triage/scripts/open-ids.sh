@@ -3,7 +3,7 @@
 #
 #   open-ids.sh
 #
-# Closing a cluster closes only the ids in its `allMembers` that this lists, so
+# Closing a cluster closes only the ids of `members.sh read` that this lists, so
 # an item someone already closed keeps its status and note.
 set -euo pipefail
 
