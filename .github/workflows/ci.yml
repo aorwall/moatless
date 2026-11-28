@@ -1064,10 +1064,14 @@ jobs:
 
       # `actions/cache` hashes its compression into the version and picks zstd
       # when `zstd` is on PATH, as on GitHub-hosted runners but not here or on
-      # `arc-runner` (see `docs/deferred-changes.md`). Only for these saves,
-      # deliberately: the post-job Rust cache saves would switch version too.
+      # `arc-runner`. So zstd only when the restoring jobs run hosted, i.e. no
+      # `CI_RUNNER`/`CI_RUNNER_LARGE`; on `arc-runner` they ask for gzip and
+      # miss a zstd save. Only for these saves, deliberately: the post-job Rust
+      # cache saves would switch version too.
       - name: Expose zstd for the handoff saves
-        if: env.BUILD_BACKEND == 'true' || env.BUILD_SANDBOX == 'true'
+        if: >-
+          (env.BUILD_BACKEND == 'true' || env.BUILD_SANDBOX == 'true') &&
+          vars.CI_RUNNER == '' && vars.CI_RUNNER_LARGE == ''
         run: |
           .github/scripts/apt-https-mirrors.sh
           apt-get update
