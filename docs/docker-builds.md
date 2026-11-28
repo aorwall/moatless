@@ -65,14 +65,16 @@ This uses `docker buildx` for cross-platform builds.
 
 ## Publishing from CI
 
-A push to `main` publishes every image to Docker Hub under `REGISTRY_ORG`. The
-repository needs:
+A push to `main` builds changed backend and sandbox images on native AMD64 and
+ARM64 runners. Once both builds for an image succeed, CI publishes a shared
+`:latest` tag and a `:sha-<short>` tag to Docker Hub under `REGISTRY_ORG`.
 
 | Setting | Kind | Value |
 |---|---|---|
 | `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` | secrets of the `dockerhub` environment | a Docker Hub token with write access to `REGISTRY_ORG` |
 | `REGISTRY_ORG` | variable, optional | the Docker Hub namespace; `aorwall` when unset |
 | `CI_RUNNER`, `CI_RUNNER_LARGE` | variables, optional | runner labels for the CI jobs; `ubuntu-latest` when unset |
+| `CI_RUNNER_ARM64` | variable, optional | native Linux ARM64 runner label; `ubuntu-24.04-arm` when unset |
 
 A `workflow_dispatch` from another branch publishes nothing to Docker Hub. When
 the `PRERELEASE_REGISTRY` variable is set, `publish-prerelease` pushes the

@@ -55,8 +55,9 @@ invalidates everything, which is what it exists to do: force a full rebuild.
 
 ## Exporting the build cache
 
-**Export every image to a registry cache at `<image>:buildcache`. Never export
-to `type=gha`.** `image-manifest=true,oci-mediatypes=true` pushes the cache as
+**Export every image to a registry cache at `<image>:buildcache` for AMD64 or
+`<image>:buildcache-arm64` for ARM64. Never export to `type=gha`.**
+`image-manifest=true,oci-mediatypes=true` pushes the cache as
 an ordinary image manifest, which Docker Hub accepts. `sandbox-base` uses
 `mode=max`, and the leaf images use `mode=min`.
 
