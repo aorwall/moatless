@@ -42,8 +42,10 @@ license = "Apache-2.0"
 [workspace.dependencies]
 apollo-parser = { version = "0.8.7" }
 async-trait = { version = "0.1" }
-aws-sdk-s3 = { version = "1" }
-aws-sdk-sts = { version = "1" }
+# `default-features = false` drops only the legacy `rustls` feature, which
+# pulls hyper 0.14, rustls 0.21 and h2 0.3 and their advisories into the tree.
+aws-sdk-s3 = { version = "1", default-features = false, features = ["sigv4a", "http-1x", "default-https-client", "rt-tokio"] }
+aws-sdk-sts = { version = "1", default-features = false, features = ["sigv4a", "default-https-client", "rt-tokio"] }
 axum = { version = "0.8" }
 base64 = { version = "0.23" }
 chrono = { version = "0.4" }

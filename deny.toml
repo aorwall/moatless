@@ -1,0 +1,49 @@
+# Supply-chain policy for `cargo deny check`, run by the `cargo-deny` CI job.
+
+[graph]
+all-features = true
+
+[advisories]
+# Every vulnerability, unmaintained and unsound advisory fails the check unless
+# it is listed here with the advisory id and why it cannot be fixed yet.
+ignore = [
+    { id = "RUSTSEC-2023-0071", reason = "rsa Marvin attack leaks a private key through decryption timing; `openidconnect` only verifies ID-token signatures with public keys, and no fixed rsa release exists" },
+    { id = "RUSTSEC-2026-0543", reason = "chrono is unmaintained with no successor release; replacing it is a workspace-wide migration, see docs/deferred-changes.md" },
+    { id = "RUSTSEC-2026-0600", reason = "affects kube's `openssl-tls` connector, which `moatless-sandbox-k8s` does not enable (it uses `rustls-tls`); the fix needs a kube major bump (4.2.1 or 5.2.0)" },
+]
+
+[licenses]
+# The licenses the tree uses today. A dependency that needs a new one fails
+# the check, so adding it here is a reviewed decision. MPL-2.0 is weak
+# copyleft: only `option-ext` (via `dirs-sys`) has no other license to pick.
+allow = [
+    "0BSD",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-1-Clause",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+confidence-threshold = 0.93
+
+[bans]
+multiple-versions = "warn"
+# Workspace crates depend on each other by path with no version, and are not
+# `publish = false`, so `allow-wildcard-paths` does not cover them.
+wildcards = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

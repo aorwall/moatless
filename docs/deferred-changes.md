@@ -849,3 +849,13 @@ comes back zero. The count is in the entry condition.
 | Deferred | Anchor | Entry condition |
 |---|---|---|
 | The zig cross-compile fails to link, and `Dockerfile.backend` is behind the toolchain pin | `Taskfile.yml` `build:backend` and `docker/build-sandbox.sh` run `cargo zigbuild`, which rejects rustc 1.100's `--fix-cortex-a53-843419`; `docker/Dockerfile.backend` uses `rust:1.97`. `.agents/skills/k8s-install/scripts/build-local-images.sh` works around both | When a zig and `cargo-zigbuild` pair accepts the argument, or when anything besides the local runbook needs these builds on arm64 |
+
+## Supply chain
+
+Advisories `deny.toml` ignores, each with its reason there.
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| chrono is unmaintained (RUSTSEC-2026-0543) | `deny.toml` `[advisories] ignore`; `chrono` is a workspace dependency used across the crates, and `cron` depends on it | When a chrono vulnerability is published, or `cron` moves off it. Then migrate to `jiff`, which the tree already carries, and drop the ignore |
+| kube's `openssl-tls` connector trusts OpenSSL's default CA store (RUSTSEC-2026-0600) | `crates/sandbox-k8s/Cargo.toml` `kube` 3.x, which uses `rustls-tls`; the fix is in kube-client 4.2.1 and 5.2.0 | When anything enables kube's `openssl-tls`, or on the next kube major bump. Then remove the ignore |
+| rsa's Marvin timing attack (RUSTSEC-2023-0071) | `openidconnect` pulls `rsa` 0.9 and only verifies ID-token signatures with public keys | When the identity code signs or decrypts with an RSA private key, or `openidconnect` moves to rsa 0.10. Then remove the ignore |
