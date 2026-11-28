@@ -1,9 +1,8 @@
 # Fenced methods. Each entry's `reason` names the replacement; a site that needs
-# the fenced call anyway opts back in with `#[allow(clippy::disallowed_methods,
-# reason = "…")]` — or a bare `#[allow(…)]` under a `// reason:` line, which is
-# the form the access-control sites below already use — saying why it is right
-# there. Put it on the statement, not the module: `disallowed_methods` is one
-# lint for the whole table, so a module-level allow pre-exempts every path here.
+# the fenced call anyway opts back in with `#[expect(clippy::disallowed_methods,
+# reason = "…")]` saying why it is right there. Put it on the statement, not
+# the module: `disallowed_methods` is one lint for the whole table, so a
+# module-level allow pre-exempts every path here.
 #
 # A path below must resolve exactly. An unresolvable `disallowed-methods` path
 # fails silently — clippy reports no error — so moving or renaming a fenced item

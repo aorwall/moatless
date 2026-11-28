@@ -119,10 +119,9 @@ handled at the boundary.
 
 ### Make lint suppression self-checking
 
-Prefer `#[expect(lint, reason = "...")]` when a lint is expected at that exact
-site. Use `#[allow(lint, reason = "...")]` only when conditional expansion or
-configuration means the lint may not fire. Remove obsolete suppressions; never
-add an unreasoned local suppression.
+`allow_attributes_without_reason` denies a suppression with no `reason`. Use
+`#[expect(lint, reason = "...")]` at the site the lint fires, and `allow` only
+where a `cfg` or feature means it may not fire there.
 
 ### Fail loudly from a write-path trait default
 
@@ -165,7 +164,7 @@ The comment rules in the root `AGENTS.md` apply. Rust specifics:
 - A trait method's doc is the whole contract, with or without a default body.
 - A fenced block in a doc comment is a doctest unless it is tagged `text` or
   `ignore`. Tag it unless it should compile and run.
-- The `// reason:` comment on a `ScopeContext::system` call states the cause
+- The `reason` on a `ScopeContext::system` call's `#[expect]` states the cause
   only.
 - After shortening a comment, re-read it against the code. Keep any clause
   that defends code which looks redundant (a second `ORDER BY`, an extra
