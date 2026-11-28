@@ -30,12 +30,13 @@ pub fn script_port_name(port: u16) -> String {
     format!("scr-{port}")
 }
 
-/// The key a script's `IngressRoute` is named from.
+/// The key a script port's `IngressRoute` is named from.
 ///
-/// Do not change the prefix: routes are created, never replaced, so a new name
-/// would give every running sandbox a second route per port.
-fn script_route_key(name: &str) -> String {
-    format!("script-{name}")
+/// The port its `Host` is built from, deliberately rather than the Script's
+/// name: the 63-char cut after the Service prefix kept 7 chars of a name, so
+/// `preview-5174` and `preview-5175` collided and the second 409 went unrouted.
+fn script_route_key(port: u16) -> String {
+    script_port_name(port)
 }
 
 /// A kube API handle for Traefik `IngressRoute` CRDs. Mirrors `ingress.rs`'s
@@ -169,9 +170,9 @@ fn script_service_port_patch(port: u16) -> serde_json::Value {
 
 /// Make `port` reachable at the task's preview hostname, returning the URL.
 ///
-/// Three writes in order of failure cost: Service port failure fails the call;
-/// `IngressRoute` failure costs only the URL; `NetworkPolicy` failure costs
-/// only reachability. `Ok(None)` means no proxy domain is configured — the port
+/// Three writes, Service port, `IngressRoute`, `NetworkPolicy`; any failure
+/// fails the call, since a URL returned without its route or policy answers
+/// 404 or times out. `Ok(None)` means no proxy domain is configured — the port
 /// is still on the Service.
 pub async fn publish_task_port(
     k8s: &K8sClient,
@@ -192,23 +193,22 @@ pub async fn publish_task_port(
     };
 
     let mut routes = std::collections::BTreeMap::new();
-    routes.insert(script_route_key(name), port);
-    if let Err(e) = ingress::create_task_ingress_routes(k8s, task_id, &routes, config, owner).await
-    {
-        warn!(task_id, port, error = %e, "Failed to create IngressRoute for script port");
-        return Ok(None);
-    }
+    routes.insert(script_route_key(port), port);
+    ingress::create_task_ingress_routes(k8s, task_id, &routes, config, owner)
+        .await
+        .inspect_err(|e| {
+            warn!(task_id, script = name, port, error = %e, "Failed to create IngressRoute for script port");
+        })?;
 
     // The proxy port, not `port`: the Service sends this route's traffic to
     // `SANDBOX_PREVIEW_PROXY_PORT` (see `script_service_port_patch`), so that is
     // the port the policy has to let Traefik reach. Idempotent, so the first
     // published port pays for every later one.
-    if let Err(e) =
-        networkpolicy::admit_preview_port(k8s, task_id, SANDBOX_PREVIEW_PROXY_PORT, config, owner)
-            .await
-    {
-        warn!(task_id, port, error = %e, "Failed to admit the preview proxy port in the preview NetworkPolicy");
-    }
+    networkpolicy::admit_preview_port(k8s, task_id, SANDBOX_PREVIEW_PROXY_PORT, config, owner)
+        .await
+        .inspect_err(|e| {
+            warn!(task_id, port, error = %e, "Failed to admit the preview proxy port in the preview NetworkPolicy");
+        })?;
 
     Ok(Some(format!(
         "{}://{}--{}.{}",
@@ -317,5 +317,97 @@ mod tests {
         }];
 
         assert!(!needs_proxy_patch(&ports, 3000));
+    }
+
+    /// Two Scripts whose names share their first seven characters, on a task
+    /// id as long as a real one, still get a route each.
+    #[test]
+    fn script_routes_on_different_ports_get_different_names() {
+        let service = generate_service_name("af3b4723-9378-4ecc-8c09-d9a4b9acd970");
+        let names: BTreeSet<String> = [5174u16, 5175, 5176]
+            .into_iter()
+            .map(|port| {
+                super::super::naming::generate_ingress_route_name(&service, &script_route_key(port))
+            })
+            .collect();
+
+        assert_eq!(names.len(), 3, "{names:?}");
+        assert!(names.iter().all(|name| name.len() <= 63), "{names:?}");
+    }
+
+    /// A Kubernetes API that serves the task's Service and refuses every
+    /// `IngressRoute` write, recording each request line it answers.
+    async fn api_refusing_routes(
+        task_id: &str,
+    ) -> (String, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let url = format!("http://{}", listener.local_addr().expect("addr"));
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let service = serde_json::json!({
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": { "name": generate_service_name(task_id), "namespace": "test" },
+            "spec": { "ports": [{
+                "name": "scr-5174",
+                "port": 5174,
+                "targetPort": i32::from(SANDBOX_PREVIEW_PROXY_PORT),
+            }] },
+        })
+        .to_string();
+        let recorded = seen.clone();
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let mut buf = vec![0u8; 64 * 1024];
+                let n = socket.read(&mut buf).await.unwrap_or(0);
+                let request = String::from_utf8_lossy(&buf[..n]).to_string();
+                let line = request.lines().next().unwrap_or_default().to_string();
+                recorded.lock().expect("lock").push(line.clone());
+                let (status, body) = if line.starts_with("GET /api/v1/namespaces/test/services/") {
+                    ("200 OK", service.clone())
+                } else {
+                    let refusal = serde_json::json!({
+                        "kind": "Status", "apiVersion": "v1", "status": "Failure",
+                        "message": "forbidden", "reason": "Forbidden", "code": 403,
+                    });
+                    ("403 Forbidden", refusal.to_string())
+                };
+                let response = format!(
+                    "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = socket.write_all(response.as_bytes()).await;
+            }
+        });
+        (url, seen)
+    }
+
+    /// A route that was not written must fail the publish: returning the URL
+    /// anyway is what let `scripts run` report a preview that answered 404.
+    #[tokio::test]
+    async fn a_failed_route_write_is_an_error_not_a_url() {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        let task_id = "af3b4723-9378-4ecc-8c09-d9a4b9acd970";
+        let (url, seen) = api_refusing_routes(task_id).await;
+        let k8s = K8sClient {
+            client: kube::Client::try_from(kube::Config::new(url.parse().expect("url")))
+                .expect("client"),
+            namespace: std::sync::Arc::new("test".to_string()),
+        };
+        let mut config = Config::test_minimal();
+        config.proxy.domain = Some("preview.example".to_string());
+
+        let result = publish_task_port(&k8s, task_id, "preview-5174", 5174, &config).await;
+
+        assert!(result.is_err(), "{result:?}");
+        let seen = seen.lock().expect("lock");
+        assert!(
+            seen.iter().any(|line| line
+                .starts_with("POST /apis/traefik.io/v1alpha1/namespaces/test/ingressroutes")),
+            "{seen:?}"
+        );
     }
 }

@@ -475,6 +475,33 @@ pub async fn clear(
     Ok(())
 }
 
+/// [`close`] for the environment: ends a Script's session under the same
+/// write gate [`open_from_environment`] opened it under.
+pub async fn close_from_environment(
+    conversations: &dyn ConversationDao,
+    sandboxes: &dyn SandboxConnector,
+    hub: &TerminalHub,
+    viewer: &ScopeContext,
+    thread_id: &str,
+    terminal_id: &str,
+) -> Result<(), TerminalError> {
+    let task_id = written_thread(conversations, viewer, thread_id).await?;
+    let client = sandboxes
+        .sandbox_client(&task_id)
+        .await
+        .map_err(as_not_running)?;
+    client
+        .terminal_close(TerminalCloseRequest {
+            thread_id: thread_id.to_string(),
+            terminal_id: Some(terminal_id.to_string()),
+            delete_history: false,
+        })
+        .await
+        .map_err(|error| TerminalError::sandbox(classify_grpc_error(error, "terminal_close")))?;
+    hub.close(thread_id, Some(terminal_id)).await;
+    Ok(())
+}
+
 pub async fn close(
     conversations: &dyn ConversationDao,
     sandboxes: &dyn SandboxConnector,

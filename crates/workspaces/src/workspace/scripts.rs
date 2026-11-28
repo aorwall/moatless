@@ -1,6 +1,6 @@
 //! Resolve the Scripts a Task can run.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use moatless_workspace_types::workspace::ScriptConfig;
 
@@ -21,25 +21,39 @@ pub struct ResolvedScript {
 }
 
 /// The Workspace's Scripts with the Task's own over them, the Task's winning a
-/// shared name as the more specific of the two. Workspace Scripts come first,
-/// in their stored order, then the Task's by name.
+/// shared name.
+///
+/// Workspace Scripts first in stored order, then the Task's by name. A
+/// shadowing Task Script keeps the shadowed one's `env_vars` under its own,
+/// since it cannot declare any and would otherwise run without them.
 pub fn merge(
     workspace: Vec<ScriptConfig>,
-    own: BTreeMap<String, ScriptConfig>,
+    mut own: BTreeMap<String, ScriptConfig>,
 ) -> Vec<ResolvedScript> {
-    let mut scripts: Vec<ResolvedScript> = workspace
-        .into_iter()
-        .filter(|script| !own.contains_key(&script.name))
-        .map(|config| ResolvedScript {
-            config,
-            declared_by: ScriptOrigin::Workspace,
-        })
-        .collect();
+    let mut scripts = Vec::with_capacity(workspace.len() + own.len());
+    for config in workspace {
+        match own.get_mut(&config.name) {
+            Some(task) => inherit_env_vars(task, config.env_vars),
+            None => scripts.push(ResolvedScript {
+                config,
+                declared_by: ScriptOrigin::Workspace,
+            }),
+        }
+    }
     scripts.extend(own.into_values().map(|config| ResolvedScript {
         config,
         declared_by: ScriptOrigin::Task,
     }));
     scripts
+}
+
+/// `inherited` under `task`'s own `env_vars`, the Task's value winning a key.
+fn inherit_env_vars(task: &mut ScriptConfig, inherited: Option<HashMap<String, String>>) {
+    let Some(mut env) = inherited else {
+        return;
+    };
+    env.extend(task.env_vars.take().unwrap_or_default());
+    task.env_vars = Some(env);
 }
 
 #[cfg(test)]
@@ -87,5 +101,41 @@ mod tests {
         let merged = merge(vec![config("dev", "bun dev")], BTreeMap::new());
         assert_eq!(merged.len(), 1);
         assert_eq!(merged[0].declared_by, ScriptOrigin::Workspace);
+    }
+
+    /// Redeclaring `dev` on a Task to change its command must not drop the
+    /// workspace's env: vite then proxied without the dev-auth header.
+    #[test]
+    fn a_task_script_inherits_the_shadowed_scripts_env_vars_under_its_own() {
+        let mut workspace = config("dev", "bun dev");
+        workspace.env_vars = Some(HashMap::from([
+            ("DEV_AUTH_ENABLED".to_string(), "true".to_string()),
+            ("PORT".to_string(), "5173".to_string()),
+        ]));
+        let mut task = config("dev", "bun dev --port 5174");
+        task.env_vars = Some(HashMap::from([("PORT".to_string(), "5174".to_string())]));
+
+        let merged = merge(vec![workspace], BTreeMap::from([("dev".to_string(), task)]));
+
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].declared_by, ScriptOrigin::Task);
+        assert_eq!(merged[0].config.command, "bun dev --port 5174");
+        let env = merged[0].config.env_vars.as_ref().expect("env inherited");
+        assert_eq!(env["DEV_AUTH_ENABLED"], "true");
+        assert_eq!(env["PORT"], "5174", "the task's own value wins");
+    }
+
+    /// A Task Script that shadows nothing keeps the env it was given.
+    #[test]
+    fn a_task_script_with_no_namesake_keeps_its_env_unchanged() {
+        let merged = merge(
+            vec![config("dev", "bun dev")],
+            BTreeMap::from([("demo".to_string(), config("demo", "serve"))]),
+        );
+        let demo = merged
+            .iter()
+            .find(|s| s.config.name == "demo")
+            .expect("demo");
+        assert_eq!(demo.config.env_vars, None);
     }
 }

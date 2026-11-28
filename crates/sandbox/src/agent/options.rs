@@ -464,7 +464,10 @@ fn build_managed_command_note(config: &Config) -> Option<String> {
          --port <port> --command \"<command>\"`. The preview proxy routes \
          only a Script's declared port, so the same server under `moat cmd \
          run` serves locally while its preview URL answers 404. Running the \
-         name again attaches rather than starting a second copy."
+         name again attaches rather than starting a second copy. Check your \
+         own server at `http://localhost:<port>`: the preview URL needs a \
+         signed-in browser, so from inside the sandbox it answers 403 or a \
+         sign-in page."
             .to_string(),
     )
 }
@@ -1365,6 +1368,7 @@ mod tests {
         assert!(subprocess.contains("that wake is guaranteed"));
         assert!(subprocess.contains("kill it once the work that needed it is done"));
         assert!(subprocess.contains("moat tasks scripts $TASK_ID run <name>"));
+        assert!(subprocess.contains("Check your own server at `http://localhost:<port>`"));
 
         let tmux = build_prompt_append(&test_config(true), &test_request());
         assert!(!tmux.contains("## Long-running commands"));

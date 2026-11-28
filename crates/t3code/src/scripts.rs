@@ -21,6 +21,7 @@ use crate::ports::WorkspaceScriptSource;
 use crate::preview::{self, PreviewState};
 use crate::projection;
 use crate::terminal::{self, TerminalError, TerminalHub};
+use crate::workspace::WorkspaceAccessError;
 use moatless_ports::sandbox::{SandboxError, SandboxPortPublisher};
 use moatless_types::access_control::ScopeContext;
 use moatless_types::store::StoreError;
@@ -180,6 +181,7 @@ async fn read_own(
 /// `env_vars` is always `None`: a Task Script is declared over a surface a
 /// task-scoped bearer key reaches, which does not carry the workspace-level
 /// access a pinned secret would assume, so the wire has no field for it.
+/// [`merge`] fills it from a Workspace Script of the same name.
 fn stored_script(script: TaskScript) -> ScriptConfig {
     ScriptConfig {
         name: script.name,
@@ -275,9 +277,8 @@ pub(crate) async fn run(
         }
     };
 
-    // The port first: it is a secondary product of the call (the console is the
-    // primary one), so a route failure yields no URL rather than failing the
-    // run — but a reserved port is refused here, before anything starts.
+    // The port first, so a reserved port or a route that could not be written
+    // is refused before anything starts.
     let url = match script.port {
         Some(port) => state
             .ports
@@ -290,7 +291,7 @@ pub(crate) async fn run(
     // A stable, self-describing id so the session is recognisable in the
     // terminal list, and so a re-run addresses the same one — which is what
     // makes the new-process check below able to tell a re-run from a first run.
-    let terminal_id = format!("script-{}", script.name);
+    let terminal_id = terminal_id(&script.name);
     // The nominal worktree path the sandbox maps back to the real checkout.
     let cwd = nominal_path::nominal_worktree(task_id);
 
@@ -383,13 +384,22 @@ pub(crate) async fn declare(
     Ok(stored_script(script))
 }
 
+/// The terminal session a Script runs in, the same id on every run.
+fn terminal_id(name: &str) -> String {
+    format!("script-{name}")
+}
+
 /// Drop the Script `name` declares on this Task, leaving any Workspace Script
-/// of the same name in place.
+/// of the same name in place, and end the session it was running in.
 ///
-/// Removing one that was never declared succeeds.
+/// The close is what makes a later `run` of that name start its own command:
+/// a session still under [`terminal_id`] is reattached, not restarted. Removing
+/// one that was never declared succeeds.
 pub(crate) async fn remove(
     state: &ScriptsState,
+    conversations: &dyn ConversationDao,
     sandboxes: &dyn SandboxConnector,
+    hub: &TerminalHub,
     viewer: &ScopeContext,
     task_id: &str,
     name: &str,
@@ -404,7 +414,23 @@ pub(crate) async fn remove(
         },
         true,
     )
+    .await?;
+    // The declaration is gone by now, so a sandbox that stopped in between is
+    // success: it holds no session to close, and an error would make a retry
+    // report a removal that already happened. An unknown id closes as `Ok`.
+    match terminal::close_from_environment(
+        conversations,
+        sandboxes,
+        hub,
+        viewer,
+        task_id,
+        &terminal_id(name),
+    )
     .await
+    {
+        Ok(()) | Err(TerminalError::Workspace(WorkspaceAccessError::NotRunning(_))) => Ok(()),
+        Err(error) => Err(ScriptsError::Terminal(error)),
+    }
 }
 
 /// The scoped Workspace read every Task Script write goes through first.

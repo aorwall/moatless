@@ -326,7 +326,9 @@ pub(crate) async fn scripts_remove_http(
     let viewer = viewer_scope(&identity);
     match scripts::remove(
         &state.scripts,
+        state.reads.conversations(),
         state.sandboxes.as_ref(),
+        &state.terminal,
         &viewer,
         &thread_id,
         &script_id,
