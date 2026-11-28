@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['moat-cli-v*']
   # Deliberately unfiltered by base branch. Stacked ticket PRs target a feature
   # branch, not `main`, so a `branches: [main]` filter created no check run for
   # them at all — a reviewer opening one sees a blank checks list and no way to
@@ -104,7 +105,7 @@ jobs:
     # `architecture` repeat the gate. `triggering_actor` rather than the author,
     # so a person re-running the workflow or pushing to the PR gets full CI.
     if: >-
-      github.event_name != 'workflow_dispatch' &&
+      github.event_name != 'workflow_dispatch' && github.ref_type != 'tag' &&
       (github.event_name != 'pull_request' || !endsWith(github.triggering_actor, '[bot]') || contains(fromJSON(vars.TRUSTED_AGENT_BOTS || '[]'), github.triggering_actor))
     # paths-filter reads the PR's changed-file list over the API rather than
     # diffing locally, so it needs this even though checkout only needs contents.
@@ -907,6 +908,24 @@ jobs:
         if: always() && env.RUSTC_WRAPPER != ''
         run: "$RUSTC_WRAPPER --show-stats || true"
 
+  verify-release-tag:
+    name: Verify release tag
+    if: github.ref_type == 'tag' && startsWith(github.ref_name, 'moat-cli-v') && !inputs.prune_rust_caches_dry_run
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Verify release commit is on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [[ "$GITHUB_REF_NAME" =~ ^moat-cli-v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$GITHUB_SHA...main" --jq '.status')
+          if [[ "$status" != ahead && "$status" != identical ]]; then
+            echo "::error::The release tag must point to a commit on main"
+            exit 1
+          fi
+
   # ── Build every Rust binary the images need (push + manual) ──
   #
   # Backend, sandbox and `moat` share `crates/**` and nearly all of their
@@ -924,13 +943,13 @@ jobs:
   # Outputs travel to the image jobs through the Actions cache rather than
   # artifacts: the org's artifact storage is over quota and `CreateArtifact`
   # hard-fails, while cache is a separate per-repo pool that evicts LRU instead.
-  # Keyed on the commit so a run reads back exactly what it wrote, and every
-  # consumer sets fail-on-cache-miss so a miss is loud rather than a stale build.
+  # Keyed on the run so branch and tag builds of the same commit keep their
+  # own handoffs. Consumers fail on a cache miss.
   build-rust:
     name: Build Rust binaries (${{ matrix.arch }})
-    needs: detect-changes
+    needs: [detect-changes, verify-release-tag]
     if: >-
-      !cancelled() &&
+      !cancelled() && (github.ref_type != 'tag' || needs.verify-release-tag.result == 'success') &&
       (
         (
           github.event_name == 'push' &&
@@ -943,12 +962,12 @@ jobs:
             needs.detect-changes.outputs.sandbox-image == 'true'
           )
         ) ||
-        (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)
+        (github.ref_type == 'tag' && startsWith(github.ref_name, 'moat-cli-v')) || (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)
       )
     strategy:
       fail-fast: false
       matrix:
-        arch: ${{ fromJSON(github.ref == 'refs/heads/main' && '["amd64","arm64"]' || '["amd64"]') }}
+        arch: ${{ fromJSON(github.ref_type == 'tag' && '["amd64","arm64"]' || '["amd64"]') }}
     runs-on: ${{ matrix.arch == 'arm64' && (vars.CI_RUNNER_ARM64 || 'ubuntu-24.04-arm') || vars.CI_RUNNER_LARGE || 'ubuntu-latest' }}
     # Build inside Debian 12 (bookworm) container so the binaries link against
     # GLIBC 2.36 or older, compatible with the runtime images.
@@ -958,11 +977,11 @@ jobs:
       # Same conditions the consuming jobs below gate on, so the binaries a run
       # produces and the images it publishes never disagree.
       BUILD_BACKEND: >-
-        ${{ github.event_name != 'push' ||
+        ${{ github.ref_type == 'tag' || github.event_name != 'push' ||
         needs.detect-changes.outputs.rust == 'true' ||
         needs.detect-changes.outputs.docker-backend == 'true' }}
       BUILD_SANDBOX: >-
-        ${{ (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run) ||
+        ${{ (github.ref_type == 'tag' && startsWith(github.ref_name, 'moat-cli-v')) || (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run) ||
         needs.detect-changes.outputs.sandbox-binaries == 'true' ||
         needs.detect-changes.outputs.sandbox-tools == 'true' ||
         needs.detect-changes.outputs.sandbox-base == 'true' ||
@@ -1088,14 +1107,14 @@ jobs:
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: target/ci/moatless-backend
-          key: backend-binary-${{ matrix.arch == 'arm64' && 'arm64-' || '' }}${{ github.sha }}
+          key: backend-binary-${{ matrix.arch == 'arm64' && 'arm64-' || '' }}${{ github.run_id }}
 
       - name: Cache OpenAPI spec for downstream jobs
         if: matrix.arch == 'amd64' && env.BUILD_BACKEND == 'true'
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: openapi-specs.json
-          key: openapi-spec-${{ github.sha }}
+          key: openapi-spec-${{ github.run_id }}
 
       - name: Cache sandbox binaries for downstream jobs
         if: env.BUILD_SANDBOX == 'true'
@@ -1104,7 +1123,7 @@ jobs:
           path: |
             target/ci/sandbox
             target/ci/moat
-          key: sandbox-binaries-${{ matrix.arch == 'arm64' && 'arm64-' || '' }}${{ github.sha }}
+          key: sandbox-binaries-${{ matrix.arch == 'arm64' && 'arm64-' || '' }}${{ github.run_id }}
 
       - name: Hide zstd from the post-job cache saves
         if: always()
@@ -1138,7 +1157,7 @@ jobs:
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: openapi-specs.json
-          key: openapi-spec-${{ github.sha }}
+          key: openapi-spec-${{ github.run_id }}
           fail-on-cache-miss: true
 
       - name: Generate TypeScript API client
@@ -1150,7 +1169,7 @@ jobs:
           path: |
             openapi-specs.json
             packages/api-client/src/
-          key: generated-client-${{ github.sha }}
+          key: generated-client-${{ github.run_id }}
 
   # ── Lint TypeScript (no deps, runs immediately) ──
   lint-typescript:
@@ -1226,7 +1245,7 @@ jobs:
           path: |
             openapi-specs.json
             packages/api-client/src/
-          key: generated-client-${{ github.sha }}
+          key: generated-client-${{ github.run_id }}
           fail-on-cache-miss: true
 
       - name: Type check
@@ -1279,25 +1298,25 @@ jobs:
   # Hence the cached binary handoff.
   build-backend-image:
     name: Build backend image (${{ matrix.arch }})
-    # `rust-test` gates `:latest`, which the backend Deployment repulls on every
+    # `rust-test` gates branch images, which a Deployment can repull on every
     # restart: a red `main` published as-is crash-loops startup on a migration
     # it cannot apply, as `4f78eaf7b`'s two `0213_*` files did. A dispatch runs
-    # no `rust-test`, so it skips this gate. The Docker Hub publish jobs run on
-    # `main` alone: the `dockerhub` environment admits no other branch, and a
-    # branch build goes to `publish-prerelease` instead.
+    # no `rust-test`. Tags point to commits already on `main`.
     needs: [detect-changes, build-rust, rust-test]
     if: >-
-      !cancelled() && github.ref == 'refs/heads/main' &&
-      ((github.event_name == 'push') ||
-       (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)) &&
+      !cancelled() && (
+        (github.ref == 'refs/heads/main' &&
+         (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run))) ||
+        ((github.ref_type == 'tag' && startsWith(github.ref_name, 'moat-cli-v')) && !inputs.prune_rust_caches_dry_run)
+      ) &&
       (needs.detect-changes.outputs.docker-backend == 'true' ||
-       (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)) &&
+       ((github.ref_type == 'tag' && startsWith(github.ref_name, 'moat-cli-v')) || (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run))) &&
       needs.build-rust.result == 'success' &&
-      (github.event_name == 'workflow_dispatch' || needs.rust-test.result == 'success')
+      (github.ref_type == 'tag' || github.event_name == 'workflow_dispatch' || needs.rust-test.result == 'success')
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, arm64]
+        arch: ${{ fromJSON(github.ref_type == 'tag' && '["amd64","arm64"]' || '["amd64"]') }}
     runs-on: ${{ matrix.arch == 'arm64' && (vars.CI_RUNNER_ARM64 || 'ubuntu-24.04-arm') || vars.CI_RUNNER || 'ubuntu-latest' }}
     environment: dockerhub
     steps:
@@ -1307,7 +1326,7 @@ jobs:
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: target/ci/moatless-backend
-          key: backend-binary-${{ matrix.arch == 'arm64' && 'arm64-' || '' }}${{ github.sha }}
+          key: backend-binary-${{ matrix.arch == 'arm64' && 'arm64-' || '' }}${{ github.run_id }}
           fail-on-cache-miss: true
 
       # Isolated into its own directory because it is passed to buildx as a
@@ -1318,9 +1337,16 @@ jobs:
           cp target/ci/moatless-backend /tmp/backend-binary/
           chmod +x /tmp/backend-binary/moatless-backend
 
-      - name: Compute short SHA
-        id: sha
-        run: echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - name: Compute staging tag
+        id: stage
+        env:
+          BUILD_ARCH: ${{ matrix.arch }}
+        run: |
+          version="sha-${GITHUB_SHA::7}"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version="$GITHUB_REF_NAME"
+          fi
+          echo "tag=$version-$BUILD_ARCH" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
@@ -1339,7 +1365,7 @@ jobs:
           platforms: linux/${{ matrix.arch }}
           push: true
           tags: |
-            ${{ env.BACKEND_IMAGE_NAME }}:sha-${{ steps.sha.outputs.short }}-${{ matrix.arch }}
+            ${{ env.BACKEND_IMAGE_NAME }}:${{ steps.stage.outputs.tag }}
           build-contexts: |
             binary=/tmp/backend-binary
           cache-from: type=registry,ref=${{ env.BACKEND_IMAGE_NAME }}:buildcache${{ matrix.arch == 'arm64' && '-arm64' || '' }}
@@ -1413,19 +1439,21 @@ jobs:
 
   build-sandbox-base:
     name: Build sandbox-base (${{ matrix.arch }})
-    needs: detect-changes
+    needs: [detect-changes, verify-release-tag]
     if: >-
-      !cancelled() && github.ref == 'refs/heads/main' &&
-      ((github.event_name == 'push') ||
-       (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)) &&
+      !cancelled() && (github.ref_type != 'tag' || needs.verify-release-tag.result == 'success') && (
+        (github.ref == 'refs/heads/main' &&
+         (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run))) ||
+        ((github.ref_type == 'tag' && startsWith(github.ref_name, 'moat-cli-v')) && !inputs.prune_rust_caches_dry_run)
+      ) &&
       (
         needs.detect-changes.outputs.sandbox-base == 'true' ||
-        (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)
+        ((github.ref_type == 'tag' && startsWith(github.ref_name, 'moat-cli-v')) || (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run))
       )
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, arm64]
+        arch: ${{ fromJSON(github.ref_type == 'tag' && '["amd64","arm64"]' || '["amd64"]') }}
     runs-on: ${{ matrix.arch == 'arm64' && (vars.CI_RUNNER_ARM64 || 'ubuntu-24.04-arm') || vars.CI_RUNNER_LARGE || 'ubuntu-latest' }}
     environment: dockerhub
     steps:
@@ -1441,9 +1469,16 @@ jobs:
       - name: Load CLI versions
         run: grep -E '^[A-Z0-9_]+=' docker/cli-versions.env >> "$GITHUB_ENV"
 
-      - name: Compute short SHA
-        id: sha
-        run: echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - name: Compute staging tag
+        id: stage
+        env:
+          BUILD_ARCH: ${{ matrix.arch }}
+        run: |
+          version="sha-${GITHUB_SHA::7}"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version="$GITHUB_REF_NAME"
+          fi
+          echo "tag=$version-$BUILD_ARCH" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
@@ -1462,7 +1497,7 @@ jobs:
           platforms: linux/${{ matrix.arch }}
           push: true
           tags: |
-            ${{ env.SANDBOX_BASE_IMAGE }}:sha-${{ steps.sha.outputs.short }}-${{ matrix.arch }}
+            ${{ env.SANDBOX_BASE_IMAGE }}:${{ steps.stage.outputs.tag }}
           build-args: |
             CLAUDE_CLI_VERSION=${{ env.CLAUDE_CLI_VERSION }}
             CODEX_CLI_VERSION=${{ env.CODEX_CLI_VERSION }}
@@ -1485,19 +1520,21 @@ jobs:
     name: Build sandbox-tools (${{ matrix.arch }})
     needs: [detect-changes, build-rust]
     if: >-
-      !cancelled() && github.ref == 'refs/heads/main' &&
-      ((github.event_name == 'push') ||
-       (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)) &&
+      !cancelled() && (
+        (github.ref == 'refs/heads/main' &&
+         (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run))) ||
+        ((github.ref_type == 'tag' && startsWith(github.ref_name, 'moat-cli-v')) && !inputs.prune_rust_caches_dry_run)
+      ) &&
       (
         needs.detect-changes.outputs.sandbox-binaries == 'true' ||
         needs.detect-changes.outputs.sandbox-tools == 'true' ||
-        (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)
+        ((github.ref_type == 'tag' && startsWith(github.ref_name, 'moat-cli-v')) || (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run))
       ) &&
       needs.build-rust.result == 'success'
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, arm64]
+        arch: ${{ fromJSON(github.ref_type == 'tag' && '["amd64","arm64"]' || '["amd64"]') }}
     runs-on: ${{ matrix.arch == 'arm64' && (vars.CI_RUNNER_ARM64 || 'ubuntu-24.04-arm') || vars.CI_RUNNER || 'ubuntu-latest' }}
     environment: dockerhub
     steps:
@@ -1509,7 +1546,7 @@ jobs:
           path: |
             target/ci/sandbox
             target/ci/moat
-          key: sandbox-binaries-${{ matrix.arch == 'arm64' && 'arm64-' || '' }}${{ github.sha }}
+          key: sandbox-binaries-${{ matrix.arch == 'arm64' && 'arm64-' || '' }}${{ github.run_id }}
           fail-on-cache-miss: true
 
       - name: Prepare binaries
@@ -1518,9 +1555,16 @@ jobs:
           cp target/ci/sandbox target/ci/moat /tmp/sandbox-binaries/${{ matrix.arch }}/
           chmod +x /tmp/sandbox-binaries/${{ matrix.arch }}/sandbox /tmp/sandbox-binaries/${{ matrix.arch }}/moat
 
-      - name: Compute short SHA
-        id: sha
-        run: echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - name: Compute staging tag
+        id: stage
+        env:
+          BUILD_ARCH: ${{ matrix.arch }}
+        run: |
+          version="sha-${GITHUB_SHA::7}"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version="$GITHUB_REF_NAME"
+          fi
+          echo "tag=$version-$BUILD_ARCH" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
@@ -1539,7 +1583,7 @@ jobs:
           platforms: linux/${{ matrix.arch }}
           push: true
           tags: |
-            ${{ env.SANDBOX_TOOLS_IMAGE }}:sha-${{ steps.sha.outputs.short }}-${{ matrix.arch }}
+            ${{ env.SANDBOX_TOOLS_IMAGE }}:${{ steps.stage.outputs.tag }}
           build-contexts: |
             binaries=/tmp/sandbox-binaries
           cache-from: type=registry,ref=${{ env.SANDBOX_TOOLS_IMAGE }}:buildcache${{ matrix.arch == 'arm64' && '-arm64' || '' }}
@@ -1553,15 +1597,17 @@ jobs:
     name: Build sandbox images (${{ matrix.arch }})
     needs: [detect-changes, build-rust, build-sandbox-tools, build-sandbox-base]
     if: >-
-      !cancelled() && github.ref == 'refs/heads/main' &&
-      ((github.event_name == 'push') ||
-       (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)) &&
+      !cancelled() && (
+        (github.ref == 'refs/heads/main' &&
+         (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run))) ||
+        ((github.ref_type == 'tag' && startsWith(github.ref_name, 'moat-cli-v')) && !inputs.prune_rust_caches_dry_run)
+      ) &&
       (
         needs.detect-changes.outputs.sandbox-binaries == 'true' ||
         needs.detect-changes.outputs.sandbox-tools == 'true' ||
         needs.detect-changes.outputs.sandbox-base == 'true' ||
         needs.detect-changes.outputs.sandbox-image == 'true' ||
-        (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)
+        ((github.ref_type == 'tag' && startsWith(github.ref_name, 'moat-cli-v')) || (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run))
       ) &&
       needs.build-rust.result == 'success' &&
       (needs.build-sandbox-tools.result == 'success' || needs.build-sandbox-tools.result == 'skipped') &&
@@ -1569,7 +1615,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, arm64]
+        arch: ${{ fromJSON(github.ref_type == 'tag' && '["amd64","arm64"]' || '["amd64"]') }}
     runs-on: ${{ matrix.arch == 'arm64' && (vars.CI_RUNNER_ARM64 || 'ubuntu-24.04-arm') || vars.CI_RUNNER || 'ubuntu-latest' }}
     environment: dockerhub
     steps:
@@ -1588,7 +1634,7 @@ jobs:
           path: |
             target/ci/sandbox
             target/ci/moat
-          key: sandbox-binaries-${{ matrix.arch == 'arm64' && 'arm64-' || '' }}${{ github.sha }}
+          key: sandbox-binaries-${{ matrix.arch == 'arm64' && 'arm64-' || '' }}${{ github.run_id }}
           fail-on-cache-miss: true
 
       - name: Prepare binaries
@@ -1597,19 +1643,26 @@ jobs:
           cp target/ci/sandbox target/ci/moat /tmp/sandbox-binaries/${{ matrix.arch }}/
           chmod +x /tmp/sandbox-binaries/${{ matrix.arch }}/sandbox /tmp/sandbox-binaries/${{ matrix.arch }}/moat
 
-      - name: Compute short SHA
-        id: sha
-        run: echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - name: Compute staging tag
+        id: stage
+        env:
+          BUILD_ARCH: ${{ matrix.arch }}
+        run: |
+          version="sha-${GITHUB_SHA::7}"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version="$GITHUB_REF_NAME"
+          fi
+          echo "tag=$version-$BUILD_ARCH" >> "$GITHUB_OUTPUT"
 
       - name: Select sandbox image dependencies
         id: dependencies
         env:
           BASE_RESULT: ${{ needs.build-sandbox-base.result }}
           TOOLS_RESULT: ${{ needs.build-sandbox-tools.result }}
-          ARCH_TAG: sha-${{ steps.sha.outputs.short }}-${{ matrix.arch }}
+          ARCH_TAG: ${{ steps.stage.outputs.tag }}
         run: |
-          base=latest
-          tools=latest
+          base=edge
+          tools=edge
           if [ "$BASE_RESULT" = success ]; then
             base="$ARCH_TAG"
           fi
@@ -1638,8 +1691,8 @@ jobs:
           platforms: linux/${{ matrix.arch }}
           push: true
           tags: |
-            ${{ env.SANDBOX_IMAGE }}:sha-${{ steps.sha.outputs.short }}-${{ matrix.arch }}
-            ${{ env.SANDBOX_JS_IMAGE }}:sha-${{ steps.sha.outputs.short }}-${{ matrix.arch }}
+            ${{ env.SANDBOX_IMAGE }}:${{ steps.stage.outputs.tag }}
+            ${{ env.SANDBOX_JS_IMAGE }}:${{ steps.stage.outputs.tag }}
           build-args: |
             SANDBOX_BASE=${{ env.SANDBOX_BASE_IMAGE }}:${{ steps.dependencies.outputs.base }}
             SANDBOX_TOOLS=${{ env.SANDBOX_TOOLS_IMAGE }}:${{ steps.dependencies.outputs.tools }}
@@ -1673,11 +1726,16 @@ jobs:
           SANDBOX_TOOLS_RESULT: ${{ needs.build-sandbox-tools.result }}
           SANDBOX_RESULT: ${{ needs.build-sandbox.result }}
         run: |
-          tag="sha-${GITHUB_SHA::7}"
           publish() {
-            local image="$1"
-            docker buildx imagetools create -t "$image:$tag" -t "$image:latest" \
-              "$image:$tag-amd64" "$image:$tag-arm64"
+            local image="$1" tag="sha-${GITHUB_SHA::7}"
+            if [ "$GITHUB_REF_TYPE" = tag ]; then
+              tag="$GITHUB_REF_NAME"
+              docker buildx imagetools create -t "$image:$tag" -t "$image:latest" \
+                "$image:$tag-amd64" "$image:$tag-arm64"
+            else
+              docker buildx imagetools create --prefer-index=false -t "$image:$tag" -t "$image:edge" \
+                "$image:$tag-amd64"
+            fi
           }
 
           if [ "$BACKEND_RESULT" = success ]; then
@@ -1705,7 +1763,7 @@ jobs:
     if: >-
       !cancelled() &&
       github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run &&
-      github.ref != 'refs/heads/main' &&
+      github.ref_type == 'branch' && github.ref != 'refs/heads/main' &&
       vars.PRERELEASE_REGISTRY != '' &&
       needs.build-rust.result == 'success'
     runs-on: ${{ vars.CI_RUNNER_LARGE || 'ubuntu-latest' }}
@@ -1731,7 +1789,7 @@ jobs:
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: target/ci/moatless-backend
-          key: backend-binary-${{ github.sha }}
+          key: backend-binary-${{ github.run_id }}
           fail-on-cache-miss: true
 
       - name: Restore sandbox binaries
@@ -1740,7 +1798,7 @@ jobs:
           path: |
             target/ci/sandbox
             target/ci/moat
-          key: sandbox-binaries-${{ github.sha }}
+          key: sandbox-binaries-${{ github.run_id }}
           fail-on-cache-miss: true
 
       - name: Prepare binaries
@@ -1929,12 +1987,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           for key in \
-            "backend-binary-${GITHUB_SHA}" \
-            "backend-binary-arm64-${GITHUB_SHA}" \
-            "openapi-spec-${GITHUB_SHA}" \
-            "sandbox-binaries-${GITHUB_SHA}" \
-            "sandbox-binaries-arm64-${GITHUB_SHA}" \
-            "generated-client-${GITHUB_SHA}"; do
+            "backend-binary-${GITHUB_RUN_ID}" \
+            "backend-binary-arm64-${GITHUB_RUN_ID}" \
+            "openapi-spec-${GITHUB_RUN_ID}" \
+            "sandbox-binaries-${GITHUB_RUN_ID}" \
+            "sandbox-binaries-arm64-${GITHUB_RUN_ID}" \
+            "generated-client-${GITHUB_RUN_ID}"; do
             code=$(curl -sS -o /dev/null -w '%{http_code}' -X DELETE \
               -H "Authorization: Bearer ${GITHUB_TOKEN}" \
               -H "Accept: application/vnd.github+json" \

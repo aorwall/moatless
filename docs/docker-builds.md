@@ -65,9 +65,10 @@ This uses `docker buildx` for cross-platform builds.
 
 ## Publishing from CI
 
-A push to `main` builds changed backend and sandbox images on native AMD64 and
-ARM64 runners. Once both builds for an image succeed, CI publishes a shared
-`:latest` tag and a `:sha-<short>` tag to Docker Hub under `REGISTRY_ORG`.
+A push to `main` publishes changed backend and sandbox images for AMD64 under
+`:edge` and `:sha-<short>`. A `moat-cli-vX.Y.Z` release tag publishes all of
+these images for AMD64 and ARM64 under the release tag and `:latest`. Both
+architectures must build successfully before CI updates the shared tags.
 
 | Setting | Kind | Value |
 |---|---|---|
@@ -81,5 +82,13 @@ the `PRERELEASE_REGISTRY` variable is set, `publish-prerelease` pushes the
 backend and sandbox images there instead, tagged `branch-<ref>` and
 `sha-<short>`, through the OIDC role in `PRERELEASE_ROLE_ARN` (ECR only).
 
-Restrict the `dockerhub` environment to `main`. A job that names a runner label
-no runner serves stays queued for 24 hours and is then cancelled, with no error.
+Allow branch `main` and the tag pattern `moat-cli-v*` in the `dockerhub`
+environment. CI verifies that the release commit is on `main`.
+
+To release, set the intended Cargo versions on `main` and run **Release moat
+CLI** from `main` in GitHub Actions. It creates the version tag, dispatches
+the Docker builds, and publishes the CLI and any unpublished workspace
+dependencies with the repository's `CARGO_REGISTRY_TOKEN` secret. The GitHub
+Release includes the Linux AMD64 `moat` binary and its checksum. A matching
+tag pushed manually starts both workflows as well. A rerun uses the same tag
+and skips versions already indexed by crates.io.

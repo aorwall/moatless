@@ -2,6 +2,10 @@
 name = "moatless-cli"
 version.workspace = true
 edition.workspace = true
+rust-version = "1.98"
+description = "Command-line interface for Moatless coding agents and sandboxes"
+repository.workspace = true
+readme = "README.md"
 
 authors.workspace = true
 license.workspace = true

@@ -3,6 +3,7 @@ name = "sandbox-proto"
 version.workspace = true
 edition.workspace = true
 description = "gRPC proto definitions for sandbox ↔ backend communication"
+repository.workspace = true
 
 authors.workspace = true
 license.workspace = true
