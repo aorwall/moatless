@@ -2,9 +2,9 @@
 on: slack
 name: alerts-moatless-monitor
 workspace: moatless-alerts
-# This deployment's alert channel and Slack workspace; change both for another.
-sourceMatcher: C0C99KMF1BR
-teamId: T06CAEHGS1L
+# Placeholders: set your alert channel and Slack workspace ids before syncing.
+sourceMatcher: C0000000001
+teamId: T0000000001
 routingMode: ongoing              # one long-lived monitor task, not one per alert
 agentProfile: claude-code
 model: sonnet
