@@ -408,6 +408,8 @@ jobs:
             echo "::error::Sandbox base image bakes Rust ${BAKED} but the workspace pins ${PINNED}. Update ARG RUST_VERSION in docker/Dockerfile.sandbox-base (and rebuild sandbox-base) so agents don't re-download the toolchain at runtime."
             exit 1
           fi
+      - name: Compare the agent CLI pins with THIRD_PARTY_NOTICES.md
+        run: ./.github/scripts/check-third-party-notices.sh
 
   # Advisories, bans, licenses and sources from `deny.toml`. It reads
   # Cargo.lock and the manifests and compiles nothing, so it needs no Rust cache

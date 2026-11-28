@@ -68,9 +68,11 @@ new CLI when the pinned one already reaches its `minCli`.
 
 ## 2. Bump every copy of the pin
 
-The Claude version is written in five places and the Codex version in two. A
-bump that misses one leaves the image and the test asserting different versions,
-and `crates/claude-agent-sdk`'s smoke test fails on the mismatch.
+The Claude version is written in six places, the Codex version in three and
+the Pi version in three. A bump that misses one leaves the image and the test
+asserting different versions, and `crates/claude-agent-sdk`'s smoke test fails
+on the mismatch. A missed `THIRD_PARTY_NOTICES.md` line publishes a wrong
+notice, and CI's `check-third-party-notices.sh` fails on it.
 
 | File | Pin |
 |------|-----|
@@ -79,11 +81,18 @@ and `crates/claude-agent-sdk`'s smoke test fails on the mismatch.
 | `crates/claude-agent-sdk/Dockerfile.test` | `ARG CLAUDE_CLI_VERSION` |
 | `crates/claude-agent-sdk/scripts/test-docker.sh` | the `CLAUDE_CLI_VERSION` default, twice |
 | `crates/claude-agent-sdk/tests/smoke.rs` | `EXPECTED_CLAUDE_CLI_VERSION` |
+| `THIRD_PARTY_NOTICES.md` | all three — the `` `<package>` <version> `` line under each CLI's heading |
 
 Search for the literal old version to confirm you got them all:
 
 ```bash
 grep -rn "<old-claude-version>\|<old-codex-version>" --include='*' . | grep -v node_modules
+```
+
+Then confirm every copy agrees with the source of truth:
+
+```bash
+./.github/scripts/check-third-party-notices.sh
 ```
 
 ## 3. Reconcile the Codex model catalog

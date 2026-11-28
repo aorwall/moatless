@@ -115,3 +115,16 @@ agent.
 ## License
 
 Licensed under the [Apache License, Version 2.0](LICENSE).
+
+## Third-party software and trademarks
+
+The sandbox images install third-party agent CLIs unmodified from their
+publishers, among them Claude Code (proprietary, © Anthropic PBC; use is
+subject to Anthropic's Legal Agreements, and each user signs in with their own
+credentials) and OpenAI Codex (Apache-2.0). The web UI is an unofficial fork of
+T3 Code (MIT, © 2026 T3 Tools Inc.). [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
+lists each component and its license.
+
+Claude Code is a trademark of Anthropic PBC, Codex of OpenAI, and T3 Code of
+T3 Tools, Inc. Moatless is not affiliated with, endorsed by or sponsored by any
+of them.

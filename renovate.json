@@ -96,14 +96,16 @@
   "customManagers": [
     {
       "customType": "regex",
-      "description": "Version pins annotated with `# renovate:` in Dockerfiles and rust-toolchain.toml (ARG *_VERSION, npm -g pkg@ver, channel = \"...\"). Renovate's built-in managers don't see these; the annotation supplies datasource + depName.",
+      "description": "Version pins annotated with `# renovate:` in Dockerfiles, rust-toolchain.toml and cli-versions.env (ARG *_VERSION, npm -g pkg@ver, channel = \"...\"). Renovate's built-in managers don't see these; the annotation supplies datasource + depName. THIRD_PARTY_NOTICES.md carries the same annotation as an HTML comment, so a Renovate bump of an agent CLI moves its notice too.",
       "fileMatch": [
         "(^|/)Dockerfile[^/]*$",
         "(^|/)rust-toolchain\\.toml$",
-        "(^|/)cli-versions\\.env$"
+        "(^|/)cli-versions\\.env$",
+        "(^|/)THIRD_PARTY_NOTICES\\.md$"
       ],
       "matchStrings": [
-        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)(?: versioning=(?<versioning>\\S+))?\\n[^\\n]*?(?<currentValue>v?\\d+\\.\\d+(?:\\.\\d+)?)"
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)(?: versioning=(?<versioning>\\S+))?\\n[^\\n]*?(?<currentValue>v?\\d+\\.\\d+(?:\\.\\d+)?)",
+        "<!-- renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+) -->\\n`[^`]+` (?<currentValue>\\d+\\.\\d+\\.\\d+)"
       ],
       "versioningTemplate": "{{#if versioning}}{{versioning}}{{else}}semver{{/if}}"
     }
