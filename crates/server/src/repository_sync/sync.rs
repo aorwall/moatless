@@ -14,8 +14,8 @@ pub struct SyncResult {
     pub workspaces: WorkspaceSyncSummary,
 }
 
-/// Synchronize Loop approval/configuration before best-effort workspace
-/// refresh.
+/// Refresh workspaces best-effort, then synchronize Loop configuration
+/// against them.
 pub async fn sync_config(
     repositories: &Repositories,
     loop_sync: &LoopSyncService,
@@ -54,14 +54,16 @@ async fn sync_repo_config(
         ));
     }
 
+    // Workspaces first: a Loop resolves its `workspace:` against them, so the
+    // other order skips a Loop naming a workspace the same commit adds.
+    let workspaces = log_workspace_sync_for(git_sync, repo, ctx, "sync-config").await;
+
     // Surface fetch and reconciliation failures so an administrator never
     // mistakes a skipped refresh for a successful approval revocation.
     let loops = loop_sync
         .sync_repo_loops_for(repo, ctx)
         .await
         .map_err(|error| RepositoryError::ProviderError(error.to_string()))?;
-
-    let workspaces = log_workspace_sync_for(git_sync, repo, ctx, "sync-config").await;
 
     Ok((repo.clone(), loops, workspaces))
 }

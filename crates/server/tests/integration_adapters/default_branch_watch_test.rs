@@ -6,7 +6,8 @@
     clippy::print_stderr
 )]
 //! The automatic Loop sync a moved default branch starts
-//! (`repository_sync::watch`), against a GitHub stub serving `.moatless/`.
+//! (`repository_sync::watch`) and an administrator's sync-config, against a
+//! GitHub stub serving `.moatless/`.
 
 use crate::common;
 
@@ -356,4 +357,48 @@ async fn an_owner_whose_webhook_delivers_pushes_syncs_from_the_push_alone(pool: 
         1,
         "a covered repository takes its head from the recorded push"
     );
+}
+
+/// One commit adds a workspace and a Loop naming it: an administrator's
+/// sync-config binds the Loop on the first sync.
+#[sqlx::test]
+async fn sync_config_binds_a_loop_to_a_workspace_the_same_commit_adds(pool: PgPool) {
+    const NAMES_APP: &str = "---\non: schedule\nname: Uses App\nworkspace: App\nschedule:\n  cron: \"0 0 3 * * * *\"\n  timezone: UTC\n---\n\nRun.\n";
+    let mut branch = nightly_only();
+    branch.loops = BTreeMap::from([("uses-app".to_string(), NAMES_APP.to_string())]);
+    let (state, _watch, _branch) = watched(&pool, branch).await;
+
+    let admin = moatless_core::http_auth::AuthUser {
+        user_id: uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, b"admin"),
+        login: "admin".to_string(),
+        role: Some("admin".to_string()),
+        provider: Some("github".to_string()),
+        task_id: None,
+        is_agent_context: false,
+    };
+    let response = moatless_backend::repository_sync::handlers::sync_config(
+        axum::extract::State(state.repositories.clone()),
+        axum::extract::State(state.loop_sync.clone()),
+        axum::extract::State(state.git_sync.clone()),
+        admin,
+        axum::extract::Path(REPO.to_string()),
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        response.loops.skipped.is_empty(),
+        "skipped: {:?}",
+        response.loops.skipped
+    );
+    let bound: String = sqlx::query_scalar(
+        "SELECT w.source_key FROM loops t JOIN loop_configs r ON r.loop_id = t.id \
+         JOIN workspaces w ON w.id = r.workspace_id \
+         WHERE t.source_repository_id = $1 AND t.source_key = 'uses-app'",
+    )
+    .bind(REPO)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(bound, "app");
 }

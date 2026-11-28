@@ -1329,11 +1329,6 @@ async fn replace_managed_loop_rows(
         .bind(loop_id)
         .execute(&mut **tx)
         .await?;
-    sqlx::query("DELETE FROM schedules WHERE loop_id = $1")
-        .bind(loop_id)
-        .execute(&mut **tx)
-        .await?;
-
     insert_config(
         tx,
         loop_id,
@@ -1364,7 +1359,45 @@ async fn replace_managed_loop_rows(
     if let Some(adapter) = &input.adapter {
         insert_adapter_event_source(tx, loop_id, adapter).await?;
     }
-    if let Some(schedule) = &input.schedule {
+    replace_managed_schedule(tx, loop_id, input.schedule.as_ref()).await?;
+    Ok(())
+}
+
+/// Write a Git-declared schedule over the existing row in place, rather than
+/// deleting it: a delete-and-reinsert would null `last_fired_at`, drop a lock
+/// a firing worker holds, and move `next_fire_at` on every sync. `next_fire_at`
+/// is replaced only when the cron expression or timezone changed.
+async fn replace_managed_schedule(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    loop_id: &str,
+    schedule: Option<&NewScheduleSource>,
+) -> Result<(), sqlx::Error> {
+    let Some(schedule) = schedule else {
+        sqlx::query("DELETE FROM schedules WHERE loop_id = $1")
+            .bind(loop_id)
+            .execute(&mut **tx)
+            .await?;
+        return Ok(());
+    };
+    let updated = sqlx::query(
+        r#"UPDATE schedules
+           SET next_fire_at = CASE
+                   WHEN cron_expression = $2 AND timezone = $3 THEN next_fire_at
+                   ELSE $5
+               END,
+               cron_expression = $2,
+               timezone = $3,
+               message_template = $4
+           WHERE loop_id = $1"#,
+    )
+    .bind(loop_id)
+    .bind(&schedule.cron_expression)
+    .bind(&schedule.timezone)
+    .bind(&schedule.message_template)
+    .bind(schedule.next_fire_at)
+    .execute(&mut **tx)
+    .await?;
+    if updated.rows_affected() == 0 {
         insert_schedule_source(tx, loop_id, schedule).await?;
     }
     Ok(())

@@ -953,3 +953,85 @@ async fn an_org_trigger_loop_syncs_only_with_create_on_check_run(pool: PgPool) {
     assert_eq!(source_matcher, "test/*");
     assert_eq!(workspace_id, "ws-1");
 }
+
+type ScheduleState = (
+    Option<chrono::DateTime<Utc>>,
+    chrono::DateTime<Utc>,
+    Option<String>,
+);
+
+/// `(last_fired_at, next_fire_at, locked_by)` of the schedule synced from
+/// `daily-health-check`.
+async fn schedule_state(pool: &PgPool, repo: &Repository) -> ScheduleState {
+    sqlx::query_as(
+        "SELECT s.last_fired_at, s.next_fire_at, s.locked_by FROM schedules s \
+         JOIN loops t ON t.id = s.loop_id \
+         WHERE t.source_repository_id = $1 AND t.source_key = 'daily-health-check'",
+    )
+    .bind(&repo.id)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+/// A schedule's firing state is runtime state: re-syncing an unchanged
+/// declaration keeps it, and only a cron change recomputes `next_fire_at`.
+#[sqlx::test]
+async fn resync_keeps_schedule_firing_state_until_the_cron_changes(pool: PgPool) {
+    const HOURLY_LOOP: &str = "---\non: schedule\nname: Daily Health Check\nschedule:\n  cron: \"0 0 * * * * *\"\n  timezone: Europe/Stockholm\n  message: \"Run the daily check.\"\n---\n\nDaily health check.\n";
+    let repo = make_repository_row("repo-schedule-state", "user-1");
+    compose::seed_repository(&pool, &repo).await.unwrap();
+    common::seed_workspace_placing(&pool, "ws-1", &repo.id, "user-1").await;
+    let state = test_app_state(pool.clone());
+    let auth = auth("user-1");
+    let sync = |content: &'static str| {
+        let state = state.clone();
+        let repo = repo.clone();
+        let auth = auth.clone();
+        async move {
+            let loops = vec![parse_loop(content, "daily-health-check").unwrap()];
+            state
+                .loop_sync
+                .sync_loops(&repo, &auth, loops)
+                .await
+                .unwrap()
+        }
+    };
+    sync(SCHEDULE_LOOP).await;
+
+    // A firing recorded its time and moved the next fire far out; a worker
+    // holds the lock.
+    let fired = Utc::now() - chrono::Duration::hours(2);
+    let next = Utc::now() + chrono::Duration::days(30);
+    sqlx::query(
+        "UPDATE schedules SET last_fired_at = $2, next_fire_at = $3, locked_by = 'worker-1', \
+         locked_until = now() + interval '2 minutes' \
+         WHERE loop_id = (SELECT id FROM loops WHERE source_repository_id = $1)",
+    )
+    .bind(&repo.id)
+    .bind(fired)
+    .bind(next)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sync(SCHEDULE_LOOP).await;
+    let (last_fired_at, next_fire_at, locked_by) = schedule_state(&pool, &repo).await;
+    assert_eq!(
+        last_fired_at.map(|t| t.timestamp_micros()),
+        Some(fired.timestamp_micros())
+    );
+    assert_eq!(next_fire_at.timestamp_micros(), next.timestamp_micros());
+    assert_eq!(locked_by.as_deref(), Some("worker-1"));
+
+    sync(HOURLY_LOOP).await;
+    let (last_fired_at, next_fire_at, _) = schedule_state(&pool, &repo).await;
+    assert_eq!(
+        last_fired_at.map(|t| t.timestamp_micros()),
+        Some(fired.timestamp_micros())
+    );
+    assert!(
+        next_fire_at <= Utc::now() + chrono::Duration::hours(1),
+        "a changed cron recomputes the next fire: {next_fire_at}"
+    );
+}
