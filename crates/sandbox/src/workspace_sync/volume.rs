@@ -87,11 +87,11 @@ pub(super) fn set_aside_checkout(workspace_dir: &Path, repo_dir: &Path) -> Damag
     // ls-files`, which fails on it and stores none of the working tree.
     let git = aside.join(".git");
     let mut git_kept = false;
-    if git.exists() {
-        if let Err(error) = std::fs::rename(&git, aside.join(".git.unreadable")) {
-            warn!(%error, dir = %git.display(), "Could not rename the damaged .git; the next snapshot keeps none of the moved copy's working tree");
-            git_kept = true;
-        }
+    if git.exists()
+        && let Err(error) = std::fs::rename(&git, aside.join(".git.unreadable"))
+    {
+        warn!(%error, dir = %git.display(), "Could not rename the damaged .git; the next snapshot keeps none of the moved copy's working tree");
+        git_kept = true;
     }
     DamagedCheckout::SetAside {
         path: aside,
