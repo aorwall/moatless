@@ -15,7 +15,7 @@ use moatless_core::config::Config;
 use moatless_loops::adapters::events::{TaskEventSubscriber, TaskEventSubscribers};
 use moatless_loops::bindings::operations::Bindings;
 use moatless_ports::identity::AppCredentials;
-use moatless_ports::task::{TaskReader, TranscriptAppend};
+use moatless_ports::task::{AssistantReply, TaskReader, TranscriptAppend};
 use moatless_tasks::agent_event::{AgentEvent, EventKey};
 use moatless_types::agent::AgentSubType;
 use moatless_types::message::MessageSubType;
@@ -115,12 +115,13 @@ impl LinearEventSubscriber {
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
         if !is_error {
-            self.emit_completion_response(&event.task_id).await;
+            self.emit_completion_response(&event.task_id, event.turn_number)
+                .await;
         }
         self.active_turns.close(&event.task_id);
     }
 
-    async fn emit_completion_response(&self, task_id: &str) {
+    async fn emit_completion_response(&self, task_id: &str, turn: Option<i32>) {
         let msg = match self.messages.last_assistant_reply(task_id).await {
             Ok(Some(m)) => m,
             Ok(None) => {
@@ -140,15 +141,15 @@ impl LinearEventSubscriber {
             }
         };
 
-        let mut body = msg.text.clone().unwrap_or_default();
-        if body.trim().is_empty() {
-            tracing::warn!(
+        let Some(mut body) = completion_text(&self.active_turns, task_id, turn, &msg) else {
+            tracing::info!(
                 task_id,
+                turn,
                 message_uuid = %msg.uuid,
-                "agent.completed: last assistant message has no text content; skipping Linear response activity"
+                "agent.completed: the turn has no unposted final text; skipping Linear response activity"
             );
             return;
-        }
+        };
 
         // Append the `Moatless task:` footer so `handle_comment_created`'s
         // echo filter can recover the authoring task id and drop this
@@ -267,6 +268,21 @@ fn fresh_posts(
         .collect()
 }
 
+/// The text `reply` posts as the `response` ending `turn`, or `None` when the
+/// turn wrote no unposted final text. `reply` is the Task's latest, so without
+/// this a turn ending empty reposts an earlier turn's reply.
+fn completion_text(
+    turns: &ActiveLinearTurns,
+    task_id: &str,
+    turn: Option<i32>,
+    reply: &AssistantReply,
+) -> Option<String> {
+    // Lower only: a batched turn's reply is written to the latest sibling turn.
+    let earlier_turn = matches!((reply.turn_number, turn), (Some(r), Some(t)) if r < t);
+    let text = reply.text.as_deref().filter(|t| !t.trim().is_empty())?;
+    (!earlier_turn && turns.claim_response(task_id, &reply.uuid)).then(|| text.to_string())
+}
+
 /// Subscribe the Linear reaction to the events it needs.
 ///
 /// One call from the composition root; a build without it leaves Linear
@@ -324,6 +340,50 @@ mod tests {
         message["content"][0]["text"] = "Reading the config.\n\nIt sets the port.".into();
         assert_eq!(thoughts(&message), ["It sets the port."]);
         assert!(thoughts(&message).is_empty());
+    }
+
+    fn reply(uuid: &str, turn: i32, text: &str) -> AssistantReply {
+        AssistantReply {
+            uuid: uuid.to_string(),
+            text: Some(text.to_string()),
+            turn_number: Some(turn),
+        }
+    }
+
+    /// Turn 2 ends empty, so the latest reply is still turn 1's.
+    #[test]
+    fn a_turn_ending_empty_does_not_repost_the_previous_reply() {
+        let turns = ActiveLinearTurns::new();
+        let fix_ready = reply("msg_1", 1, "Fix is ready.");
+        let responses: Vec<String> = [(1, &fix_ready), (2, &fix_ready), (3, &fix_ready)]
+            .into_iter()
+            .filter_map(|(turn, r)| completion_text(&turns, "task-1", Some(turn), r))
+            .collect();
+        assert_eq!(responses, ["Fix is ready."]);
+    }
+
+    #[test]
+    fn a_replayed_completion_or_an_unnumbered_one_posts_a_reply_once() {
+        let turns = ActiveLinearTurns::new();
+        let r = reply("msg_1", 1, "Done.");
+        assert!(completion_text(&turns, "task-1", Some(1), &r).is_some());
+        assert!(completion_text(&turns, "task-1", Some(1), &r).is_none());
+        assert!(completion_text(&turns, "task-1", None, &r).is_none());
+        let next = reply("msg_2", 2, "Done again.");
+        assert!(completion_text(&turns, "task-1", None, &next).is_some());
+    }
+
+    #[test]
+    fn a_reply_written_to_a_later_batched_turn_still_posts() {
+        let turns = ActiveLinearTurns::new();
+        let r = reply("msg_1", 3, "Handled both.");
+        assert!(completion_text(&turns, "task-1", Some(2), &r).is_some());
+    }
+
+    #[test]
+    fn an_empty_reply_posts_nothing() {
+        let turns = ActiveLinearTurns::new();
+        assert!(completion_text(&turns, "task-1", Some(1), &reply("msg_1", 1, " \n")).is_none());
     }
 
     #[test]

@@ -559,7 +559,8 @@ impl LinearAgentApi {
             .await
     }
 
-    async fn fetch_issue(
+    /// One issue's `fields` selection. Returns the issue subobject.
+    pub(crate) async fn fetch_issue(
         &self,
         id_or_key: &str,
         fields: &str,

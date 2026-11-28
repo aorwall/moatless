@@ -6,6 +6,7 @@
 //! a Task; `prompted` routes into its bound Task, and a missing Binding means
 //! that Task closed, not an error.
 
+use serde::Deserialize;
 use tracing::{info, warn};
 
 use moatless_core::config::Config;
@@ -573,7 +574,14 @@ async fn provision_session_task(
     // status-entry path. Best-effort. No self-retrigger: this loop's
     // status-entry path is off, so the resulting Issue.update doesn't feed
     // back here.
-    if let Some(start_state) = LinearRuleConfig::from_rule(rule).start_state.as_deref() {
+    let start_state = LinearRuleConfig::from_rule(rule).start_state;
+    let already_there = |start: &str| {
+        issue
+            .state
+            .as_ref()
+            .is_some_and(|s| s.name.eq_ignore_ascii_case(start))
+    };
+    if let Some(start_state) = start_state.as_deref().filter(|s| !already_there(s)) {
         let current = current_issue_state(api, issue).await;
         if moves_to_start_state(current.as_ref(), start_state) {
             transition_issue_state(api, &team_id, &issue.id, &issue.identifier, start_state).await;
@@ -747,19 +755,54 @@ fn all_sessions_closed(sessions: &[TaskBinding]) -> bool {
     !sessions.is_empty() && sessions.iter().all(|b| !b.active)
 }
 
-/// The issue's workflow state, read from Linear when the session payload
-/// carries none with a type. `None` when the read fails.
+/// An issue's workflow state at session pickup, with its team's default state.
+#[derive(Debug, Deserialize)]
+struct PickupState {
+    state: LinearWorkflowState,
+    #[serde(default)]
+    team: Option<PickupTeam>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PickupTeam {
+    #[serde(rename = "defaultIssueState")]
+    default_issue_state: Option<LinearWorkflowState>,
+}
+
+impl PickupState {
+    fn is_team_default(&self) -> bool {
+        self.team
+            .as_ref()
+            .and_then(|t| t.default_issue_state.as_ref())
+            .is_some_and(|d| d.id == self.state.id)
+    }
+}
+
+/// The issue's state at pickup, read from Linear unless the session payload
+/// carries a typed state that is not `unstarted`, the one kind that needs the
+/// team's default. `None` when the read fails.
 async fn current_issue_state(
     api: &LinearAgentApi,
     issue: &AgentSessionIssue,
-) -> Option<LinearWorkflowState> {
-    if let Some(state) = issue.state.as_ref().filter(|s| !s.kind.is_empty()) {
-        return Some(state.clone());
+) -> Option<PickupState> {
+    if let Some(state) = issue
+        .state
+        .as_ref()
+        .filter(|s| !s.kind.is_empty() && s.kind != "unstarted")
+    {
+        return Some(PickupState {
+            state: state.clone(),
+            team: None,
+        });
     }
-    match api.get_issue(&issue.id).await {
-        Ok(detail) => detail
-            .get("state")
-            .and_then(|s| serde_json::from_value(s.clone()).ok()),
+    match api
+        .fetch_issue(
+            &issue.id,
+            "state { id name type } team { defaultIssueState { id name type } }",
+        )
+        .await
+    {
+        Ok(detail) => serde_json::from_value(detail).ok(),
         Err(e) => {
             warn!(issue = %issue.identifier, error = %e, "Failed to read Linear issue state");
             None
@@ -769,14 +812,18 @@ async fn current_issue_state(
 
 /// Whether a session pickup moves an issue in `current` to `start_state`.
 ///
-/// Only a ticket known not to be started moves: a mention on one already in
-/// review or later would otherwise drag it back to `start_state` on every
-/// session, and each move reaches every bound Task as a state-change message.
-/// An unknown state or type is left alone for the same reason.
-fn moves_to_start_state(current: Option<&LinearWorkflowState>, start_state: &str) -> bool {
+/// Only backlog, triage and the team's default `unstarted` state move. A later
+/// state would be dragged back on every mention; another `unstarted` one, such
+/// as `Ready`, was chosen by whoever set it, often a sub-issue's creator
+/// delegating it. An unknown state or type is left alone.
+fn moves_to_start_state(current: Option<&PickupState>, start_state: &str) -> bool {
     current.is_some_and(|current| {
-        !current.name.eq_ignore_ascii_case(start_state)
-            && matches!(current.kind.as_str(), "backlog" | "unstarted" | "triage")
+        !current.state.name.eq_ignore_ascii_case(start_state)
+            && match current.state.kind.as_str() {
+                "backlog" | "triage" => true,
+                "unstarted" => current.is_team_default(),
+                _ => false,
+            }
     })
 }
 
@@ -871,22 +918,57 @@ mod tests {
         );
     }
 
-    fn state(name: &str, kind: &str) -> LinearWorkflowState {
-        LinearWorkflowState {
-            id: "s".to_string(),
-            name: name.to_string(),
-            kind: kind.to_string(),
+    fn state(name: &str, kind: &str) -> PickupState {
+        PickupState {
+            state: LinearWorkflowState {
+                id: format!("s-{name}"),
+                name: name.to_string(),
+                kind: kind.to_string(),
+            },
+            team: None,
+        }
+    }
+
+    fn team_default(mut current: PickupState) -> PickupState {
+        current.team = Some(PickupTeam {
+            default_issue_state: Some(current.state.clone()),
+        });
+        current
+    }
+
+    #[test]
+    fn a_backlog_or_triage_ticket_moves_to_the_start_state() {
+        for kind in ["backlog", "triage"] {
+            assert!(
+                moves_to_start_state(Some(&state("Backlog", kind)), "In Progress"),
+                "{kind}"
+            );
         }
     }
 
     #[test]
-    fn a_ticket_not_yet_started_moves_to_the_start_state() {
-        for kind in ["backlog", "unstarted", "triage"] {
-            assert!(
-                moves_to_start_state(Some(&state("Todo", kind)), "In Progress"),
-                "{kind}"
-            );
-        }
+    fn a_ticket_in_the_teams_default_unstarted_state_moves() {
+        assert!(moves_to_start_state(
+            Some(&team_default(state("Todo", "unstarted"))),
+            "In Progress"
+        ));
+    }
+
+    /// A sub-issue created with `--state Ready` and delegated to the app opens
+    /// a session; that pickup must leave its state alone.
+    #[test]
+    fn a_ticket_in_a_chosen_unstarted_state_keeps_it() {
+        let ready: PickupState = serde_json::from_value(serde_json::json!({
+            "state": { "id": "s-ready", "name": "Ready", "type": "unstarted" },
+            "team": { "defaultIssueState":
+                { "id": "s-refine", "name": "Needs Refinement", "type": "backlog" } },
+        }))
+        .expect("pickup state parses");
+        assert!(!moves_to_start_state(Some(&ready), "In Progress"));
+        assert!(
+            !moves_to_start_state(Some(&state("Ready", "unstarted")), "In Progress"),
+            "an unknown team default is left alone"
+        );
     }
 
     #[test]
@@ -916,7 +998,7 @@ mod tests {
     #[test]
     fn a_ticket_already_in_the_start_state_does_not_move() {
         assert!(!moves_to_start_state(
-            Some(&state("in progress", "")),
+            Some(&state("in progress", "backlog")),
             "In Progress"
         ));
     }

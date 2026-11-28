@@ -94,7 +94,10 @@ pub(super) async fn linear_stub_with_labels(labels: serde_json::Value) -> Provid
                     "title": "Fix it",
                     "url": "https://linear.app/acme/issue/ENG-7",
                     "project": null,
-                    "team": {"id": TEAM, "key": "ENG", "name": "Engineering"},
+                    "team": {
+                        "id": TEAM, "key": "ENG", "name": "Engineering",
+                        "defaultIssueState": {"id": "s0", "name": "Todo", "type": "unstarted"},
+                    },
                     "state": {"id": "s0", "name": "Todo", "type": "unstarted"},
                     "labels": {"nodes": labels.clone()},
                 },
@@ -697,7 +700,8 @@ async fn provisioning_a_project_scoped_session_fetches_the_issue_once(pool: PgPo
 }
 
 /// A rule with a start state the issue is not already in pays for one
-/// `issueUpdate`, last.
+/// `issueUpdate`, last. An `unstarted` state costs an `issue` read first, for
+/// the team's default (`moves_to_start_state`).
 #[sqlx::test]
 async fn provisioning_moves_the_issue_to_the_start_state_once(pool: PgPool) {
     let stub = linear_stub().await;
@@ -720,6 +724,7 @@ async fn provisioning_moves_the_issue_to_the_start_state_once(pool: PgPool) {
             "agentActivityCreate",
             "agentSessionUpdate",
             "attachmentLinkURL",
+            "issue",
             "workflowStates",
             "issueUpdate",
         ],

@@ -216,6 +216,7 @@ impl TranscriptAppend for Transcript {
         Ok(msg.map(|msg| AssistantReply {
             uuid: msg.uuid,
             text: msg.message_text,
+            turn_number: msg.turn_number,
         }))
     }
 

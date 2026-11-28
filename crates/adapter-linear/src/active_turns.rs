@@ -19,6 +19,10 @@ const TTL: Duration = Duration::from_hours(1);
 #[derive(Debug, Default)]
 pub struct ActiveLinearTurns {
     inner: Mutex<HashMap<String, OpenTurn>>,
+    /// The last Message each Task posted as its `response`, by task id, swept
+    /// on `TTL`. Kept apart from `inner` deliberately: `close` ends every turn,
+    /// so a set there could not stop the next turn reposting the same reply.
+    responses: Mutex<HashMap<String, (String, Instant)>>,
 }
 
 #[derive(Debug)]
@@ -85,6 +89,27 @@ impl ActiveLinearTurns {
         }
         turn.texts.insert(key.to_string(), text.len());
         Some(rest.to_string())
+    }
+
+    /// Whether `message_uuid` may be posted as the task's `response`: it is not
+    /// the one posted last. A `true` records it before the post, so a failed
+    /// post is not retried: deliberately, since a retry risks a repost.
+    pub fn claim_response(&self, task_id: &str, message_uuid: &str) -> bool {
+        let Ok(mut guard) = self.responses.lock() else {
+            return false;
+        };
+        guard.retain(|_, (_, at)| at.elapsed() < TTL);
+        if guard
+            .get(task_id)
+            .is_some_and(|(last, _)| last == message_uuid)
+        {
+            return false;
+        }
+        guard.insert(
+            task_id.to_string(),
+            (message_uuid.to_string(), Instant::now()),
+        );
+        true
     }
 
     /// Mark the task's Linear turn as inactive. Absence == closed, so this is a

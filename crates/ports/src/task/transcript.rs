@@ -64,6 +64,8 @@ pub struct TranscriptOrigin {
 pub struct AssistantReply {
     pub uuid: String,
     pub text: Option<String>,
+    /// The Turn that wrote it; `None` on a row written before turns existed.
+    pub turn_number: Option<i32>,
 }
 
 /// One tool call and its result, as the transcript recorded them.
