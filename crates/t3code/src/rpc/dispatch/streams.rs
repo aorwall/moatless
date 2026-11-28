@@ -321,6 +321,10 @@ impl ProtocolSession {
         started
     }
 
+    #[expect(
+        clippy::unused_async,
+        reason = "the dispatch table boxes every handler as a future"
+    )]
     pub(super) async fn subscribe_server_lifecycle(
         &mut self,
         request: Request<IgnoredAny>,
@@ -340,6 +344,10 @@ impl ProtocolSession {
         )
     }
 
+    #[expect(
+        clippy::unused_async,
+        reason = "the dispatch table boxes every handler as a future"
+    )]
     pub(super) async fn subscribe_auth_access(
         &mut self,
         request: Request<IgnoredAny>,
@@ -352,6 +360,10 @@ impl ProtocolSession {
         })
     }
 
+    #[expect(
+        clippy::unused_async,
+        reason = "the dispatch table boxes every handler as a future"
+    )]
     pub(super) async fn pull_requests_subscribe_refreshes(
         &mut self,
         request: Request<IgnoredAny>,
@@ -362,6 +374,10 @@ impl ProtocolSession {
         })
     }
 
+    #[expect(
+        clippy::unused_async,
+        reason = "the dispatch table boxes every handler as a future"
+    )]
     pub(super) async fn subscribe_preview_events(
         &mut self,
         request: Request<IgnoredAny>,
@@ -373,6 +389,10 @@ impl ProtocolSession {
         })
     }
 
+    #[expect(
+        clippy::unused_async,
+        reason = "the dispatch table boxes every handler as a future"
+    )]
     pub(super) async fn subscribe_terminal_metadata(
         &mut self,
         request: Request<IgnoredAny>,
@@ -385,6 +405,10 @@ impl ProtocolSession {
         })
     }
 
+    #[expect(
+        clippy::unused_async,
+        reason = "the dispatch table boxes every handler as a future"
+    )]
     pub(super) async fn subscribe_vcs_status(
         &mut self,
         request: Request<VcsStatusSubscriptionInput>,

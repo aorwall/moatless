@@ -39,12 +39,7 @@ where
 ///
 /// Always `EventType::Sandbox`/`SandboxStatus::Initializing`, with detail in
 /// the payload.
-async fn publish_sandbox_event(
-    state: &SandboxState,
-    reason: &str,
-    message: &str,
-    is_warning: bool,
-) {
+fn publish_sandbox_event(state: &SandboxState, reason: &str, message: &str, is_warning: bool) {
     let payload = serde_json::json!({
         "reason": reason,
         "message": message,
@@ -186,7 +181,7 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
 
     if let Err(e) = credentials::fetch_and_apply_credentials(state).await {
         let msg = format!("Failed to fetch credentials: {e}");
-        publish_sandbox_event(state, "CredentialsFailed", &msg, true).await;
+        publish_sandbox_event(state, "CredentialsFailed", &msg, true);
         // An expired bootstrap token is unrecoverable without re-provisioning
         // (a pod restart presents the same expired env), so surface it as a
         // permanent config failure (exit 78) instead of a transient crash loop.
@@ -200,8 +195,7 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
         "CredentialsFetched",
         "Fetched credentials from backend",
         false,
-    )
-    .await;
+    );
 
     // 2. Write the Codex config.toml. Non-fatal — Codex still runs without it.
     if state.config.backend_api_url.is_none() {
@@ -259,8 +253,7 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
                 "RepositoryRestored",
                 "Restored repository from S3 snapshot",
                 false,
-            )
-            .await;
+            );
         }
         decision
     } else {
@@ -294,14 +287,13 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
                         "RepositoryCloned",
                         &describe_clone(&state.config, &summary),
                         false,
-                    )
-                    .await;
+                    );
                 }
             }
             Err(e) => {
                 let retryable = e.retryable;
                 let msg = format!("Failed to clone repository: {e}");
-                publish_sandbox_event(state, "RepositoryCloneFailed", &msg, true).await;
+                publish_sandbox_event(state, "RepositoryCloneFailed", &msg, true);
                 // The clone already retried for as long as the failure looked
                 // like the network's or the service's. Still failing that way
                 // means exit 1, so the restart is the outer retry; anything else
@@ -329,8 +321,7 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
             "PluginsCloned",
             &format!("Fetched {} plugin(s)", fetched.len()),
             false,
-        )
-        .await;
+        );
     }
 
     // 6. Stage plugin-bundled skills so the Codex agent can discover them.
@@ -420,12 +411,11 @@ async fn run_workspace_setup(state: &SandboxState) {
             "SetupRunning",
             &format!("Running setup command: {cmd}"),
             false,
-        )
-        .await;
+        );
         if let Err(e) = workspace::run_setup_command(&state.config, cmd).await {
             let msg = format!("Setup command failed: {cmd}: {e}");
             warn!("{msg}");
-            publish_sandbox_event(state, "SetupFailed", &msg, true).await;
+            publish_sandbox_event(state, "SetupFailed", &msg, true);
             // Non-fatal — continue with remaining setup
         }
     }
@@ -435,8 +425,7 @@ async fn run_workspace_setup(state: &SandboxState) {
         "WorkspaceSetupComplete",
         "Workspace setup complete",
         false,
-    )
-    .await;
+    );
 }
 
 #[cfg(test)]

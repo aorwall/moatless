@@ -381,7 +381,7 @@ async fn snapshot_search(
     req: &SearchByNameRequest,
     unreachable: core_sandbox::SandboxError,
 ) -> Result<Json<SearchByNameResponse>, SandboxError> {
-    let limit = req.max_results.unwrap_or(0).max(0) as usize;
+    let limit = usize::try_from(req.max_results.unwrap_or(0)).unwrap_or(0);
     let listing = source
         .search(
             task_id,
@@ -404,7 +404,7 @@ async fn snapshot_search(
         })
         .collect();
     Ok(Json(SearchByNameResponse {
-        total_matches: files.len() as i32,
+        total_matches: i32::try_from(files.len()).unwrap_or(i32::MAX),
         files,
         origin: ContentOrigin::snapshot(synced_at),
     }))

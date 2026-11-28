@@ -59,7 +59,9 @@ impl AdapterInboundPresentation for SlackAdapter {
         };
 
         let slack_config = SlackAdapterConfig::from_config(config);
-        let config_limit = slack_config.thread_context_limit.unwrap_or(limit as u64) as usize;
+        let config_limit = slack_config
+            .thread_context_limit
+            .map_or(limit, |n| usize::try_from(n).unwrap_or(usize::MAX));
 
         // Use last_external_event_id as cursor — only fetch messages after it.
         // Strip the `slack:ts:` namespace prefix written by `send_reply` so the

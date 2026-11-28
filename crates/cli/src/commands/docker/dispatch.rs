@@ -9,11 +9,11 @@ pub async fn run(
 ) -> Result<(), ClientError> {
     match action {
         DockerAction::Preflight(args) => preflight::run(args, json).await,
-        DockerAction::Init(args) => init::run(args, json).await,
+        DockerAction::Init(args) => init::run(args, json),
         DockerAction::Install(args) => install::run(args, json).await,
         DockerAction::Status(args) => status::run(args, json, local_stack).await,
         DockerAction::Logs(args) => logs::run(args, json).await,
         DockerAction::Uninstall(args) => uninstall::run(args, json).await,
-        DockerAction::Env(action) => env::run(action, json).await,
+        DockerAction::Env(action) => env::run(action, json),
     }
 }

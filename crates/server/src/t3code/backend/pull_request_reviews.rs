@@ -124,9 +124,11 @@ impl PullRequestReviewSource for AppStateBoundPullRequests {
         };
         // A first read has no cursor; later ones stop when the host runs out.
         let mut first = true;
-        while (page.items.len() as u32) < limit && (first || page.next_cursor.is_some()) {
+        let filled =
+            |page: &PullRequestListPage| u32::try_from(page.items.len()).unwrap_or(u32::MAX);
+        while filled(&page) < limit && (first || page.next_cursor.is_some()) {
             first = false;
-            let want = (limit - page.items.len() as u32).min(pull_request_search::MAX_PAGE_SIZE);
+            let want = (limit - filled(&page)).min(pull_request_search::MAX_PAGE_SIZE);
             let found = pull_request_search::search_pull_requests(
                 adapter.as_ref(),
                 &viewer.user_id,

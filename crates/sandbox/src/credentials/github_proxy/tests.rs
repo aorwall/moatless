@@ -58,7 +58,7 @@ async fn recording_backend() -> (String, Arc<Mutex<Vec<Seen>>>) {
     (format!("http://{addr}"), seen)
 }
 
-async fn spawn_socket(
+fn spawn_socket(
     backend_url: Option<&str>,
     task_token: Option<&str>,
 ) -> (tempfile::TempDir, std::path::PathBuf, CancellationToken) {
@@ -102,7 +102,7 @@ fn gh_request(method: &str, path: &str, body: &str) -> String {
 #[tokio::test]
 async fn an_api_request_reaches_the_backend_with_the_task_token_in_place_of_gh_s() {
     let (backend, seen) = recording_backend().await;
-    let (_tmp, socket, cancel) = spawn_socket(Some(&format!("{backend}/")), Some("task-jwt")).await;
+    let (_tmp, socket, cancel) = spawn_socket(Some(&format!("{backend}/")), Some("task-jwt"));
 
     let response = send(
         &socket,
@@ -129,7 +129,7 @@ async fn an_api_request_reaches_the_backend_with_the_task_token_in_place_of_gh_s
 #[tokio::test]
 async fn a_sandbox_without_its_task_token_yet_says_so() {
     let (backend, seen) = recording_backend().await;
-    let (_tmp, socket, cancel) = spawn_socket(Some(&backend), None).await;
+    let (_tmp, socket, cancel) = spawn_socket(Some(&backend), None);
 
     let response = send(&socket, &gh_request("GET", "/user", "")).await;
 

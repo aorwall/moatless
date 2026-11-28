@@ -225,10 +225,14 @@ impl TaskReaper {
         );
         let identity = self.config.server.worker_identity.clone();
         let interval = Duration::from_secs(self.config.sandbox.idle_check_interval_secs);
-        let default_ttl_minutes = self.config.sandbox.idle_timeout_minutes as i32;
-        let default_settle_after_hours = self.config.sandbox.settle_after_hours as i32;
-        let default_close_after_settled_days = self.config.sandbox.close_after_settled_days as i32;
-        let default_cold_after_hours = self.config.sandbox.cold_after_hours as i32;
+        let default_ttl_minutes =
+            i32::try_from(self.config.sandbox.idle_timeout_minutes).unwrap_or(i32::MAX);
+        let default_settle_after_hours =
+            i32::try_from(self.config.sandbox.settle_after_hours).unwrap_or(i32::MAX);
+        let default_close_after_settled_days =
+            i32::try_from(self.config.sandbox.close_after_settled_days).unwrap_or(i32::MAX);
+        let default_cold_after_hours =
+            i32::try_from(self.config.sandbox.cold_after_hours).unwrap_or(i32::MAX);
         let orphan_gc_enabled = self.config.sandbox.orphan_gc_enabled;
 
         tokio::spawn(async move {

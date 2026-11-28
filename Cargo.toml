@@ -161,8 +161,7 @@ missing_panics_doc = "allow"
 missing_docs_in_private_items = "allow"
 # sqlx::FromRow / serde structs
 struct_excessive_bools = "allow"
-# Idiomatic axum/async-trait patterns
-unused_async = "allow"
+# An impl of an async trait method stays async whether or not its body awaits
 unused_async_trait_impl = "allow"
 # `assert!(x.is_empty())` is the idiom here; the lint's fix, `assert_eq!(x, []
 # as [String; 0])`, needs a typed empty array at each of ~200 test sites.
@@ -178,10 +177,6 @@ needless_raw_string_hashes = "allow"
 implicit_hasher = "allow"
 # Wildcards in `use super::schemas::*` are intentional in handler modules
 wildcard_imports = "allow"
-# cast_sign_loss and cast_possible_truncation fire on i32↔u32/usize conversions
-# that are checked at the API boundary level, not per-expression
-cast_sign_loss = "allow"
-cast_possible_truncation = "allow"
 cast_possible_wrap = "allow"
 cast_lossless = "allow"
 # `let Some(x) = ... else { return }` style — adopt incrementally

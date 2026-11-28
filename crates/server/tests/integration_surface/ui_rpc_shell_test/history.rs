@@ -142,7 +142,7 @@ async fn a_compacted_history_page_carries_an_id_table(pool: PgPool) {
     let ids = page["ids"].as_array().unwrap();
     let first = &page["items"][0];
     assert_eq!(first["item"]["text"], "ask-01");
-    let thread_id = &ids[first["sourceThreadId"].as_u64().unwrap() as usize];
+    let thread_id = &ids[usize::try_from(first["sourceThreadId"].as_u64().unwrap()).unwrap()];
     assert_eq!(thread_id, "t-long");
 }
 

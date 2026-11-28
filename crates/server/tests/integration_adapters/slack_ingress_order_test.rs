@@ -39,7 +39,7 @@ type HmacSha256 = Hmac<Sha256>;
 ///
 /// `bot_user_id` is set so `resolve_bot_user_id` doesn't call `auth.test` on
 /// slack.com.
-async fn replica(pool: &PgPool) -> AppState {
+fn replica(pool: &PgPool) -> AppState {
     let mut config = test_config();
     config.slack.bot_token = Some("xoxb-test".to_string());
     config.slack.signing_secret = Some(SIGNING_SECRET.to_string());
@@ -107,7 +107,7 @@ async fn admitted(pool: &PgPool) -> i64 {
 /// unrouted event is acknowledged whether or not its signature holds.
 #[sqlx::test]
 async fn an_unrouted_event_is_acknowledged_whatever_its_signature_says(pool: PgPool) {
-    let state = replica(&pool).await;
+    let state = replica(&pool);
 
     for signed in [false, true] {
         assert_eq!(

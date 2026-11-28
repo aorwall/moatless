@@ -402,9 +402,10 @@ mod tests {
         // Split the actions after the table name on top-level commas, so a
         // `numeric(10, 2)` stays inside its action.
         let mut actions = vec![Vec::new()];
-        let mut depth = 0i32;
+        let mut depth = 0isize;
         for word in rest.iter().skip(1) {
-            depth += word.matches('(').count() as i32 - word.matches(')').count() as i32;
+            depth +=
+                word.matches('(').count().cast_signed() - word.matches(')').count().cast_signed();
             let action = actions.last_mut().expect("starts with one action");
             match word.strip_suffix(',') {
                 Some(head) if depth == 0 => {

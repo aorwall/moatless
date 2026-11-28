@@ -188,7 +188,7 @@ async fn a_polling_client_never_sees_a_hole(pool: PgPool) {
         "a polling client observed positions out of order or with a gap"
     );
     assert_eq!(current_position(&pool).await.unwrap(), total);
-    assert_eq!(observed(&pool).await.len(), total as usize);
+    assert_eq!(observed(&pool).await.len(), usize::try_from(total).unwrap());
 }
 
 /// The negative control: reproduces on a `bigserial` the hazard the counter
@@ -518,7 +518,7 @@ async fn pruning_keeps_the_retention_window_and_leaves_the_counter_alone(pool: P
     );
 
     let kept = retained(&pool).await;
-    assert_eq!(kept.len(), RETAINED_CHANGES as usize);
+    assert_eq!(kept.len(), usize::try_from(RETAINED_CHANGES).unwrap());
     assert_eq!(kept.first().copied(), Some(13));
     assert_eq!(kept.last().copied(), Some(head));
 
@@ -586,7 +586,7 @@ async fn a_prune_cannot_delete_a_record_resume_has_already_promised(pool: PgPool
          handed silence where that change belonged"
     );
     assert_eq!(replayed.last().copied(), Some(head + 1));
-    assert_eq!(replayed.len(), (RESUME_WINDOW + 1) as usize);
+    assert_eq!(replayed.len(), usize::try_from(RESUME_WINDOW + 1).unwrap());
 }
 
 // =========================================================================
@@ -987,7 +987,7 @@ async fn drive(pool: &Arc<PgPool>, shape: Shape, counter: Counter) -> Duration {
                              SET status = 'completed', ended_at = NOW()"#,
                     )
                     .bind(&task_id)
-                    .bind(step as i32)
+                    .bind(i32::try_from(step).unwrap())
                     .execute(&mut *tx)
                     .await
                     .unwrap();
@@ -1067,7 +1067,7 @@ async fn seed_tasks(pool: &PgPool) {
 async fn the_counter_is_measured_under_concurrent_mutation(pool: PgPool) {
     let total = (WRITERS * PER_WRITER) as f64;
     seed_tasks(&pool).await;
-    let wide = Arc::new(wide_pool(&pool, WRITERS as u32 + 4).await);
+    let wide = Arc::new(wide_pool(&pool, u32::try_from(WRITERS).unwrap() + 4).await);
 
     // Establish every connection first. Without this the first arm measured
     // pays for 32 connection handshakes and reads several times slower than the

@@ -39,7 +39,7 @@ pub(crate) struct SubprocessTransport {
 
 impl SubprocessTransport {
     /// Spawn the Claude CLI subprocess with the given options.
-    pub(crate) async fn spawn(options: &ClaudeOptions) -> Result<Self> {
+    pub(crate) fn spawn(options: &ClaudeOptions) -> Result<Self> {
         let cli_path = resolve_cli_path(options)?;
         let mut args = build_cli_args(options);
         let prompt_files = spill_oversized_prompts(&mut args, INLINE_PROMPT_LIMIT)?;
@@ -915,9 +915,8 @@ mod tests {
     async fn spawn_passes_a_prompt_over_the_kernel_arg_cap_through_a_file() {
         let options = append_prompt_options("x".repeat(MAX_ARG_STRLEN + 1));
 
-        let mut transport = SubprocessTransport::spawn(&options)
-            .await
-            .expect("an oversized prompt must not hit E2BIG");
+        let mut transport =
+            SubprocessTransport::spawn(&options).expect("an oversized prompt must not hit E2BIG");
 
         assert_eq!(transport._prompt_files.len(), 1);
         transport.close().await;
@@ -925,9 +924,8 @@ mod tests {
 
     #[tokio::test]
     async fn spawn_keeps_a_small_prompt_inline() {
-        let mut transport = SubprocessTransport::spawn(&append_prompt_options("Be brief.".into()))
-            .await
-            .unwrap();
+        let mut transport =
+            SubprocessTransport::spawn(&append_prompt_options("Be brief.".into())).unwrap();
 
         assert!(transport._prompt_files.is_empty());
         transport.close().await;

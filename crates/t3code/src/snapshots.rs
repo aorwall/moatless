@@ -358,7 +358,7 @@ pub async fn browse_snapshot(
 ) -> Result<Value, ListingError> {
     let mut conversations = reads.conversations().list_browsable(viewer, filter).await?;
     let truncated = conversations.len() as i64 > crate::dao::BROWSE_LIMIT;
-    conversations.truncate(crate::dao::BROWSE_LIMIT as usize);
+    conversations.truncate(usize::try_from(crate::dao::BROWSE_LIMIT).unwrap_or(usize::MAX));
     let workspaces = reads
         .workspaces()
         .list_readable_including(viewer, &[])
@@ -397,7 +397,7 @@ pub(crate) async fn archived_shell_page(
     let workspaces = workspaces.list_readable_including(viewer, &[]).await?;
     let mut archived = conversations.list_followed_closed(viewer, before).await?;
     let truncated = archived.len() as i64 > crate::dao::ARCHIVED_LIMIT;
-    archived.truncate(crate::dao::ARCHIVED_LIMIT as usize);
+    archived.truncate(usize::try_from(crate::dao::ARCHIVED_LIMIT).unwrap_or(usize::MAX));
     // Taken from the raw rows, as `truncated` is in `browse_snapshot`: a row
     // projection drops still holds its place in the order.
     let next_cursor = archived

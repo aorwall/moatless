@@ -197,6 +197,10 @@ async fn a_limited_search_is_a_prefix_of_the_full_ranking(pool: PgPool) {
     .collect();
     assert_eq!(full, expected);
     for limit in 1..=3 {
-        assert_eq!(answer(limit).await, full[..limit as usize], "limit {limit}");
+        assert_eq!(
+            answer(limit).await,
+            full[..usize::try_from(limit).unwrap()],
+            "limit {limit}"
+        );
     }
 }

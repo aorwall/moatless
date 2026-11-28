@@ -146,7 +146,7 @@ impl ScheduledJob for BackgroundWatchJob {
         JobSnapshot::BackgroundWatch(BackgroundWatchSnapshot {
             id: self.id.clone(),
             registered_at_unix_ms: self.registered_at_unix_ms,
-            command_count: self.watched_ids.len() as u32,
+            command_count: u32::try_from(self.watched_ids.len()).unwrap_or(u32::MAX),
             commands: self.commands.clone(),
         })
     }

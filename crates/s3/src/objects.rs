@@ -169,7 +169,10 @@ where
             .iter()
             .filter_map(|obj| {
                 let key = obj.key()?;
-                Some((key.to_string(), obj.size().unwrap_or(0).max(0) as u64))
+                Some((
+                    key.to_string(),
+                    u64::try_from(obj.size().unwrap_or(0)).unwrap_or(0),
+                ))
             })
             .collect();
         total += page(objects).await?;
@@ -298,7 +301,9 @@ pub async fn head_object_size(
         .send()
         .await
     {
-        Ok(resp) => Ok(Some(resp.content_length().unwrap_or(0).max(0) as u64)),
+        Ok(resp) => Ok(Some(
+            u64::try_from(resp.content_length().unwrap_or(0)).unwrap_or(0),
+        )),
         Err(e) => match e.as_service_error() {
             Some(se) if se.is_not_found() => Ok(None),
             _ => Err(S3Error::HeadObject(Box::new(e))),

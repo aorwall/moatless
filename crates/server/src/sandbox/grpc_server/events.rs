@@ -75,7 +75,7 @@ fn running_commands_reported(event_type: &str, sub_type: &str, payload: &Value) 
     payload
         .get("runningCommands")
         .and_then(Value::as_i64)
-        .map(|n| n.clamp(0, i64::from(i32::MAX)) as i32)
+        .map(|n| i32::try_from(n.max(0)).unwrap_or(i32::MAX))
 }
 
 impl BackendSandboxServiceImpl {

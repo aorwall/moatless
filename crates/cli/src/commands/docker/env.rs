@@ -50,15 +50,15 @@ pub(super) struct EnvKey {
     pub(super) display: String,
 }
 
-pub(super) async fn run(action: EnvAction, json: bool) -> Result<(), ClientError> {
+pub(super) fn run(action: EnvAction, json: bool) -> Result<(), ClientError> {
     match action {
-        EnvAction::Set(args) => run_set(args, json).await,
-        EnvAction::Unset(args) => run_unset(args, json).await,
-        EnvAction::List(args) => run_list(args, json).await,
+        EnvAction::Set(args) => run_set(args, json),
+        EnvAction::Unset(args) => run_unset(args, json),
+        EnvAction::List(args) => run_list(args, json),
     }
 }
 
-async fn run_unset(args: EnvUnsetArgs, json: bool) -> Result<(), ClientError> {
+fn run_unset(args: EnvUnsetArgs, json: bool) -> Result<(), ClientError> {
     let (compose_dir, _source) = resolve_compose_dir(args.compose_dir.as_deref())?;
     let env_path = compose_dir.join(ENV_FILE);
 
@@ -90,7 +90,7 @@ async fn run_unset(args: EnvUnsetArgs, json: bool) -> Result<(), ClientError> {
     Ok(())
 }
 
-async fn run_set(args: EnvSetArgs, json: bool) -> Result<(), ClientError> {
+fn run_set(args: EnvSetArgs, json: bool) -> Result<(), ClientError> {
     let (compose_dir, _source) = resolve_compose_dir(args.compose_dir.as_deref())?;
     let env_path = compose_dir.join(ENV_FILE);
     let example_path = compose_dir.join(ENV_EXAMPLE_FILE);
@@ -150,7 +150,7 @@ async fn run_set(args: EnvSetArgs, json: bool) -> Result<(), ClientError> {
     Ok(())
 }
 
-async fn run_list(args: EnvListArgs, json: bool) -> Result<(), ClientError> {
+fn run_list(args: EnvListArgs, json: bool) -> Result<(), ClientError> {
     let (compose_dir, source) = resolve_compose_dir(args.compose_dir.as_deref())?;
     let env_path = compose_dir.join(ENV_FILE);
     let env_present = env_path.is_file();

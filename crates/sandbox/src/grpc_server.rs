@@ -780,7 +780,7 @@ impl SandboxService for SandboxServiceImpl {
         .await
         .map_err(|e| Status::internal(format!("Failed to search files: {e}")))?;
 
-        let total_matches = results.len() as i32;
+        let total_matches = i32::try_from(results.len()).unwrap_or(i32::MAX);
         Ok(Response::new(SearchFilesByNameResponse {
             files: results
                 .into_iter()

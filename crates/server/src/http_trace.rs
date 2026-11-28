@@ -35,7 +35,7 @@ pub(crate) async fn request_trace_middleware(
     let start = std::time::Instant::now();
     async move {
         let mut res = next.run(req).await;
-        let latency_ms = start.elapsed().as_millis() as u64;
+        let latency_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
         let span = tracing::Span::current();
         span.record("status", res.status().as_u16());
         span.record("latency_ms", latency_ms);

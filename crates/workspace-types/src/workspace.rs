@@ -483,7 +483,13 @@ impl FromStr for Cpu {
             if millis > u64::MAX as f64 {
                 return Err(invalid("overflows u64 millicores"));
             }
-            millis as u64
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "`millis` is checked finite, non-negative and within `u64` above"
+            )]
+            let millicores = millis as u64;
+            millicores
         };
         Ok(Self {
             raw: value.to_string(),

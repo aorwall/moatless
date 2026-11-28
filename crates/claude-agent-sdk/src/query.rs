@@ -206,7 +206,7 @@ pub async fn query(prompt: &str, options: ClaudeOptions) -> Result<QueryHandle> 
     let permission_handler = options.can_use_tool.clone();
 
     let session_cost = SessionCost::restored(&options).await;
-    let transport = SubprocessTransport::spawn(&options).await?;
+    let transport = SubprocessTransport::spawn(&options)?;
     let stdin_writer: Arc<dyn StdinWriter> = Arc::new(ChildStdinWriter {
         inner: transport.stdin.clone(),
     });
@@ -247,7 +247,7 @@ pub async fn query(prompt: &str, options: ClaudeOptions) -> Result<QueryHandle> 
 
     info!(
         request_id = %init_id,
-        init_timeout_ms = init_timeout.as_millis() as u64,
+        init_timeout_ms = u64::try_from(init_timeout.as_millis()).unwrap_or(u64::MAX),
         "Waiting for initialize response from CLI"
     );
 
@@ -288,7 +288,7 @@ pub async fn query(prompt: &str, options: ClaudeOptions) -> Result<QueryHandle> 
                 .collect();
             warn!(
                 request_id = %init_id,
-                timeout_ms = init_timeout.as_millis() as u64,
+                timeout_ms = u64::try_from(init_timeout.as_millis()).unwrap_or(u64::MAX),
                 stderr_line_count = stderr_snapshot.len(),
                 stderr_tail = ?stderr_tail,
                 "CLI init timed out — no initialize response received"
@@ -297,7 +297,7 @@ pub async fn query(prompt: &str, options: ClaudeOptions) -> Result<QueryHandle> 
             cancellation_token.cancel();
             return Err(SdkError::ControlTimeout {
                 request_id: init_id,
-                timeout_ms: init_timeout.as_millis() as u64,
+                timeout_ms: u64::try_from(init_timeout.as_millis()).unwrap_or(u64::MAX),
             });
         }
     }
@@ -335,7 +335,7 @@ pub async fn query_streaming(options: ClaudeOptions) -> Result<QueryHandle> {
     let permission_handler = options.can_use_tool.clone();
 
     let session_cost = SessionCost::restored(&options).await;
-    let transport = SubprocessTransport::spawn(&options).await?;
+    let transport = SubprocessTransport::spawn(&options)?;
     let stdin_writer: Arc<dyn StdinWriter> = Arc::new(ChildStdinWriter {
         inner: transport.stdin.clone(),
     });
@@ -376,7 +376,7 @@ pub async fn query_streaming(options: ClaudeOptions) -> Result<QueryHandle> {
 
     info!(
         request_id = %init_id,
-        init_timeout_ms = init_timeout.as_millis() as u64,
+        init_timeout_ms = u64::try_from(init_timeout.as_millis()).unwrap_or(u64::MAX),
         "Waiting for initialize response from CLI"
     );
 
@@ -417,7 +417,7 @@ pub async fn query_streaming(options: ClaudeOptions) -> Result<QueryHandle> {
                 .collect();
             warn!(
                 request_id = %init_id,
-                timeout_ms = init_timeout.as_millis() as u64,
+                timeout_ms = u64::try_from(init_timeout.as_millis()).unwrap_or(u64::MAX),
                 stderr_line_count = stderr_snapshot.len(),
                 stderr_tail = ?stderr_tail,
                 "CLI init timed out — no initialize response received"
@@ -426,7 +426,7 @@ pub async fn query_streaming(options: ClaudeOptions) -> Result<QueryHandle> {
             cancellation_token.cancel();
             return Err(SdkError::ControlTimeout {
                 request_id: init_id,
-                timeout_ms: init_timeout.as_millis() as u64,
+                timeout_ms: u64::try_from(init_timeout.as_millis()).unwrap_or(u64::MAX),
             });
         }
     }

@@ -14,7 +14,6 @@ use std::sync::Arc;
 use chrono::Utc;
 use serde::Deserialize;
 use serde_json::{Value, json};
-use tracing::warn;
 use uuid::Uuid;
 
 use crate::preview_relay::PreviewRelay;
@@ -134,11 +133,7 @@ fn commanded(url: &str) -> Value {
 /// The write lands first — a publish failure leaves the tab stored and the
 /// caller answered; clients that missed the event converge on their next
 /// `preview.list`.
-async fn commit(
-    state: &PreviewState,
-    tab: PreviewTab,
-    event_type: &str,
-) -> Result<Value, PreviewError> {
+fn commit(state: &PreviewState, tab: PreviewTab, event_type: &str) -> Value {
     let revision = state.tabs.put(&tab);
     let rendered = snapshot(&tab);
     let event = json!({
@@ -151,7 +146,7 @@ async fn commit(
         "snapshot": rendered,
     });
     state.tabs.publish(event);
-    Ok(rendered)
+    rendered
 }
 
 pub async fn open(
@@ -167,7 +162,7 @@ pub async fn open(
         Some(url) => commanded(url),
         None => json!({ "_tag": "Idle" }),
     };
-    commit(
+    Ok(commit(
         state,
         PreviewTab {
             thread_id: task_id.to_string(),
@@ -181,8 +176,7 @@ pub async fn open(
             updated_at: Utc::now().to_rfc3339(),
         },
         "opened",
-    )
-    .await
+    ))
 }
 
 /// Open a tab at a caller-chosen id, replacing whatever that id held.
@@ -199,7 +193,7 @@ pub async fn open_at(
     url: &str,
 ) -> Result<Value, PreviewError> {
     authorize(state, viewer, task_id).await?;
-    let opened = store_open(state, task_id, tab_id, url).await?;
+    let opened = store_open(state, task_id, tab_id, url);
     state
         .relay
         .announce(state.tabs.epoch(), task_id, tab_id, url)
@@ -213,24 +207,12 @@ pub async fn open_at(
 /// it, and [`watch_preview_events`](crate::rpc::watch::watch_preview_events)
 /// checks each subscriber's own access. No re-announcement either, or two
 /// replicas would relay each other's opens without end.
-pub(crate) async fn apply_relayed_open(
-    state: &PreviewState,
-    task_id: &str,
-    tab_id: &str,
-    url: &str,
-) {
-    if let Err(error) = store_open(state, task_id, tab_id, url).await {
-        warn!(%error, task_id, tab_id, "A relayed preview tab was not applied");
-    }
+pub(crate) fn apply_relayed_open(state: &PreviewState, task_id: &str, tab_id: &str, url: &str) {
+    store_open(state, task_id, tab_id, url);
 }
 
 /// Write the tab and publish it, carrying over a viewport somebody chose.
-async fn store_open(
-    state: &PreviewState,
-    task_id: &str,
-    tab_id: &str,
-    url: &str,
-) -> Result<Value, PreviewError> {
+fn store_open(state: &PreviewState, task_id: &str, tab_id: &str, url: &str) -> Value {
     let viewport = state.tabs.get(task_id, tab_id).and_then(|tab| tab.viewport);
     commit(
         state,
@@ -245,7 +227,6 @@ async fn store_open(
         },
         "opened",
     )
-    .await
 }
 
 pub async fn navigate(
@@ -257,14 +238,14 @@ pub async fn navigate(
     let tab_id = input.tab_id()?;
     let url = input.url().ok_or(PreviewError::Malformed("url"))?;
     authorize(state, viewer, task_id).await?;
-    let mut tab = require_tab(state, task_id, tab_id).await?;
+    let mut tab = require_tab(state, task_id, tab_id)?;
     tab.nav_status = commanded(url);
     // Whatever the last client reported is no longer true of the page the
     // frame is about to show, and a web client will never correct it.
     tab.can_go_back = false;
     tab.can_go_forward = false;
     tab.updated_at = Utc::now().to_rfc3339();
-    commit(state, tab, "navigated").await
+    Ok(commit(state, tab, "navigated"))
 }
 
 pub async fn resize(
@@ -279,10 +260,10 @@ pub async fn resize(
         .clone()
         .ok_or(PreviewError::Malformed("viewport"))?;
     authorize(state, viewer, task_id).await?;
-    let mut tab = require_tab(state, task_id, tab_id).await?;
+    let mut tab = require_tab(state, task_id, tab_id)?;
     tab.viewport = Some(viewport);
     tab.updated_at = Utc::now().to_rfc3339();
-    commit(state, tab, "resized").await
+    Ok(commit(state, tab, "resized"))
 }
 
 /// What the desktop client saw, written verbatim.
@@ -301,12 +282,13 @@ pub async fn report_status(
         .clone()
         .ok_or(PreviewError::Malformed("navStatus"))?;
     authorize(state, viewer, task_id).await?;
-    let mut tab = require_tab(state, task_id, tab_id).await?;
+    let mut tab = require_tab(state, task_id, tab_id)?;
     tab.nav_status = nav_status;
     tab.can_go_back = input.can_go_back.unwrap_or(false);
     tab.can_go_forward = input.can_go_forward.unwrap_or(false);
     tab.updated_at = Utc::now().to_rfc3339();
-    commit(state, tab, "navigated").await.map(drop)
+    commit(state, tab, "navigated");
+    Ok(())
 }
 
 /// Close one tab, or every tab on the Task when no `tabId` is given.
@@ -360,7 +342,7 @@ pub async fn list(
     }))
 }
 
-async fn require_tab(
+fn require_tab(
     state: &PreviewState,
     task_id: &str,
     tab_id: &str,
@@ -674,7 +656,7 @@ mod tests {
         let state = state(None);
         let mut events = state.tabs.subscribe();
 
-        apply_relayed_open(&state, "task", "script-dev", "https://a.example").await;
+        apply_relayed_open(&state, "task", "script-dev", "https://a.example");
 
         let listing = state.tabs.list("task");
         assert_eq!(listing.tabs.len(), 1);

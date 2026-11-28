@@ -34,7 +34,7 @@ pub(super) struct InitReport {
     pub(super) keys_missing: Vec<String>,
 }
 
-pub(super) async fn run(args: InitArgs, json: bool) -> Result<(), ClientError> {
+pub(super) fn run(args: InitArgs, json: bool) -> Result<(), ClientError> {
     let (compose_dir, source) = resolve_compose_dir(args.compose_dir.as_deref())?;
     fs::create_dir_all(&compose_dir).map_err(|e| {
         ClientError::Other(format!("Failed to create {}: {e}", compose_dir.display()))
@@ -198,8 +198,8 @@ mod tests {
     ///
     /// Fails against a repair branch that flips `overwrite` on for every entry
     /// instead of just the repaired one.
-    #[tokio::test]
-    async fn init_repairs_stale_dir_without_clobbering_user_edits() {
+    #[test]
+    fn init_repairs_stale_dir_without_clobbering_user_edits() {
         let tmp = tempfile::tempdir().unwrap();
         let work = tmp.path().join("compose");
         fs::create_dir_all(&work).unwrap();
@@ -218,7 +218,7 @@ mod tests {
             overwrite: false,
             non_interactive: true,
         };
-        run(args, true).await.unwrap();
+        run(args, true).unwrap();
 
         assert!(
             work.join(ENV_EXAMPLE_FILE).is_file(),

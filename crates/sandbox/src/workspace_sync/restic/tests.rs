@@ -592,7 +592,7 @@ impl rustic_core::ReadBackend for MapBackend {
         Ok(objects
             .iter()
             .filter(|((t, _), _)| *t == dir)
-            .map(|((_, id), body)| (*id, body.len() as u32))
+            .map(|((_, id), body)| (*id, u32::try_from(body.len()).expect("test body fits u32")))
             .collect())
     }
 

@@ -289,11 +289,11 @@ pub async fn run_init(
         let _ = std::fs::write("/dev/termination-log", error.to_string());
         return Err(error);
     }
-    start_background_tasks(&state, &registrar).await;
+    start_background_tasks(&state, &registrar);
     Ok(())
 }
 
-async fn start_background_tasks(state: &SandboxState, registrar: &crate::supervisor::Registrar) {
+fn start_background_tasks(state: &SandboxState, registrar: &crate::supervisor::Registrar) {
     // Credential refresher: GitHub tokens expire (1h app, 8h user), and a
     // long-running task would fail mid-turn on `git push`/`gh pr comment`
     // without it (see `refresher.rs`). Liveness: only a panic ends the loop

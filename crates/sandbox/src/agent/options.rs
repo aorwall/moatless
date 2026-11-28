@@ -181,7 +181,10 @@ pub fn build_options(
         continue_conversation,
         can_use_tool: Some(Arc::new(permission_handler)),
         cancellation_token: Some(cancel_token),
-        max_turns: config.agent_config.timeout.map(|t| t as u32),
+        max_turns: config
+            .agent_config
+            .timeout
+            .map(|t| u32::try_from(t).unwrap_or(u32::MAX)),
         init_timeout: Some(init_timeout),
         env,
         api_key_helper,

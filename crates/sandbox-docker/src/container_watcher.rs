@@ -151,7 +151,7 @@ async fn handle_docker_event(
                     let restart_count = info.restart_count.unwrap_or(0);
                     transition = stopped_transition(&info);
                     if max_crash_restart_count > 0
-                        && restart_count as i32 >= max_crash_restart_count
+                        && restart_count >= i64::from(max_crash_restart_count)
                     {
                         warn!(
                             task_id,

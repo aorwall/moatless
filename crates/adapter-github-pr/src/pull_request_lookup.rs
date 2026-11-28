@@ -178,7 +178,7 @@ pub async fn pull_request_file_stats(
         let files = api
             .list_pr_files(owner, repo, number, page, FILES_PER_PAGE)
             .await?;
-        let full = files.len() as u32 == FILES_PER_PAGE;
+        let full = u32::try_from(files.len()).is_ok_and(|n| n == FILES_PER_PAGE);
         stats.extend(files.into_iter().map(|file| PullRequestFileStat {
             path: file.filename,
             additions: file.additions,

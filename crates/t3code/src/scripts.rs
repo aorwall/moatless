@@ -511,8 +511,9 @@ fn port(script: &Value) -> Result<Option<u16>, ScriptsError> {
         return Ok(None);
     }
     port.as_u64()
-        .filter(|port| (1..=u64::from(u16::MAX)).contains(port))
-        .map(|port| Some(port as u16))
+        .and_then(|port| u16::try_from(port).ok())
+        .filter(|port| *port != 0)
+        .map(Some)
         .ok_or_else(|| {
             ScriptsError::Invalid(format!(
                 "`{port}` is not a port. Use a number from 1 to 65535, or leave it empty."

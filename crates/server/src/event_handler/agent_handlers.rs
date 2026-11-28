@@ -766,7 +766,7 @@ async fn sandbox_still_desired_running(ports: &AgentErrorPorts, task_id: &str) -
     }
 }
 
-pub async fn handle_agent_session_context_lost(_state: &AppState, event: &AgentEvent) {
+pub fn handle_agent_session_context_lost(_state: &AppState, event: &AgentEvent) {
     let resume_error = event
         .payload
         .get("error")

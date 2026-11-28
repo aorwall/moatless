@@ -790,7 +790,9 @@ fn dimension(value: u32, max: u32, field: &'static str) -> TerminalResult<Option
     if value > max {
         return Err(TerminalError::InvalidDimension(field));
     }
-    Ok(Some(value as u16))
+    u16::try_from(value)
+        .map(Some)
+        .map_err(|_| TerminalError::InvalidDimension(field))
 }
 
 #[cfg(test)]

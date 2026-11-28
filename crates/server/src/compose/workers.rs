@@ -41,7 +41,14 @@ pub(crate) fn task_reaper(
         info!("Task reaper disabled");
         return None;
     }
-    let lease_duration_secs = (app_state.config.sandbox.idle_check_interval_secs * 2) as i32;
+    let lease_duration_secs = i32::try_from(
+        app_state
+            .config
+            .sandbox
+            .idle_check_interval_secs
+            .saturating_mul(2),
+    )
+    .unwrap_or(i32::MAX);
     let leader = leader(
         &k8s,
         &app_state.config,

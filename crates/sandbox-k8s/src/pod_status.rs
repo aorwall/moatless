@@ -162,7 +162,7 @@ pub fn extract_all_container_statuses(pod: &Pod) -> Vec<ContainerObservedStatus>
                 .and_then(|t| {
                     chrono::DateTime::from_timestamp(
                         t.0.as_second(),
-                        t.0.subsec_nanosecond() as u32,
+                        u32::try_from(t.0.subsec_nanosecond()).ok()?,
                     )
                 });
 

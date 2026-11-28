@@ -407,7 +407,7 @@ pub(super) async fn projects_search_entries(
         )];
     };
     let limit = payload.limit.map_or(SEARCH_ENTRIES_LIMIT, |limit| {
-        (limit as usize).min(SEARCH_ENTRIES_MAX)
+        usize::try_from(limit).map_or(SEARCH_ENTRIES_MAX, |limit| limit.min(SEARCH_ENTRIES_MAX))
     });
     match files::search_entries(
         &state.reads,

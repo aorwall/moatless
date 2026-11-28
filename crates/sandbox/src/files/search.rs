@@ -31,7 +31,7 @@ pub async fn search_files_by_name(
 
     let max = match max_results {
         n if n <= 0 => DEFAULT_MAX_RESULTS,
-        n => (n as usize).min(HARD_MAX_RESULTS),
+        n => usize::try_from(n).map_or(HARD_MAX_RESULTS, |n| n.min(HARD_MAX_RESULTS)),
     };
 
     tokio::task::spawn_blocking(move || walk_and_rank(&workspace, &query, case_sensitive, max))

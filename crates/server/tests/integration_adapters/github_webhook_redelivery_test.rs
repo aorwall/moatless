@@ -155,8 +155,8 @@ async fn request_counting_github_stub_with_mergeable_state(
 
 /// One backend process with its own state and registered adapter, sharing only
 /// the database. Two of these is the whole point of these tests.
-async fn replica(pool: &PgPool) -> AppState {
-    registered_replica(pool, None).await
+fn replica(pool: &PgPool) -> AppState {
+    registered_replica(pool, None)
 }
 
 /// These tests count each event's own turn, so a comment held for the GitHub PR
@@ -171,7 +171,7 @@ fn unbuffered_config() -> moatless_core::config::Config {
     config
 }
 
-async fn registered_replica(pool: &PgPool, webhook_secret: Option<&str>) -> AppState {
+fn registered_replica(pool: &PgPool, webhook_secret: Option<&str>) -> AppState {
     let mut config = unbuffered_config();
     config.auth.frontend_url = "https://app.example.com".to_string();
     config.github_pr.webhook_secret = webhook_secret.map(str::to_string);
@@ -179,7 +179,7 @@ async fn registered_replica(pool: &PgPool, webhook_secret: Option<&str>) -> AppS
 }
 
 /// A replica whose GitHub REST calls go to the stub at `base_url`.
-async fn stubbed_replica(pool: &PgPool, base_url: &str) -> AppState {
+fn stubbed_replica(pool: &PgPool, base_url: &str) -> AppState {
     let mut config = unbuffered_config();
     config.auth.frontend_url = "https://app.example.com".to_string();
     config.github_api_base = base_url.to_string();
@@ -581,7 +581,7 @@ async fn run_worker_until(state: &AppState, budget: Duration, done: impl AsyncFn
 async fn acknowledgement_and_partial_admission_recovery_follow_durable_ownership(pool: PgPool) {
     seed_fixtures(&pool, "task-admission").await;
 
-    let signed_state = registered_replica(&pool, Some("webhook-secret")).await;
+    let signed_state = registered_replica(&pool, Some("webhook-secret"));
     let malformed = webhook_response(
         &signed_state,
         headers("issue_comment", "delivery-malformed"),
@@ -628,7 +628,7 @@ async fn acknowledgement_and_partial_admission_recovery_follow_durable_ownership
     .await
     .expect("install admission fault");
 
-    let state = registered_replica(&pool, None).await;
+    let state = registered_replica(&pool, None);
     let failed = webhook_response(
         &state,
         headers("issue_comment", "delivery-partial"),
@@ -680,7 +680,7 @@ async fn connection_without_subscription_delivers_existing_bindings_but_creates_
 ) {
     let task_id = "task-existing-binding";
     seed_fixtures(&pool, task_id).await;
-    let state = replica(&pool).await;
+    let state = replica(&pool);
 
     deliver(
         &state,
@@ -743,7 +743,7 @@ async fn connection_without_subscription_delivers_existing_bindings_but_creates_
 async fn a_merged_pull_request_notifies_the_task_that_outlives_it(pool: PgPool) {
     let task_id = "task-merged-notice";
     seed_fixtures(&pool, task_id).await;
-    let state = replica(&pool).await;
+    let state = replica(&pool);
 
     deliver(
         &state,
@@ -822,7 +822,7 @@ async fn a_merged_pull_request_notifies_the_task_that_outlives_it(pool: PgPool) 
 async fn a_pull_request_closed_without_merging_admits_no_merge_notice(pool: PgPool) {
     let task_id = "task-unmerged-close";
     seed_fixtures(&pool, task_id).await;
-    let state = replica(&pool).await;
+    let state = replica(&pool);
 
     deliver(
         &state,
@@ -851,7 +851,7 @@ async fn a_muted_binding_receives_no_event_and_its_sibling_still_does(pool: PgPo
         .execute(&pool)
         .await
         .expect("mute the binding");
-    let state = replica(&pool).await;
+    let state = replica(&pool);
 
     deliver(
         &state,
@@ -889,7 +889,7 @@ async fn footer_echo_skips_only_its_authoring_task(pool: PgPool) {
     let sibling = "task-footer-sibling";
     seed_fixtures(&pool, author).await;
     seed_bound_task(&pool, sibling, "binding-footer-sibling", "connected_thread").await;
-    let state = replica(&pool).await;
+    let state = replica(&pool);
     let body =
         format!("Done.\n\n---\nMoatless task: [Author](https://app.example.com/tasks/{author})");
 
@@ -949,7 +949,7 @@ async fn an_owner_reviewing_their_own_agents_pull_request_is_not_an_echo(pool: P
     .execute(&pool)
     .await
     .expect("map the owner's GitHub login");
-    let state = replica(&pool).await;
+    let state = replica(&pool);
 
     deliver(
         &state,
@@ -991,7 +991,7 @@ async fn inbound_sender_prefers_mapped_login_then_connection_owner(pool: PgPool)
     .execute(&pool)
     .await
     .expect("seed mapped GitHub login");
-    let state = replica(&pool).await;
+    let state = replica(&pool);
 
     deliver(
         &state,
@@ -1030,7 +1030,7 @@ async fn partial_pr_payload_projects_status_before_current_acknowledged_no_effec
     let (base_url, requests) = request_counting_github_stub().await;
 
     seed_fixtures(&pool, "task-partial-status").await;
-    let state = stubbed_replica(&pool, &base_url).await;
+    let state = stubbed_replica(&pool, &base_url);
     let payload = serde_json::json!({
         "action": "ready_for_review",
         "repository": {
@@ -1083,7 +1083,7 @@ async fn rejected_post_merge_candidate_spends_zero_github_calls_during_webhook_n
     let (base_url, requests) = request_counting_github_stub().await;
 
     seed_fixtures(&pool, "task-rejected-post-merge-webhook").await;
-    let state = stubbed_replica(&pool, &base_url).await;
+    let state = stubbed_replica(&pool, &base_url);
     let accepted = webhook_response(
         &state,
         headers("workflow_run", "delivery-rejected-post-merge-webhook"),
@@ -1119,7 +1119,7 @@ async fn build_result_routes_to_producer_then_shared_fallback(pool: PgPool) {
         .execute(&pool)
         .await
         .expect("suppress unrelated conflict transition notices");
-    let state = stubbed_replica(&pool, &base_url).await;
+    let state = stubbed_replica(&pool, &base_url);
 
     let accepted = webhook_response(
         &state,
@@ -1190,7 +1190,7 @@ async fn durable_workflows_preserve_audience_fallback_and_github_call_budgets(po
     let responder = "task-pr-responder";
     seed_fixtures(&pool, producer).await;
     seed_bound_task(&pool, responder, "binding-responder", "ingress").await;
-    let state = stubbed_replica(&pool, &base_url).await;
+    let state = stubbed_replica(&pool, &base_url);
 
     assert_eq!(
         state
@@ -1447,8 +1447,8 @@ async fn a_redelivery_on_a_different_replica_does_no_second_effect(pool: PgPool)
     seed_fixtures(&pool, task_id).await;
 
     let payload = issue_comment_payload(9001, "octocat");
-    let state_a = stubbed_replica(&pool, &base_url).await;
-    let state_b = stubbed_replica(&pool, &base_url).await;
+    let state_a = stubbed_replica(&pool, &base_url);
+    let state_b = stubbed_replica(&pool, &base_url);
 
     let first = deliver(&state_a, "issue_comment", "delivery-1", &payload).await;
     let redelivery = deliver(&state_b, "issue_comment", "delivery-1", &payload).await;
@@ -1521,8 +1521,8 @@ async fn replaying_the_pre_admission_writes_lands_on_the_same_value(pool: PgPool
     let task_id = "task-gh-replay";
     seed_fixtures(&pool, task_id).await;
 
-    let state_a = replica(&pool).await;
-    let state_b = replica(&pool).await;
+    let state_a = replica(&pool);
+    let state_b = replica(&pool);
 
     // 1. PR status, derived from `pull_request.{state,merged,draft}`.
     let opened = pull_request_payload("opened", "open", false);

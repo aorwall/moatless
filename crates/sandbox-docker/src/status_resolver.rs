@@ -220,7 +220,7 @@ impl DockerStatusResolver {
                     return (SandboxStatus::Error, Some("Container OOM killed".into()));
                 }
 
-                if max_restarts > 0 && restart_count as i32 >= max_restarts {
+                if max_restarts > 0 && restart_count >= i64::from(max_restarts) {
                     return (
                         SandboxStatus::Error,
                         Some(format!("Crash loop detected (restarts: {restart_count})")),

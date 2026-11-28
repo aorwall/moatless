@@ -1001,7 +1001,7 @@ impl GitSyncService {
                 branch: p.branch.clone(),
                 mount_name: p.mount_name.clone(),
                 is_primary: false,
-                position: i as i32,
+                position: i32::try_from(i).unwrap_or(i32::MAX),
                 created_at: None,
             });
         }

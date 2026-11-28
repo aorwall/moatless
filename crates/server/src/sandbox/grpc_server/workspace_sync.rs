@@ -282,8 +282,8 @@ pub(super) async fn report_workspace_sync(
     crate::sandbox::metrics::record_workspace_sync(
         &req.direction,
         &req.format,
-        req.bytes.max(0) as u64,
-        std::time::Duration::from_millis(req.duration_ms.max(0) as u64),
+        u64::try_from(req.bytes).unwrap_or(0),
+        std::time::Duration::from_millis(u64::try_from(req.duration_ms).unwrap_or(0)),
         req.ok,
     );
 

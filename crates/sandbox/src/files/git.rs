@@ -553,7 +553,7 @@ async fn get_repo_diff_detailed(workspace_dir: &str) -> GitDiffResponse {
             files.push(GitDiffFile {
                 status: "added".to_string(),
                 filename: filename.clone(),
-                additions: line_count as i32,
+                additions: i32::try_from(line_count).unwrap_or(i32::MAX),
                 deletions: 0,
                 is_staged: false,
             });

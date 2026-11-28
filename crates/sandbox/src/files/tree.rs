@@ -421,7 +421,7 @@ pub async fn get_file_tree_with_changes(
     }
 
     let summary = GitSummary {
-        total_files: git_diff.files.len() as i32,
+        total_files: i32::try_from(git_diff.files.len()).unwrap_or(i32::MAX),
         total_additions: git_diff.total_additions,
         total_deletions: git_diff.total_deletions,
         total_staged,

@@ -116,6 +116,10 @@ impl GrpcEventPublisher {
 
     /// Internal: build a generic event and enqueue it for delivery. Returns
     /// whether it was enqueued.
+    #[expect(
+        clippy::unused_async,
+        reason = "ratchet: dropping `async` cascades to every `publish_*` caller, see docs/deferred-changes.md"
+    )]
     async fn publish_event(
         &self,
         task_id: &str,

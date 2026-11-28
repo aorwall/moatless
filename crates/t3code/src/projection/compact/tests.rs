@@ -41,13 +41,13 @@ fn expand(value: &mut Value, container: Option<&str>) {
         for (key, value) in record.iter_mut() {
             if let Some(index) = value.as_u64() {
                 if key == "id" || key.ends_with("Id") {
-                    *value = ids[index as usize].clone();
+                    *value = ids[usize::try_from(index).unwrap()].clone();
                 }
             } else if let Value::Array(values) = value {
                 if key.ends_with("Ids") {
                     for entry in values.iter_mut() {
                         if let Some(index) = entry.as_u64() {
-                            *entry = ids[index as usize].clone();
+                            *entry = ids[usize::try_from(index).unwrap()].clone();
                         }
                     }
                 }

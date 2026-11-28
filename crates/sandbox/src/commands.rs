@@ -456,7 +456,8 @@ impl CommandRegistry {
             pid: 0,
             started_at_unix_ms: now,
             timeout,
-            deadline_unix_ms: now + timeout.as_millis() as i64,
+            deadline_unix_ms: now
+                .saturating_add(i64::try_from(timeout.as_millis()).unwrap_or(i64::MAX)),
             state: CommandState::Queued,
             exit_code: None,
             log_path: log_path.clone(),
@@ -776,7 +777,8 @@ async fn run_queued(
             entry.command.state = CommandState::Running;
             entry.command.pid = pid;
             entry.command.started_at_unix_ms = now;
-            entry.command.deadline_unix_ms = now + timeout.as_millis() as i64;
+            entry.command.deadline_unix_ms =
+                now.saturating_add(i64::try_from(timeout.as_millis()).unwrap_or(i64::MAX));
         }
         mirror(sinks.journal.as_ref(), sinks.row_mirror.as_ref(), &entries).await;
     }

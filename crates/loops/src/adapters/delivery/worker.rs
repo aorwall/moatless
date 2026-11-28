@@ -170,7 +170,7 @@ async fn execute(
                 kind = %delivery.kind,
                 event_id = %delivery.event_id,
                 attempt = delivery.attempts,
-                duration_ms = started.elapsed().as_millis() as u64,
+                duration_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
                 "Adapter delivery completed"
             );
         }

@@ -17,7 +17,7 @@ async fn a_pull_request_webhook_keeps_the_checks_rollup_until_a_new_head(pool: P
     .execute(&pool)
     .await
     .expect("seed the live read's blob");
-    let state = stubbed_replica(&pool, &base_url).await;
+    let state = stubbed_replica(&pool, &base_url);
 
     let edited = webhook_response(
         &state,

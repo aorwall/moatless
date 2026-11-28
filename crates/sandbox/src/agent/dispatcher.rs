@@ -505,7 +505,7 @@ fn ack_retry_delay(task_id: &str, attempt: u32) -> Duration {
     let backoff = ACK_RETRY_BASE_BACKOFF
         .saturating_mul(1u32 << exp)
         .min(ACK_RETRY_MAX_BACKOFF);
-    let jitter_span_ms = (backoff.as_millis() / 4) as u64;
+    let jitter_span_ms = u64::try_from(backoff.as_millis() / 4).unwrap_or(u64::MAX);
     if jitter_span_ms == 0 {
         return backoff;
     }

@@ -125,8 +125,7 @@ impl PreviewRelayWorker {
                                     if open.origin != origin {
                                         preview::apply_relayed_open(
                                             &self.preview, &open.task_id, &open.tab_id, &open.url,
-                                        )
-                                        .await;
+                                        );
                                     }
                                     cursor = open.position;
                                 }

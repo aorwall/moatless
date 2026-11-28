@@ -439,8 +439,9 @@ pub async fn normalize(
             None
         },
         append_system_prompt: None,
-        ttl_minutes: config.sandbox.idle_timeout_minutes as i32,
-        close_after_settled_days: config.sandbox.close_after_settled_days as i32,
+        ttl_minutes: i32::try_from(config.sandbox.idle_timeout_minutes).unwrap_or(i32::MAX),
+        close_after_settled_days: i32::try_from(config.sandbox.close_after_settled_days)
+            .unwrap_or(i32::MAX),
         // `None` follows `TASK_SETTLE_AFTER_HOURS` as the reaper reads it.
         settle_after_hours: None,
         tag_ids: vec![],

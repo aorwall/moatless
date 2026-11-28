@@ -194,7 +194,7 @@ impl CodeIntel {
                 .unwrap_or(Value::Null);
         let client =
             LspClient::start(spec.command, spec.args, root, options, START_TIMEOUT).await?;
-        info!(server = %language, root = %root.display(), elapsed_ms = started.elapsed().as_millis() as u64, "Started language server");
+        info!(server = %language, root = %root.display(), elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX), "Started language server");
         let server = Arc::new(Server {
             client,
             documents: Mutex::default(),

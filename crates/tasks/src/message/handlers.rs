@@ -150,7 +150,7 @@ pub async fn get_messages(
     // the raw row count, not from the post-transform UI message count. The
     // cursor must point at the oldest raw row; otherwise empty-content rows
     // can desync the cursor and produce infinite empty pages.
-    let has_more = messages.len() as i32 == limit;
+    let has_more = i32::try_from(messages.len()).is_ok_and(|n| n == limit);
     let next_before_id = if has_more {
         messages.first().map(|m| m.id)
     } else {

@@ -418,10 +418,11 @@ pub(super) fn build_sandbox_container(
 
     let startup_timeout = config.sandbox.pod_startup_timeout_secs;
     let startup_probe_period: i32 = 5;
-    let failure_threshold = ((startup_timeout / startup_probe_period as u64) + 6) as i32;
+    let period_secs = u64::from(startup_probe_period.unsigned_abs());
+    let failure_threshold = startup_timeout / period_secs + 6;
 
     if let Some(stall_secs) = config.sandbox.git_clone_stall_timeout_secs {
-        let window_secs = failure_threshold as u64 * startup_probe_period as u64;
+        let window_secs = failure_threshold.saturating_mul(period_secs);
         env.push(env_var(
             "GIT_CLONE_STALL_TIMEOUT_SECS",
             &clone_stall_within_startup_window(stall_secs, window_secs).to_string(),
@@ -436,7 +437,7 @@ pub(super) fn build_sandbox_container(
         }),
         period_seconds: Some(startup_probe_period),
         timeout_seconds: Some(5),
-        failure_threshold: Some(failure_threshold),
+        failure_threshold: Some(i32::try_from(failure_threshold).unwrap_or(i32::MAX)),
         ..Default::default()
     };
 

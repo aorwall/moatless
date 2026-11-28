@@ -17,7 +17,14 @@ async fn send_request(socket: &mut TcpStream, id: &str, tag: &str) {
     }))
     .unwrap();
     assert!(payload.len() < 126);
-    let mut frame = vec![0x81, 0x80 | payload.len() as u8, 0, 0, 0, 0];
+    let mut frame = vec![
+        0x81,
+        0x80 | u8::try_from(payload.len()).unwrap(),
+        0,
+        0,
+        0,
+        0,
+    ];
     frame.extend(payload);
     socket.write_all(&frame).await.unwrap();
 }
@@ -28,7 +35,7 @@ async fn receive_frame(socket: &mut TcpStream) -> Value {
     assert_eq!(header[0], 0x81);
     let length = match header[1] {
         126 => usize::from(socket.read_u16().await.unwrap()),
-        127 => socket.read_u64().await.unwrap() as usize,
+        127 => usize::try_from(socket.read_u64().await.unwrap()).unwrap(),
         length => usize::from(length),
     };
     let mut payload = vec![0; length];

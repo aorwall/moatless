@@ -307,7 +307,7 @@ pub(super) async fn upload(
         snapshot(&access.own, &workspace_dir, capture, &snapshot_phases)
     })
     .await;
-    let elapsed = started.elapsed().as_millis() as u64;
+    let elapsed = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
     phases.enter("report");
 
     let result = match outcome {
@@ -576,7 +576,7 @@ pub(super) async fn restore_on_start(state: &SandboxState) -> RestoreAttempt {
             }
         }
     };
-    let elapsed = started.elapsed().as_millis() as u64;
+    let elapsed = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
 
     match restored {
         Ok(Some(restored)) => {
@@ -811,7 +811,10 @@ fn snapshot_taken_at(
     snapshot: &rustic_core::repofile::SnapshotFile,
 ) -> Option<chrono::DateTime<chrono::Utc>> {
     let timestamp = snapshot.time.timestamp();
-    chrono::DateTime::from_timestamp(timestamp.as_second(), timestamp.subsec_nanosecond() as u32)
+    chrono::DateTime::from_timestamp(
+        timestamp.as_second(),
+        u32::try_from(timestamp.subsec_nanosecond()).ok()?,
+    )
 }
 
 /// Drop all but the last [`KEEP_SNAPSHOTS`] snapshots and reclaim their packs.

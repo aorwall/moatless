@@ -73,10 +73,9 @@ impl OutboundSender {
         };
         // Deliberately refuse rather than wait for bytes: a waiting producer
         // would retain its snapshot outside the queue's budget.
-        let Ok(permit) = self
-            .bytes
-            .clone()
-            .try_acquire_many_owned(encoded.len() as u32)
+        let Some(permit) = u32::try_from(encoded.len())
+            .ok()
+            .and_then(|bytes| self.bytes.clone().try_acquire_many_owned(bytes).ok())
         else {
             warn!(
                 user_id = self.user_id.as_deref().unwrap_or("(unknown)"),

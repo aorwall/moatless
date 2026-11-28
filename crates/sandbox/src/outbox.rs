@@ -128,7 +128,7 @@ fn backoff_for(attempt: u32) -> Duration {
         .checked_shl(attempt.saturating_sub(1))
         .unwrap_or(u64::MAX);
     BASE_BACKOFF
-        .saturating_mul(factor.min(u32::MAX as u64) as u32)
+        .saturating_mul(u32::try_from(factor).unwrap_or(u32::MAX))
         .min(MAX_BACKOFF)
 }
 
@@ -621,7 +621,7 @@ impl OutboxDrainerHandle {
             Ok(Ok(())) => {}
             Ok(Err(e)) => warn!(error = %e, "event send buffer drainer terminated abnormally"),
             Err(_elapsed) => warn!(
-                deadline_ms = deadline.as_millis() as u64,
+                deadline_ms = u64::try_from(deadline.as_millis()).unwrap_or(u64::MAX),
                 "event send buffer drainer did not stop within the shutdown deadline"
             ),
         }
@@ -810,7 +810,7 @@ impl Drainer {
                         task_id = %req.task_id,
                         sub_type = %req.sub_type,
                         attempt,
-                        backoff_ms = backoff.as_millis() as u64,
+                        backoff_ms = u64::try_from(backoff.as_millis()).unwrap_or(u64::MAX),
                         error = %status,
                         "event publish failed; retrying"
                     );

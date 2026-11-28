@@ -146,11 +146,7 @@ pub(crate) fn create_upload_url(
         name: declared.name,
         mime: declared.mime_type,
         size: declared.size_bytes,
-        #[expect(
-            clippy::cast_sign_loss,
-            reason = "`expires_at` is ten minutes from now, after the epoch"
-        )]
-        exp: expires_at.timestamp().max(0) as u64,
+        exp: u64::try_from(expires_at.timestamp()).unwrap_or(0),
         iss: UPLOAD_TOKEN_ISSUER.to_string(),
     };
 
@@ -289,7 +285,9 @@ pub(crate) async fn receive(
     // The declaration was checked against the union's per-type maximum before
     // it was signed. This is the backstop for that, not the check itself.
     let declared_size = claims.size.clamp(0, MAX_FILE_BYTES);
-    let mut received = Vec::with_capacity(declared_size.min(UPLOAD_PREALLOCATE_MAX) as usize);
+    let declared_len = usize::try_from(declared_size).unwrap_or(0);
+    let mut received =
+        Vec::with_capacity(usize::try_from(declared_size.min(UPLOAD_PREALLOCATE_MAX)).unwrap_or(0));
     let mut stream = body.into_data_stream();
     while let Some(chunk) = stream.next().await {
         let chunk = match chunk {
@@ -299,7 +297,7 @@ pub(crate) async fn receive(
                 return (StatusCode::BAD_REQUEST, "The upload did not finish.").into_response();
             }
         };
-        if received.len() + chunk.len() > declared_size as usize {
+        if received.len() + chunk.len() > declared_len {
             debug!(
                 attachment_id = %claims.aid,
                 declared = declared_size,

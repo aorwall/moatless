@@ -312,11 +312,12 @@ impl WorkspaceSnapshotSource for ResticWorkspaceSnapshots {
             let file = repo.open_file(&node).map_err(|err| {
                 SnapshotError::Unavailable(format!("file `{stored}` will not open: {err}"))
             })?;
-            let content = repo
-                .read_file_at(&file, 0, node.meta.size as usize)
-                .map_err(|err| {
-                    SnapshotError::Unavailable(format!("file `{stored}` is unreadable: {err}"))
-                })?;
+            let size = usize::try_from(node.meta.size).map_err(|_| {
+                SnapshotError::Unavailable(format!("file `{stored}` is too large to read"))
+            })?;
+            let content = repo.read_file_at(&file, 0, size).map_err(|err| {
+                SnapshotError::Unavailable(format!("file `{stored}` is unreadable: {err}"))
+            })?;
             Ok(SnapshotFile {
                 content: content.to_vec(),
                 synced_at,

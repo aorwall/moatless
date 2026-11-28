@@ -166,6 +166,10 @@ pub(super) async fn orchestration_search_thread(request: Request<SearchThreadInp
 impl ProtocolSession {
     /// `orchestration.searchThreadStream`: the first occurrence from `start`
     /// as soon as it is found, then the whole count, then the end.
+    #[expect(
+        clippy::unused_async,
+        reason = "the dispatch table boxes every handler as a future"
+    )]
     pub(super) async fn orchestration_search_thread_stream(
         &mut self,
         request: Request<SearchThreadInput>,

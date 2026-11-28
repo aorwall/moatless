@@ -80,7 +80,7 @@ pub async fn search_contents(
     }
     let max = match query.max_results {
         n if n <= 0 => DEFAULT_MAX_RESULTS,
-        n => (n as usize).min(HARD_MAX_RESULTS),
+        n => usize::try_from(n).map_or(HARD_MAX_RESULTS, |n| n.min(HARD_MAX_RESULTS)),
     };
     match ripgrep(workspace_dir, query, query.use_regex, max).await? {
         Outcome::Searched(search) => Ok(search),

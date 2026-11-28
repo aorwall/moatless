@@ -88,7 +88,7 @@ pub(crate) async fn list(
         ..list_query(input)
     };
     let limit = input.limit.map_or(DEFAULT_LIMIT, |limit| {
-        limit.clamp(1, u64::from(MAX_LIMIT)) as u32
+        u32::try_from(limit.clamp(1, u64::from(MAX_LIMIT))).unwrap_or(MAX_LIMIT)
     });
     let (sources, mut errors) = sources(
         ports.workspaces,

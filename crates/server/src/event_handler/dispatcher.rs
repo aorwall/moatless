@@ -235,7 +235,7 @@ impl EventDispatcher {
             // context loss is visible in the message history. The run
             // continues, so no task_turn.error and no Linear error activity.
             EventKey::Agent(AgentSubType::SessionContextLost) => {
-                agent_handlers::handle_agent_session_context_lost(&self.state, event).await;
+                agent_handlers::handle_agent_session_context_lost(&self.state, event);
             }
             EventKey::Task(TaskSubType::MetadataUpdated) => {
                 agent_handlers::handle_task_metadata_updated(&self.state, event).await;

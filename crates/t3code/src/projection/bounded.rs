@@ -212,7 +212,7 @@ pub(crate) fn history_page(
             &candidates,
             bounded_start,
             snapshot_sequence,
-            canonical as usize,
+            usize::try_from(canonical).unwrap_or(usize::MAX),
         );
         (cursor, true)
     } else {

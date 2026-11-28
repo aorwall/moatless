@@ -562,7 +562,7 @@ pub async fn restore_on_start(state: &SandboxState) -> RestoreDecision {
                     "download",
                     FORMAT,
                     0,
-                    started.elapsed().as_millis() as u64,
+                    u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
                     Some(&e.to_string()),
                 )
                 .await;
@@ -589,7 +589,7 @@ pub async fn restore_on_start(state: &SandboxState) -> RestoreDecision {
                     "download",
                     FORMAT,
                     size,
-                    started.elapsed().as_millis() as u64,
+                    u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
                     None,
                 )
                 .await;
@@ -614,7 +614,7 @@ pub async fn restore_on_start(state: &SandboxState) -> RestoreDecision {
                     "download",
                     FORMAT,
                     size,
-                    started.elapsed().as_millis() as u64,
+                    u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
                     Some(&e.to_string()),
                 )
                 .await;
@@ -667,7 +667,7 @@ pub async fn download_on_start(state: &SandboxState) {
                     "download",
                     FORMAT,
                     0,
-                    started.elapsed().as_millis() as u64,
+                    u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
                     Some(&e.to_string()),
                 )
                 .await;
@@ -696,7 +696,7 @@ pub async fn download_on_start(state: &SandboxState) {
             "download",
             FORMAT,
             size,
-            started.elapsed().as_millis() as u64,
+            u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
             error.as_deref(),
         )
         .await;
@@ -869,7 +869,7 @@ async fn upload_from_config(
             "upload",
             FORMAT,
             bytes,
-            started.elapsed().as_millis() as u64,
+            u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
             error.as_deref(),
         )
         .await;
@@ -1024,7 +1024,7 @@ async fn flush_workspace(
             "upload",
             FORMAT_UNKNOWN,
             0,
-            phases.elapsed().as_millis() as u64,
+            u64::try_from(phases.elapsed().as_millis()).unwrap_or(u64::MAX),
             Some(&error),
         ),
     )

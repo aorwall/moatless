@@ -574,6 +574,15 @@ compile error — `PUT` vs `PATCH` and `/reset` vs `/reset-git` both reached CI
 this way. Driving the routes off the generated client is the change; it is
 sizeable and belongs on its own.
 
+## Lint ratchets
+
+`clippy::cast_possible_truncation`, `clippy::cast_sign_loss` and
+`clippy::unused_async` warn workspace-wide; these are the suppressions left.
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| One `unused_async` suppression in the sandbox | `crates/sandbox/src/events.rs::GrpcEventPublisher::publish_event` enqueues without awaiting; dropping its `async` makes the four `publish_*` wrappers and their ~20 callers async-without-await in turn | When `events.rs` is next edited, or the outbox enqueue is settled as synchronous for good |
+
 ## Dead or misleading
 
 | Deferred | Anchor | Entry condition |
