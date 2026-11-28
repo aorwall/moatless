@@ -146,6 +146,11 @@ Approve only when all of these hold:
 - **Every check on the head has finished and none failed.** A review that
   approves over pending CI approves code nobody has built.
 
+Approve each head once. Before any `APPROVE`, list your reviews
+(`references/commands.md` § "Approve"): when one of yours on this head is
+already `APPROVED`, submit nothing more, since a second approval only notifies
+every subscriber again.
+
 Then read the checks (`references/commands.md` § "CI"):
 
 - **All passed or skipped** — submit `APPROVE` on the reviewed head with the

@@ -27,7 +27,9 @@ Cargo integration-test `main.rs` files are test roots, not application entry poi
 An application needs `app.rs` only when it owns a process lifecycle.
 When composition grows into `compose/`, its `mod.rs` declares and re-exports.
 Put construction functions in its named child modules.
-Re-export supported paths after moving implementations; do not widen visibility to simplify imports.
+Re-export supported paths by name after moving implementations (`pub use child::Item`);
+do not widen visibility to simplify imports. Sibling glob re-exports (`pub use child::*`)
+into one parent make `arch-report` intractable (`docs/deferred-changes.md`).
 Use a distinct capability name such as `docker_compose.rs` for Docker Compose operations;
 `compose.rs` denotes dependency assembly.
 
@@ -95,24 +97,19 @@ Do not mark a crate compliant from its directory tree alone.
 
 ## Choose a home for a deduplicated shared type
 
-Work down this list and stop at the first question that answers yes. Reading
-the five as independent criteria picks the wrong home: a response body is also
-domain data that several crates read, so question 4 would take it from
-question 1.
+Stop at the first question that answers yes; read as independent criteria,
+question 4 would take a response body from question 1.
 
-1. Is it a request body or a response body itself? Put Workspace, repository,
-   and plugin contracts in `workspace-types::schemas`, other domains in
-   `api-schemas`, and the common HTTP error body in `types::http`.
-2. Must a pluggable implementer satisfy it? Put it in `adapter-model` or
-   `sandbox-runtime`, beside the trait it serves.
-3. Is it a cross-crate contract? Consult `tooling/arch-rules/src/port_admission.rs`
-   and put a supporting contract type with its trait. Workspace contracts live
-   in `workspace-ports`; other domain contracts live in `ports/src/<domain>/`.
-4. Is it pure domain data? Consult `tooling/arch-rules/src/floor_type_admission.rs`
-   and `tooling/arch-rules/src/closed_dependency_list.rs`, and put it in
-   `workspace-types` for Workspace, repository, and plugin values, or
-   `types/src/<domain>.rs` for other domains.
-5. Does the process need it before any domain exists? Put it in `core`.
+1. A request or response body? `workspace-types::schemas` for Workspace,
+   repository and plugin contracts, `api-schemas` for other domains, and
+   `types::http` for the common error body.
+2. Satisfied by a pluggable implementer? Beside its trait, in `adapter-model`
+   or `sandbox-runtime`.
+3. A cross-crate contract? `workspace-ports` or `ports/src/<domain>/`, as
+   `tooling/arch-rules/src/port_admission.rs` admits.
+4. Pure domain data? `workspace-types` or `types/src/<domain>.rs`, as
+   `floor_type_admission.rs` and `closed_dependency_list.rs` admit.
+5. Needed before any domain exists? `core`.
 
 ## Clear a duplicate-type-name violation
 
@@ -158,7 +155,8 @@ baseline as a per-file cap.
 
 `cargo test -p moatless-arch-rules` checks declaration-only roots, route
 registration, dependencies toward transport, SQL placement, process exit and
-composition boundaries. These rules have no baseline entries; keep them at zero.
+composition boundaries. These structural rules have no baseline entries (unlike
+`file_size`); keep them at zero.
 The checker includes executable target roots and the excluded Codex SDK source.
 
 Read `tooling/arch-rules/src/composition_root.rs` before proposing new

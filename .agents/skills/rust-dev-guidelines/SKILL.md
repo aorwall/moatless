@@ -20,6 +20,7 @@ new conventions without checking that they remain sound.
    - running, adding, varying, or removing a cargo invocation, or configuring
      an editor against this workspace →
      [build-costs.md](references/build-costs.md)
+   - reviewing a pull request → [review.md](references/review.md)
 3. Define a failing test or reproducible check before implementation.
 4. Make the smallest change that satisfies the behavior, then run the owning
    crate's mandatory Clippy and test commands from `AGENTS.md`.
@@ -30,8 +31,8 @@ new conventions without checking that they remain sound.
 
 Recursive filesystem traversal, blocking process or system calls, and
 substantial CPU work invoked from async code must use async APIs or a bounded
-`spawn_blocking` boundary. A standard mutex is appropriate when its guard never
-crosses `.await`; use an async mutex only when awaiting while locked is
+`spawn_blocking` boundary. `clippy::await_holding_lock` rejects a standard guard
+held across `.await`; use an async mutex only when awaiting while locked is
 necessary.
 
 ### Own critical spawned work
@@ -41,6 +42,19 @@ synchronization, request admission, or required cleanup must expose termination
 to a supervisor, liveness/readiness, or its caller and participate in
 cancellation and shutdown. Detached work is allowed only when loss is
 intentional and ordinary errors are handled inside the task.
+
+Give owned tasks a `tokio_util::task::TaskTracker` and a `CancellationToken`,
+so shutdown can cancel, `close()` and `wait()` them. A `spawn_blocking` closure
+cannot be aborted once it runs: pass it a stop flag or the token, check it
+between units of work, and bound its input.
+
+### Keep `select!` branches cancel-safe
+
+`tokio::select!` and `tokio::time::timeout` drop the losing future. A future
+there must be cancel-safe (`recv`, `accept`, `sleep`, `Notified`) or keep its
+partial state outside the branch. `read_exact`, `write_all`, `read_line` into a
+fresh buffer, or a half-consumed stream lose data when dropped: move them into
+a task that feeds a channel, or loop on a cancel-safe step.
 
 ### Define admission and overload semantics
 
@@ -53,7 +67,16 @@ Every queue or asynchronous handoff must state:
 - how shutdown drains.
 
 Do not claim hard boundedness while allowing an unbounded ingress or an uncapped
-priority class.
+priority class. Cap what is held, not only how many: queued bytes as well as
+queue length.
+
+### Bound every duration someone else controls
+
+Clamp a `Retry-After`, cooldown, backoff, poll interval or lease that an
+upstream, a user or a stored row supplies: a hub's `Retry-After: 349693` once
+held six review Turns open for hours (#1443). A database call has a `statement_timeout`, and
+a migration sets `lock_timeout` and finishes inside the backend's startup probe
+window, or a rollout stalls the replica still serving.
 
 These are properties the code must have, not prose it must carry. Where a named
 policy field, a type, or a test already states one, that is where it is stated;
@@ -67,6 +90,26 @@ errors as sources. Application entry points and glue may use boxed errors when
 callers do not need to classify failures. Redact only at the transport boundary,
 where the stable client response is produced and the causal error is logged
 once.
+
+Classify a failure by its variant, status or SQLSTATE, through one helper that
+owns that classification (`is_statement_timeout`), never by a substring of its
+message: `"500"` also matches an id. A `String` error on a domain API is a
+defect.
+
+### Log once, at the level the condition deserves
+
+`ERROR` means a defect someone must fix, and it feeds the error-burst alert.
+Log an expected outcome at `WARN` or below, with a counter: load shedding, a
+throttle, a statement timeout, a cancellation, an upstream 5xx relayed to the
+caller. A function that returns an error does not also log it; the code that
+handles it logs once.
+
+### Do not drop a result silently
+
+`let _ =` on a fallible call, `.ok()` on a `Result`, and an ignored `send`
+carry a `// reason:` naming why the loss is fine. A decode or parse result is
+never passed through `unwrap_or_default`: it turns corrupt data into an empty
+value no one sees.
 
 ### Use fallible conversions for partial mappings
 
@@ -88,6 +131,13 @@ no-op: events, acks or writes are dropped and nothing compiles differently. A
 default on a write path returns an error such as
 `Status::unimplemented("<method> not supported")`; a fake that needs success
 overrides it in one line. A read-path default may answer as an empty store.
+
+### Control time in tests
+
+A test waits on an event, not a clock: `#[tokio::test(start_paused = true)]` or
+`tokio::time::pause` for timer logic, and a `Notify`, a channel or a gate file
+for another task or process. A real `sleep` in a test is a flake source and
+carries a `// reason:`.
 
 ### Keep visibility narrow
 
@@ -145,6 +195,7 @@ Before declaring the Rust change complete:
 - confirm file contents match their assigned responsibility, including callers
   outside the owning directory;
 - confirm critical task, queue, error, and conversion behavior is explicit where
-  the change touches those boundaries;
+  the change touches those boundaries, and that every duration and size from
+  outside is bounded;
 - run the crate-specific Clippy and test commands required by `AGENTS.md`;
 - report any required check that could not be run.

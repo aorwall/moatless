@@ -49,9 +49,13 @@ tell what they may decline.
 
 ## Report
 
-The full report goes on an initial review and an approval pass. Include only
-the sections with something in them; a Loop or a rule set may add sections,
-such as a compliance checklist, where marked.
+The full report goes on an initial review and an approval pass. Every line
+in it asks the author to do or decide something. Leave out verdicts such as
+"this is acceptable", "no concern" or "matches the convention", checklist rows
+that pass, and restatements of what the PR does or of CI's result: about a
+third of past report bullets were these, and they bury the ones that need
+action. Include only the sections with something in them; a Loop or a rule set
+may add sections, such as a compliance checklist, where marked.
 
 ```markdown
 ## Code Review

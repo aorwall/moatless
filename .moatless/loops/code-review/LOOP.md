@@ -40,15 +40,15 @@ and the root `AGENTS.md`.
 | Path pattern | Domain | Read for conventions | Key checks |
 |--------------|--------|----------------------|------------|
 | `packages/**/*.ts` | TypeScript packages | root `AGENTS.md` | strict TS (no `any` → use `unknown`); a touched file fixes its `biome-baseline.json` ratchet entries (`noFloatingPromises`, `noMisusedPromises`, `useExhaustiveSwitchCases`) and a new file has none |
-| `crates/**/*.rs` (except `crates/cli`) | Rust backend | root `AGENTS.md`; `.agents/skills/rust-dev-guidelines/SKILL.md` and its `references/` | clippy owns `unwrap`/`expect`/`print!` (CI fails them), so don't re-check them; no `panic!` on runtime paths; reusable and domain APIs keep typed errors with their sources (entry points and glue may box, per "Preserve error causes"); spawned work owned per "Own critical spawned work"; each file holds the responsibility `references/file-roles.md` assigns it, with no pass-through service or layer added to fill a template; write-path trait defaults fail loudly; utoipa OpenAPI annotations on routes; parameterized SQLx queries |
-| `crates/sandbox/src/**/*.rs` | Rust sandbox | same Rust rules (`AGENTS.md`) | plus gRPC / Claude-agent orchestration correctness; no blocking calls in async; graceful shutdown; state-machine transitions |
+| `crates/**/*.rs` (except `crates/cli`) | Rust backend | root `AGENTS.md`; `.agents/skills/rust-dev-guidelines/SKILL.md`, the references it loads for the path, and its rule set `references/review.md` | what `review.md` lists under "Check in the diff", and nothing it leaves to CI; each file holds the responsibility `references/file-roles.md` assigns it, with no pass-through service or layer added to fill a template; utoipa OpenAPI annotations on routes |
+| `crates/sandbox/src/**/*.rs` | Rust sandbox | the Rust backend row, plus `rust-dev-guidelines/references/sandbox.md` | plus gRPC / Claude-agent orchestration correctness; graceful shutdown; state-machine transitions |
 | `crates/cli/src/**/*.rs` | moat CLI | `.agents/skills/moat-cli/SKILL.md` (+ `references/command-reference.md`) | clap command/flag semantics consistent with the docs; `--json` output; error handling |
 | `crates/sandbox-proto/**`, `**/*.proto` | gRPC contract | — | field changes are backward-compatible (no renumbering/repurposing tags); regenerate implications noted |
 | `**/*.test.{ts,tsx}`, `**/*.integration.test.ts`, `tests/**`, `**/tests/*.rs` | Tests | `.agents/skills/testing-guidelines/SKILL.md`; `.agents/skills/e2e-testing/SKILL.md` | test behavior, not implementation; never mock the unit whose behaviour the test claims to verify (a mockall DAO port or a stub at an external boundary is fine, per `testing-guidelines/resources/strategic-mocking.md`); tier-appropriate coverage. Rust tests are `cargo test` (`#[cfg(test)] mod tests`, `tests/`, env-gated E2E like `CLAUDE_SDK_E2E=1` / `SANDBOX_E2E=1`) — **not Vitest**. `any` is allowed in TS test files. |
 | `k8s/helm/moatless/**` | Helm / K8s | `.agents/skills/k8s-install/references/values-schema.md`; `.agents/skills/sandbox-troubleshooting/SKILL.md` | `values.yaml` ↔ template consistency; pod/container security contexts (backend and T3); sandbox isolation set (networkpolicy incl. Cilium, resourcequota, limitrange, per-task namespace/SA); RBAC least-privilege; **no hardcoded secrets** (use `secrets`/`externalSecrets`); probe / PDB / HPA sanity. Do not ask for a `Chart.yaml` version bump: `ci.yml` sets `version` to `0.0.0-<sha>` on every dev chart publish, and no tagged release exists |
 | `docker/**`, `docker-compose/**`, `Dockerfile*` | Docker | `.agents/skills/docker-testing/SKILL.md`; `.agents/skills/docker-install/SKILL.md` | multi-stage build correctness; no secrets baked into layers; pinned base images |
 | `Cargo.toml`, `Cargo.lock`, `package.json`, `bun.lock` | Build / deps | `.agents/skills/testing-guidelines/SKILL.md` for Vitest bumps | suspicious or major version bumps; a bump moves its plugin family to the same version (`vitest` with every `@vitest/*`) |
-| `crates/core/migrations/**` | Migrations | — | next free number on `main`, no clash; forward-safe; a `CREATE INDEX CONCURRENTLY` file carries `-- no-transaction` |
+| `crates/core/migrations/**` | Migrations | — | next free number on `main`, no clash; forward-safe; a `CREATE INDEX CONCURRENTLY` file carries `-- no-transaction`. Cost: a backfill or `UPDATE` over a large table runs in bounded batches, with no correlated subquery per row; a statement that takes `ACCESS EXCLUSIVE` sets `lock_timeout`; the whole migration finishes inside the backend's startup probe window, since the backend migrates on start; and the order against the code that reads the column survives a rolling deploy (old pods still serve during it) |
 | anything else | General | root `AGENTS.md` | general code quality (below) |
 
 CI runs the checks in root `AGENTS.md` → "Verifying a change", so the reviewer
@@ -61,8 +61,7 @@ Apply to every changed file, on top of the domain rules.
 ### Logic & Correctness
 - Off-by-one and boundary errors; inverted conditions; missing edge cases (empty
   collections, loading/error states).
-- **Rust:** `unwrap()`/`expect()`/`panic!` on runtime paths; un-`await`ed futures;
-  `Result`/`Option` swallowed; `.clone()` masking a borrow problem.
+- **Rust:** `panic!` on runtime paths; `.clone()` masking a borrow problem.
 - **TS:** `??` vs `||` on falsy-but-valid values (`0`, `""`, `false`); missing `await`.
 
 ### Performance
@@ -89,31 +88,20 @@ Apply to every changed file, on top of the domain rules.
 
 ## Compliance checklist
 
-On an initial review and an approval pass, add this section to the report where
-`pr-review` marks a Loop's sections. Include only the domains the diff touches;
-`[x]` is compliant or not applicable, `[ ]` an issue with a `file:line` in
-italics.
+On an initial review and an approval pass, add this section where `pr-review`
+marks a Loop's sections, listing only the items that fail, each `- [ ]` with a
+`file:line` in italics. When none fails, leave the section out: a row of `[x]`
+tells the author nothing. The items, by domain:
 
-```markdown
-### Compliance Checklist
-
-#### TypeScript  <!-- only if packages changed -->
-- [x] No `any`; narrow with `unknown`
-
-#### Rust (backend / sandbox / crates)  <!-- only if *.rs changed -->
-- [x] No `panic!` on runtime paths; typed errors on reusable and domain APIs
-- [x] Spawned work owned and cancellable where the diff spawns any
-- [x] Each file holds its assigned responsibility (`file-roles.md`)
-- [x] utoipa OpenAPI annotations; parameterized SQLx
-
-#### Tests  <!-- only if test files changed -->
-- [x] Behavior not implementation; the unit under test is not mocked
-- [x] Correct framework/tier (Vitest for TS, `cargo test` for Rust)
-
-#### Helm / Docker  <!-- only if k8s/helm or docker changed -->
-- [x] values↔template consistency; security contexts; sandbox isolation intact
-- [x] No hardcoded secrets
-```
+- **TypeScript:** no `any`; narrow with `unknown`.
+- **Rust:** no `panic!` on runtime paths, typed errors on reusable and domain
+  APIs; spawned work owned and cancellable; each file holds its assigned
+  responsibility (`file-roles.md`); utoipa OpenAPI annotations, parameterized
+  SQLx with listed columns.
+- **Tests:** behaviour, not implementation, with the unit under test not
+  mocked; the right framework and tier (Vitest for TS, `cargo test` for Rust).
+- **Helm / Docker:** values↔template consistency, security contexts, sandbox
+  isolation intact; no hardcoded secrets.
 
 Write findings and reports to `general:writing-style` when it is loaded. Text
 you suggest for a code comment follows the comment rules in root `AGENTS.md`,

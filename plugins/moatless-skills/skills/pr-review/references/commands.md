@@ -44,6 +44,22 @@ so backticks and quotes stay literal:
 moat gh pr comment NUMBER -R OWNER/REPO --body "$(cat review.md)"
 ```
 
+## Approve
+
+Submit an approval only when none of yours stands on the head, and pin it to
+the reviewed head so a later push is not approved by accident. `$ME` is your
+login (`SKILL.md` § "Is a comment addressed to you?"):
+
+```bash
+moat gh api "repos/OWNER/REPO/pulls/NUMBER/reviews?per_page=100" --paginate \
+  --jq ".[] | select(.user.login == \"$ME\" and .commit_id == \"$HEAD_SHA\" and .state == \"APPROVED\") | .id" | grep -q . ||
+  moat gh api repos/OWNER/REPO/pulls/NUMBER/reviews --method POST \
+    --field event='APPROVE' --field commit_id="$HEAD_SHA" --field body="$(cat review.md)"
+```
+
+The `--jq` is on the read, never on the POST: `moat gh` records the review from
+the POST's full response.
+
 ## Threads
 
 ```bash
@@ -78,14 +94,8 @@ moat cmd run --timeout 2700 "bash <skill dir>/scripts/ci-wait.sh OWNER/REPO NUMB
 
 On the wake:
 
-- **Exit 0** — approve, with `commit_id` pinned so a later push is not
-  approved by accident:
-
-  ```bash
-  moat gh api repos/OWNER/REPO/pulls/NUMBER/reviews --method POST \
-    --field event='APPROVE' --field commit_id="$HEAD_SHA" \
-    --field body="CI passed at ${HEAD_SHA:0:7}; no open findings."
-  ```
+- **Exit 0** — approve as § "Approve" says, with the one-line body
+  `CI passed at ${HEAD_SHA:0:7}; no open findings.`
 
 - **Exit 1** — do not approve. Post one line naming the failed check and one
   line of its log (`moat gh run view <run> --log-failed`). Do not reproduce the
@@ -97,5 +107,3 @@ On the wake:
 Then clear `ci_wait` and save the state record. When a new turn finds a
 `ci_wait` for an older head, `moat cmd kill` it before reviewing.
 
-Approving with CI green at the decision is the same call with the report as
-the body: `--field body="$(cat review.md)"`.

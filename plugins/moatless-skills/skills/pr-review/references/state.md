@@ -5,10 +5,12 @@ Step 1 restores it; step 9 saves it, on every turn.
 ## Where it lives
 
 One record per pull request in the `pr-review-state` collection, scope
-`repository`, key `<owner>/<repo>/<number>`. Never a file: the next push often
+`workspace`, key `<owner>/<repo>/<number>`. Never a file: the next push often
 starts a new task in a fresh sandbox, possibly in another Loop or none, and
-`/tmp` and untracked files do not reach it. The `repository` scope reaches
-every task on the same repository, whatever its Loop or Workspace.
+`/tmp` and untracked files do not reach it. Use `workspace`, not `repository`:
+a Loop's task may write its own Workspace's records as the Loop's run-as
+identity, while a `repository` write needs write access to the repository,
+which a review bot lacks.
 
 ```json
 {
@@ -49,7 +51,7 @@ Rules:
 
 ```bash
 KEY=OWNER/REPO/NUMBER
-if R=$(moat records get pr-review-state "$KEY" --scope repository 2>&1); then jq '.data' <<<"$R"
+if R=$(moat records get pr-review-state "$KEY" --scope workspace 2>&1); then jq '.data' <<<"$R"
 elif grep -q 'has no record under key' <<<"$R"; then echo "no state record"
 else echo "$R" >&2; echo "state unreadable"; fi
 ```
@@ -94,7 +96,7 @@ Write the JSON in a quoted heredoc so quotes and backticks reach the record
 unchanged:
 
 ```bash
-moat records save pr-review-state "$KEY" --scope repository "$(cat <<'JSON'
+moat records save pr-review-state "$KEY" --scope workspace "$(cat <<'JSON'
 {"pr": NUMBER, "reviewed_sha": "…", "approved": false, …}
 JSON
 )" || echo "warning: review state not saved" >&2

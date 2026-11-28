@@ -38,8 +38,12 @@ Apply this reference to backend Rust across `crates/`. Read [where a type belong
   fragments before `AssertSqlSafe`.
 - Match fetch cardinality to the query: optional for zero-or-one, one only when
   guaranteed, and bounded list reads for collections.
-- Choose explicit projections when they protect a contract or avoid ambiguous
-  joins; `SELECT *` is not categorically forbidden.
+- List the columns a query reads and returns; never `SELECT *`, `alias.*` or
+  `RETURNING *`. A migration that adds or drops a column changes a wildcard's
+  result type, and every pooled connection on the replica still serving fails
+  with `cached plan must not change result type` until it reconnects. A DB test
+  that alters the table on a warm pool, as `access_dao_db_tests.rs` does, proves
+  a query survives.
 - A paginated query must count the same distinct filtered entity set returned
   by the page and report the total even when the requested page is empty.
 - Patch semantics must distinguish omitted fields from explicit clearing where
