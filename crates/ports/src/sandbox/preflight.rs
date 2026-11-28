@@ -35,7 +35,4 @@ pub trait PreflightPort: Send + Sync {
 pub struct PreflightRejection {
     pub user_message: String,
     pub detail: String,
-    /// The git host rate-limited the check, so a retry after the reset can
-    /// pass: HTTP answers 503, not 403.
-    pub throttled: bool,
 }

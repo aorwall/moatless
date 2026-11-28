@@ -1112,9 +1112,9 @@ pub(super) fn create_refusal(task_id: &str, error: TaskError) -> CommandRefusal 
         TaskError::NotFound(_) | TaskError::Forbidden(_) => CommandRefusal::NotWritable {
             task_id: task_id.to_string(),
         },
-        TaskError::BadRequest(message)
-        | TaskError::Preflight(message)
-        | TaskError::PreflightThrottled(message) => CommandRefusal::Rejected { message },
+        TaskError::BadRequest(message) | TaskError::Preflight(message) => {
+            CommandRefusal::Rejected { message }
+        }
         // Understood, and refused for something the person can act on — a turn
         // still in flight, a lifecycle operation already holding the Sandbox.
         // The message carries through because it names what to do next, and

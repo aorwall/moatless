@@ -187,6 +187,21 @@ fn pkt(payload: &[u8], out: &mut Vec<u8>) {
 /// `refused`'s reasons, or `None` when the client asked for no report-status
 /// and so could show none.
 pub(crate) fn report(commands: &Commands, refused: &[(String, Refusal)]) -> Option<Vec<u8>> {
+    rejecting(commands, |name| {
+        refused.iter().find(|(refused, _)| refused == name).map_or(
+            "another ref in this push was refused".to_string(),
+            |(_, r)| r.message.clone(),
+        )
+    })
+}
+
+/// The receive-pack response that rejects every update in `commands` for
+/// `reason`, or `None` as [`report`] answers it.
+pub(crate) fn failed(commands: &Commands, reason: &str) -> Option<Vec<u8>> {
+    rejecting(commands, |_| reason.to_string())
+}
+
+fn rejecting(commands: &Commands, reason_for: impl Fn(&str) -> String) -> Option<Vec<u8>> {
     let has = |cap: &str| commands.capabilities.iter().any(|c| c == cap);
     if !has("report-status") && !has("report-status-v2") {
         return None;
@@ -194,13 +209,7 @@ pub(crate) fn report(commands: &Commands, refused: &[(String, Refusal)]) -> Opti
     let mut status = Vec::new();
     pkt(b"unpack ok\n", &mut status);
     for update in &commands.updates {
-        let reason = refused
-            .iter()
-            .find(|(name, _)| *name == update.name)
-            .map_or(
-                "another ref in this push was refused".to_string(),
-                |(_, r)| r.message.replace(['\n', '\r'], " "),
-            );
+        let reason = reason_for(&update.name).replace(['\n', '\r'], " ");
         pkt(
             format!("ng {} {reason}\n", update.name).as_bytes(),
             &mut status,

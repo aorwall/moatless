@@ -14,7 +14,7 @@ use tracing::{info, warn};
 use crate::git_proxy::body::WatchedBody;
 use crate::git_proxy::push_watch::PushWatch;
 use crate::git_proxy::service::{GitProxy, GitProxyError, Upstream};
-use crate::github_policy::push::{self, BranchMove, Parsed};
+use crate::github_policy::push::{self, Commands, Parsed};
 use crate::github_policy::{self, Refusal, Request as PolicyRequest};
 
 /// The two git services this proxy forwards.
@@ -221,6 +221,7 @@ async fn refs(
     let request = Forwarded {
         label: target.label(),
         service,
+        commands: None,
         watch: None,
     };
     forward(
@@ -246,12 +247,15 @@ async fn service_rpc(
         Ok(upstream) => upstream,
         Err(error) => return error.into_response(),
     };
-    let (body, watch) = match service {
-        GitService::UploadPack => (body, None),
+    let (body, commands, watch) = match service {
+        GitService::UploadPack => (body, None, None),
         GitService::ReceivePack => match check_push(proxy, &upstream, headers, body).await {
-            Ok((body, moves)) => {
+            Ok((body, commands)) => {
+                let moves = commands
+                    .as_ref()
+                    .map_or_else(Vec::new, |c| c.branch_moves.clone());
                 let watch = proxy.push_watch(&upstream, moves);
-                (body, watch)
+                (body, commands, watch)
             }
             Err(refused) => return *refused,
         },
@@ -260,6 +264,7 @@ async fn service_rpc(
     let request = Forwarded {
         label: target.label(),
         service,
+        commands,
         watch,
     };
     forward(
@@ -276,13 +281,13 @@ async fn service_rpc(
 
 /// Read a push's command list and run each ref past the policy. The buffered
 /// pkt-lines are replayed ahead of the rest of the body when the push goes on,
-/// beside the branches it moves.
+/// beside the command list, `None` when it could not be read.
 async fn check_push(
     proxy: &GitProxy,
     upstream: &Upstream,
     headers: &HeaderMap,
     body: Body,
-) -> Result<(Body, Vec<BranchMove>), Box<Response>> {
+) -> Result<(Body, Option<Commands>), Box<Response>> {
     let mut stream = body.into_data_stream();
     let mut buf = Vec::new();
     let compressed = headers
@@ -334,7 +339,7 @@ async fn check_push(
                     (StatusCode::FORBIDDEN, refusal.message).into_response(),
                 ));
             }
-            return Ok((replay(buf, stream), Vec::new()));
+            return Ok((replay(buf, stream), None));
         }
     };
     let (owner, name) = upstream
@@ -359,7 +364,7 @@ async fn check_push(
         proxy
             .claim_pushed_commits(upstream, &commands.pushed_branch_shas)
             .await;
-        return Ok((replay(buf, stream), commands.branch_moves));
+        return Ok((replay(buf, stream), Some(commands)));
     }
     // Read to the end so git sees the report rather than a reset connection.
     while stream.next().await.is_some() {}
@@ -409,7 +414,11 @@ struct Forwarded {
     /// [`Target::label`].
     label: String,
     service: GitService,
-    /// Started once a successful push's report has passed through whole.
+    /// A push's command list, `None` for a fetch or a push the proxy could not
+    /// read.
+    commands: Option<Commands>,
+    /// Started once a successful push's report has passed through whole, or
+    /// at once when the host failed the push.
     watch: Option<PushWatch>,
 }
 
@@ -425,6 +434,7 @@ async fn forward(
     let Forwarded {
         label,
         service,
+        commands,
         watch,
     } = request;
     let mut request = proxy.http.request(method, &url);
@@ -459,6 +469,9 @@ async fn forward(
     if status == StatusCode::NOT_FOUND {
         return (status, proxy.refusal(&upstream).await).into_response();
     }
+    if service == GitService::ReceivePack && status.is_server_error() {
+        return failed_push(response, &upstream.host, commands.as_ref(), watch).await;
+    }
     let mut out = Response::builder().status(status);
     for name in FORWARDED_RESPONSE_HEADERS {
         if let Some(value) = response.headers().get(&name) {
@@ -480,6 +493,51 @@ async fn forward(
         warn!(%error, "Failed to build a proxied git response");
         StatusCode::INTERNAL_SERVER_ERROR.into_response()
     })
+}
+
+/// A push `host` answered with a 5xx, told to git as a rejection of each ref
+/// naming the status: git prints no body of a failed RPC, only `HTTP 500`.
+///
+/// Deliberately not retried here: only the command list is buffered, so the
+/// pack cannot be replayed, and the host may have moved a ref before failing.
+/// The watch runs for that case, where a client retry finds the ref up to date.
+async fn failed_push(
+    response: reqwest::Response,
+    host: &str,
+    commands: Option<&Commands>,
+    watch: Option<PushWatch>,
+) -> Response {
+    let status = response.status();
+    let request_id = response
+        .headers()
+        .get("x-github-request-id")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string);
+    let body = response.text().await.unwrap_or_default();
+    let body: String = body.chars().take(200).collect();
+    warn!(%status, host, request_id, body, "The host failed a proxied push");
+    if let Some(watch) = watch {
+        watch.spawn();
+    }
+    let request = request_id.map_or_else(String::new, |id| format!(" (request {id})"));
+    let reason = format!(
+        "{host} failed this push with HTTP {}{request}, so it may not have \
+        applied; retrying the push is safe",
+        status.as_u16()
+    );
+    let Some(report) = commands.and_then(|commands| push::failed(commands, &reason)) else {
+        let status = StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+        return (status, reason).into_response();
+    };
+    (
+        StatusCode::OK,
+        [(
+            header::CONTENT_TYPE,
+            "application/x-git-receive-pack-result",
+        )],
+        report,
+    )
+        .into_response()
 }
 
 /// The password half of an HTTP Basic header, which is where git puts a token.
@@ -526,6 +584,126 @@ impl IntoResponse for GitProxyError {
 mod tests {
     use super::*;
     use base64::Engine as _;
+
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    use axum::routing::{get, post};
+
+    use crate::git_proxy::push_watch::{PushWatchConfig, Timing};
+    use crate::git_proxy::service::Credential;
+
+    const OLD: &str = "1111111111111111111111111111111111111111";
+    const NEW: &str = "2222222222222222222222222222222222222222";
+
+    /// GitHub failing receive-pack, and the branch read the watch makes.
+    async fn failing_github(watched: Arc<AtomicBool>) -> String {
+        let app = axum::Router::new()
+            .route(
+                "/o/r.git/git-receive-pack",
+                post(|| async {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        [("x-github-request-id", "17BE:18A5BD")],
+                        "Internal Server Error",
+                    )
+                }),
+            )
+            .route(
+                "/repos/o/r/git/ref/heads/feat/x",
+                get(move || {
+                    watched.store(true, Ordering::SeqCst);
+                    async { axum::Json(serde_json::json!({ "object": { "sha": OLD } })) }
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        format!("http://{addr}")
+    }
+
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a test client against a local server; no `Config` timeouts apply"
+    )]
+    fn watch(base: &str, commands: &Commands) -> PushWatch {
+        PushWatch {
+            http: reqwest::Client::new(),
+            config: PushWatchConfig {
+                api_base: format!("{base}/"),
+                timing: Timing {
+                    settle: Duration::from_millis(1),
+                    bounce_gap: Duration::from_millis(1),
+                },
+            },
+            git_url: format!("{base}/o/r.git"),
+            owner: "o".to_string(),
+            repo: "r".to_string(),
+            username: "x-access-token",
+            token: "t".to_string(),
+            moves: commands.branch_moves.clone(),
+            claim: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_push_the_host_fails_is_rejected_naming_the_status_and_still_watched() {
+        let watched = Arc::new(AtomicBool::new(false));
+        let base = failing_github(watched.clone()).await;
+        let command = format!("{OLD} {NEW} refs/heads/feat/x\0report-status side-band-64k\n");
+        let mut push = format!("{:04x}{command}0000", command.len() + 4).into_bytes();
+        push.extend_from_slice(b"PACK....");
+        let Parsed::Complete { commands, .. } = push::parse(&push) else {
+            panic!("the command list parses");
+        };
+        let upstream = Upstream {
+            base_url: format!("{base}/o/r.git"),
+            credential: Credential::Token("t".to_string()),
+            username: "x-access-token",
+            host: "github.com".to_string(),
+            path: "o/r".to_string(),
+            run_as_user_id: "user-1".to_string(),
+            workspace_id: "ws_1".to_string(),
+            sandbox_id: "sandbox-1".to_string(),
+            task_id: None,
+        };
+        let request = Forwarded {
+            label: "github.com/o/r".to_string(),
+            service: GitService::ReceivePack,
+            watch: Some(watch(&base, &commands)),
+            commands: Some(commands),
+        };
+
+        let response = forward(
+            &crate::git_proxy::service::tests::proxy(1),
+            upstream,
+            request,
+            reqwest::Method::POST,
+            format!("{base}/o/r.git/git-receive-pack"),
+            &HeaderMap::new(),
+            Body::from(push),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK, "git reads a report");
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let text = String::from_utf8_lossy(&body);
+        assert!(
+            text.contains(
+                "ng refs/heads/feat/x github.com failed this push with HTTP 500 \
+                (request 17BE:18A5BD), so it may not have applied; retrying the push is safe"
+            ),
+            "{text}"
+        );
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !watched.load(Ordering::SeqCst) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("the watch read the branch the failed push named");
+    }
 
     #[test]
     fn a_basic_header_yields_its_password_whatever_the_username() {

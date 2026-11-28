@@ -79,16 +79,6 @@ pub enum PreflightError {
         reason: String,
     },
 
-    #[error("{provider} rate-limited the token for {owner}/{repo} on {host}: {reason}")]
-    GitHostRateLimited {
-        provider: RepositoryProvider,
-        host: String,
-        owner: String,
-        repo: String,
-        retry_at: Option<chrono::DateTime<chrono::Utc>>,
-        reason: String,
-    },
-
     #[error("No access to {provider} repository {owner}/{repo} on {host}: {reason}")]
     NoRepoAccess {
         provider: RepositoryProvider,
@@ -139,23 +129,6 @@ impl PreflightError {
                 "The {provider} token has no access to repository {owner}/{repo} on {host}. \
                 Reconnect {provider} or grant the token access to this repo."
             ),
-            Self::GitHostRateLimited {
-                provider,
-                host,
-                owner,
-                repo,
-                retry_at,
-                ..
-            } => {
-                let retry = retry_at.map_or_else(
-                    || "Try again later".to_string(),
-                    |at| format!("Try again after {}", at.format("%H:%M UTC")),
-                );
-                format!(
-                    "The {provider} token is rate-limited on {host}, so its access to \
-                    {owner}/{repo} was not checked. {retry}."
-                )
-            }
         }
     }
 }
@@ -305,7 +278,6 @@ fn rejection(e: PreflightError) -> PreflightRejection {
     PreflightRejection {
         user_message: e.user_message(),
         detail: e.to_string(),
-        throttled: matches!(e, PreflightError::GitHostRateLimited { .. }),
     }
 }
 
@@ -462,15 +434,16 @@ pub async fn preflight_validate_git_credential(
 
     match validator.check_repo_access(&token, parsed).await {
         Ok(()) => {}
+        // Deliberately unchecked rather than refused: bulk `moat gh api` reads
+        // drain the same token, so refusing here would block every task until
+        // the reset. A credential that really lacks access fails at the clone.
         Err(RepoAccessFailure::RateLimited { retry_at, reason }) => {
-            return Err(PreflightError::GitHostRateLimited {
-                provider: parsed.provider(),
-                host: parsed.host().to_string(),
-                owner: parsed.owner().to_string(),
-                repo: parsed.name().to_string(),
-                retry_at,
-                reason: truncate(&reason, 200),
-            });
+            tracing::warn!(
+                repository = %parsed,
+                ?retry_at,
+                reason,
+                "The git host rate-limited the repository probe; starting unchecked"
+            );
         }
         Err(RepoAccessFailure::Refused(reason)) => {
             return Err(PreflightError::NoRepoAccess {
@@ -1016,19 +989,18 @@ mod tests {
         }
     }
 
-    /// A throttled probe says nothing about access, so it must not tell the
-    /// person to reconnect or grant access.
+    /// A throttled probe says nothing about access, so the task starts and
+    /// the clone is what fails if access is really missing.
     #[tokio::test]
-    async fn a_rate_limited_probe_is_not_reported_as_missing_access() {
+    async fn a_rate_limited_probe_lets_the_task_start_unchecked() {
         let (tokens, _) = issuer_for(Some(RepositoryProvider::Github));
-        let retry_at = chrono::DateTime::from_timestamp(1_800_000_000, 0);
         let validator = MockValidator::default();
         validator.set_repo_failure(RepoAccessFailure::RateLimited {
-            retry_at,
+            retry_at: chrono::DateTime::from_timestamp(1_800_000_000, 0),
             reason: "GitHub API rate limit exceeded".to_string(),
         });
 
-        let err = preflight_validate_git_credential(
+        preflight_validate_git_credential(
             &creds(tokens),
             &alice(),
             None,
@@ -1036,17 +1008,9 @@ mod tests {
             &validator,
         )
         .await
-        .expect_err("the host throttled the probe");
+        .expect("a throttled probe does not refuse the task");
 
-        assert!(matches!(
-            &err,
-            PreflightError::GitHostRateLimited { retry_at: at, .. } if *at == retry_at
-        ));
-        let message = err.user_message();
-        assert!(message.contains("rate-limited"), "{message}");
-        assert!(message.contains("after 08:00 UTC"), "{message}");
-        assert!(!message.contains("no access"), "{message}");
-        assert!(rejection(err).throttled);
+        assert_eq!(validator.calls(), 1);
     }
 
     #[tokio::test]

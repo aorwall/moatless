@@ -63,7 +63,15 @@ pub(crate) async fn create_pr(
 
     let base = match req.base.as_deref() {
         Some(b) => b.to_string(),
-        None => opener.api.get_repo_default_branch(&owner, &repo).await?,
+        None => {
+            default_branch(
+                &opener.api,
+                fallback.as_ref().map(|f| &f.api),
+                &owner,
+                &repo,
+            )
+            .await?
+        }
     };
 
     let credits = adapter.auth().pull_request_credits(&actor.1).await;
@@ -143,6 +151,24 @@ pub(crate) async fn create_pr(
 
 /// Open `req`'s pull request with `api`, or find the one its head branch
 /// already has open: GitHub answers that with 422, which is no failure.
+/// `owner/repo`'s default branch, read as `opener`, else as `fallback`: a
+/// driver token that bulk `moat gh api` reads rate-limited must not stop the
+/// App from opening the pull request.
+async fn default_branch(
+    opener: &super::api::GithubPrApi,
+    fallback: Option<&super::api::GithubPrApi>,
+    owner: &str,
+    repo: &str,
+) -> Result<String, AdapterError> {
+    match (opener.get_repo_default_branch(owner, repo).await, fallback) {
+        (Err(error), Some(fallback)) => {
+            warn!(owner, repo, %error, "Failed to read the default branch as the driver; reading it as the App");
+            fallback.get_repo_default_branch(owner, repo).await
+        }
+        (read, _) => read,
+    }
+}
+
 async fn open_pr(
     api: &super::api::GithubPrApi,
     (owner, repo): (&str, &str),
@@ -688,6 +714,50 @@ mod tests {
                 ),
             ]
         );
+    }
+
+    /// The driver's token spent on bulk reads must not stop the App opening
+    /// the pull request.
+    #[tokio::test]
+    async fn a_rate_limited_driver_reads_the_default_branch_as_the_app() {
+        use super::super::api::{GithubPrApi, http_client};
+        use super::super::test_support::{StubResponse, start_github_api_stub};
+        use axum::http::StatusCode;
+
+        let spent = start_github_api_stub(|_, _, _| {
+            StubResponse::json(
+                StatusCode::FORBIDDEN,
+                serde_json::json!({"message": "API rate limit exceeded for user ID 1."}),
+            )
+        })
+        .await;
+        let app = start_github_api_stub(|_, path, uri| match path {
+            "/repos/acme/repo" => StubResponse::json(
+                StatusCode::OK,
+                serde_json::json!({"default_branch": "trunk"}),
+            ),
+            _ => StubResponse::not_found(uri),
+        })
+        .await;
+        let api = |token: &str, base: &str| {
+            GithubPrApi::new(
+                http_client(moatless_core::config::HttpConfig::default().github),
+                token,
+                base,
+            )
+        };
+
+        let base = default_branch(
+            &api("ghu_driver", spent.base_url()),
+            Some(&api("ghs_app", app.base_url())),
+            "acme",
+            "repo",
+        )
+        .await
+        .expect("the App reads the default branch");
+
+        assert_eq!(base, "trunk");
+        assert_eq!(spent.recorded_requests().await.len(), 1);
     }
 
     #[test]

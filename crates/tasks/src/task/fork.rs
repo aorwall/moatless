@@ -555,7 +555,6 @@ impl ForkInFlight {
                 | TaskError::BadRequest(_)
                 | TaskError::Conflict(_)
                 | TaskError::Preflight(_)
-                | TaskError::PreflightThrottled(_)
         );
         if refused {
             tracing::warn!(

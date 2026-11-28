@@ -549,7 +549,6 @@ async fn preflight_failure_marks_errored_publishes_error_event_and_skips_provisi
         Err(PreflightRejection {
             user_message: "GitHub access is not configured for this repository scope.".into(),
             detail: "GitHub account not connected for user u".into(),
-            throttled: false,
         })
     });
 
@@ -567,40 +566,9 @@ async fn preflight_failure_marks_errored_publishes_error_event_and_skips_provisi
         .await
         .expect_err("preflight failure surfaces");
 
-    assert!(matches!(
-        err,
-        TaskCreationError::Preflight {
-            throttled: false,
-            ..
-        }
-    ));
+    assert!(matches!(err, TaskCreationError::Preflight { .. }));
     assert_eq!(publisher.sandbox_statuses(), vec![SandboxStatus::Error]);
     assert!(publisher.task_subtypes().is_empty());
-}
-
-/// A rate-limited check can pass after the reset, so HTTP answers it 503,
-/// not the 403 of a refusal that waiting cannot clear.
-#[test]
-fn a_throttled_preflight_is_temporarily_unavailable_over_http() {
-    use axum::response::IntoResponse;
-
-    let throttled = TaskError::from(TaskCreationError::Preflight {
-        message: "rate-limited".into(),
-        throttled: true,
-    });
-    let refused = TaskError::from(TaskCreationError::Preflight {
-        message: "no access".into(),
-        throttled: false,
-    });
-
-    assert_eq!(
-        throttled.into_response().status(),
-        axum::http::StatusCode::SERVICE_UNAVAILABLE
-    );
-    assert_eq!(
-        refused.into_response().status(),
-        axum::http::StatusCode::FORBIDDEN
-    );
 }
 
 #[tokio::test]

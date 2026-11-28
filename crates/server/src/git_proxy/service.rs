@@ -610,7 +610,7 @@ fn credential_error(error: &GitHostTokenError, host: &str) -> GitProxyError {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use moatless_core::sandbox_jwt::{StaticTokenGenerations, generate_user_auth_token};
     use moatless_ports::identity::{AppWriteToken, MockCommitIdentity, MockGitHostTokenIssuer};
@@ -998,7 +998,7 @@ mod tests {
 
     /// A proxy whose sandbox row is unreadable, so a token that passes every
     /// check fails on the read with `Upstream`.
-    fn proxy(generation: i64) -> GitProxy {
+    pub(in crate::git_proxy) fn proxy(generation: i64) -> GitProxy {
         proxy_claiming(generation, MockTranscriptAppend::new())
     }
 

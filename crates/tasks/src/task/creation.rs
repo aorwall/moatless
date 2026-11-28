@@ -195,9 +195,8 @@ pub enum TaskCreationError {
         "failed to send first message and cleanup inserted task: send={message}; cleanup={cleanup}"
     )]
     FirstMessageCleanup { message: String, cleanup: String },
-    /// See [`PreflightRejection::throttled`](moatless_ports::sandbox::PreflightRejection::throttled).
     #[error("{message}")]
-    Preflight { message: String, throttled: bool },
+    Preflight { message: String },
     #[error("failed to generate a unique short id")]
     ShortId,
     #[error(transparent)]
@@ -221,11 +220,7 @@ impl From<TaskCreationError> for TaskError {
             TaskCreationError::FirstMessageCleanup { message, cleanup } => {
                 TaskError::Internal(format!("{message}; cleanup failed: {cleanup}"))
             }
-            TaskCreationError::Preflight {
-                message,
-                throttled: true,
-            } => TaskError::PreflightThrottled(message),
-            TaskCreationError::Preflight { message, .. } => TaskError::Preflight(message),
+            TaskCreationError::Preflight { message } => TaskError::Preflight(message),
             TaskCreationError::ShortId => {
                 TaskError::Internal("Failed to generate unique short ID".to_string())
             }
@@ -394,7 +389,6 @@ impl TaskCreationService {
                 .await;
             return Err(TaskCreationError::Preflight {
                 message: e.user_message,
-                throttled: e.throttled,
             });
         }
 
