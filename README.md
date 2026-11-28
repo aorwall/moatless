@@ -56,7 +56,7 @@ At least one sandbox is running at any time of day or night.
 - **Pull request review.** A review Loop reviews each pull request against
   that repository's own rules with the
   [`pr-review` skill](plugins/moatless-skills/skills/pr-review/SKILL.md), and
-  approves once no finding holds it and CI is green.
+  approves once no finding holds it.
 
 ## Getting started
 

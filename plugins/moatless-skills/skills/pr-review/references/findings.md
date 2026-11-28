@@ -70,9 +70,6 @@ may add sections, such as a compliance checklist, where marked.
 ### Additional Feedback
 - <logic, performance, security, structure>
 - <one line per defect in untouched code that matters>
-
-### CI status
-- <passed / `<check>` failed: <one line of its log> / approval waits on CI>
 ```
 
 When everything is clean: `Clean implementation.` and at most one line naming

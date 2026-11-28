@@ -9,7 +9,7 @@ When the Loop is active, each PR on the repository gets:
 - a review when it is opened, with inline comments on the lines the diff touched;
 - a re-review of only the new commits when someone pushes;
 - an answer when someone asks the reviewer a question in its own thread;
-- an approval once everything is addressed and CI is green.
+- an approval once everything is addressed.
 
 The reviewer never requests changes. A review with open issues stays a comment, and the author decides what to do.
 
@@ -70,10 +70,7 @@ flowchart TD
   B --> C[Initial review of the whole diff]
   C --> D{Findings hold approval?}
   D -- yes --> E[Comment with report]
-  D -- no --> F{CI finished?}
-  F -- passed --> G[Approve]
-  F -- pending --> H[Comment, wait for CI]
-  H --> G
+  D -- no --> G[Approve]
   E --> I[Push]
   G --> I
   I --> J{Early stop?}
@@ -97,7 +94,7 @@ flowchart TD
 
 Before it reads code on a re-review, it applies an early stop. It reviews nothing new when the new commits contain no reviewable files (generated, vendored, binary or a lockfile refresh), only formatting or comment changes, or a rebase that leaves the PR's own diff unchanged. It still posts a short update while one of its findings holds approval, and when only earlier nits are open it runs the approval pass instead. One exception applies: if the push touches a file where the reviewer has an open finding, it reads that hunk, because the author may have answered the finding.
 
-After an approval, a new commit gets a post-approval check. A new public entry point, such as an endpoint, a migration or a new module, is reviewed again. A broken rule the reviewer can name is posted as a finding. Anything else leaves the earlier approval standing. If the repository dismissed the approval on push, the reviewer re-approves once CI is green.
+After an approval, a new commit gets a post-approval check. A new public entry point, such as an endpoint, a migration or a new module, is reviewed again. A broken rule the reviewer can name is posted as a finding. Anything else leaves the earlier approval standing. If the repository dismissed the approval on push, the reviewer re-approves.
 
 The reviewer keeps a small state record per PR: the last reviewed head, whether it approved, its open findings and the conclusions it already reached. It lives in Moatless records, not in a file, because the next push often starts a task in a fresh sandbox. If the state can't be read, the reviewer reviews nothing rather than overwrite the record.
 
@@ -114,7 +111,7 @@ Each inline finding is one issue on a line the diff touched. It opens with a hid
 
 A comment has the rule in bold, one line saying what is violated, why it matters here, and a fenced `Current` and `Expected` snippet. All the inline findings of a turn go up in one review.
 
-Each turn then delivers one report, exactly once. On an initial review and an approval pass it is the full report: progress since the last review, any sections your Loop adds (the Moatless Loop adds a compliance checklist), additional feedback, and CI status. On a re-review it is a short update listing what was fixed, what is still open and what is new. The report goes in the approval body when the reviewer approves now, and in a PR comment otherwise.
+Each turn then delivers one report, exactly once. On an initial review and an approval pass it is the full report: progress since the last review, any sections your Loop adds (the Moatless Loop adds a compliance checklist), and additional feedback. On a re-review it is a short update listing what was fixed, what is still open and what is new. The report goes in the approval body when the reviewer approves now, and in a PR comment otherwise.
 
 The reviewer resolves its own threads when the head no longer has the issue, and leaves a thread open when it is unsure. It never resolves someone else's.
 
@@ -122,12 +119,11 @@ The reviewer resolves its own threads when the head no longer has the issue, and
 
 - the approval pass ran over the whole diff;
 - none of its `important` findings is open, and no nit it raised on this very turn is open;
-- every condition your Loop adds is met;
-- every check on the head has finished and none failed.
+- every condition your Loop adds is met.
 
 A nit holds approval for one review only. The review that raises a nit does not approve, and every later turn approves over it and lists it in the approval body.
 
-When CI is still running, the reviewer posts the report as a comment ending with `Approval waits on CI.`, then starts `scripts/ci-wait.sh` from the skill under `moat cmd run --timeout 2700` and ends the turn. The sandbox wakes it when the script exits. If every check passed and the head is still the reviewed one, it approves with a one-line body. If a check failed, it names the check and one line of its log, and does not approve. If the head moved, it posts nothing, because the new head starts its own turn.
+The reviewer does not read or wait for CI: approval judges the code, and whether CI must pass before a merge is the repository's merge rule.
 
 Every call goes through `moat gh`, never bare `gh`. It records the comments and reviews the reviewer creates, so the webhook echo that GitHub sends back is recognised as an own event and not delivered to the reviewer as if somebody else had written it.
 

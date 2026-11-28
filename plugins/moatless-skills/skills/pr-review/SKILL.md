@@ -1,6 +1,6 @@
 ---
 name: pr-review
-description: The workflow a Moatless review task follows on a GitHub pull request — review modes, early stops, per-PR review state, finding format, when to stay silent, posting through `moat gh`, resolving its own threads, and approving once CI is green. Use in a review Loop or a review replayed by hand, beside the rules the repository or a skill's `references/review.md` supplies. Not for reviewing a local diff or giving an opinion in chat (code-review).
+description: The workflow a Moatless review task follows on a GitHub pull request — review modes, early stops, per-PR review state, finding format, when to stay silent, posting through `moat gh`, resolving its own threads, and approving once no finding holds it. Use in a review Loop or a review replayed by hand, beside the rules the repository or a skill's `references/review.md` supplies. Not for reviewing a local diff or giving an opinion in chat (code-review).
 ---
 
 # PR review
@@ -119,7 +119,7 @@ has the exact calls.
    early stop now.
 4. **Load the rules** (§ "Loading the rules").
 5. **Review** the checked-out code, scoped by the mode. Do not build, test or
-   lint locally: CI does, and § "Approving" reads its result.
+   lint locally: CI does.
 6. **Post the inline findings** in one review through `moat gh api`, never bare
    `gh api`, and with no `--jq`, `-q` or `--template` on the call: `moat gh`
    records the comments from the full response so their webhook echo is not
@@ -133,7 +133,6 @@ has the exact calls.
    When they say everything the report would, a re-review posts only them.
 9. **Save the state record** (`references/state.md` § "Saving") on every turn,
    a silent one included.
-10. **Wait for CI** when § "Approving" says to, as the turn's last command.
 
 ## Approving
 
@@ -143,24 +142,14 @@ Approve only when all of these hold:
 - No finding of yours holds approval, and none of your `important` threads is
   unresolved.
 - Every condition the Loop or a loaded rule set adds is met.
-- **Every check on the head has finished and none failed.** A review that
-  approves over pending CI approves code nobody has built.
 
-Approve each head once. Before any `APPROVE`, list your reviews
-(`references/commands.md` § "Approve"): when one of yours on this head is
-already `APPROVED`, submit nothing more, since a second approval only notifies
-every subscriber again.
+Do not read or wait for CI: approval judges the code, and whether CI must
+pass before a merge is the repository's merge rule. A review that waited on CI
+would sit unapproved after the code was fixed.
 
-Then read the checks (`references/commands.md` § "CI"):
-
-- **All passed or skipped** — submit `APPROVE` on the reviewed head with the
-  report as its body.
-- **Any failed** — do not approve. The report names the failed check and one
-  line of its log.
-- **Any pending** — post the report as a comment now, ending with
-  `Approval waits on CI.`, so the findings are not held back. Then start the CI
-  wait and end the turn. When the wait wakes you, approve with a one-line body
-  only if the PR's head is still the reviewed one and every check passed;
-  `references/commands.md` § "CI" covers a failure and a timeout.
+Submit `APPROVE` on the reviewed head with the report as its body. Approve
+each head once: list your reviews first (`references/commands.md`
+§ "Approve"), and when one of yours on this head is already `APPROVED`, submit
+nothing more, since a second approval only notifies every subscriber again.
 
 Never submit `REQUEST_CHANGES`. When issues remain, the review stays a comment.

@@ -26,7 +26,6 @@ which a review bot lacks.
     "migration 0142 is the next free number on main — checked"
   ],
   "coverage": {"total": 7, "reviewed": 6, "skipped": 1},
-  "ci_wait": null,
   "pending": []
 }
 ```
@@ -35,7 +34,6 @@ which a review bot lacks.
   turn does not raise it again; its thread stays open for the author.
 - `raised` is the head whose review raised the finding: a nit holds approval
   only while `raised` equals the head under review.
-- `ci_wait` is `{"sha", "command"}` while a CI wait runs, else `null`.
 
 Rules:
 

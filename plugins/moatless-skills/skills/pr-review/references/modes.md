@@ -87,8 +87,7 @@ fact about the increment, not an impression of it:
    the finding speaks for itself.
 3. **Neither** — your judgement stands; post no report. When your latest review
    on the PR still reads `APPROVED`, post nothing. When the repository dismissed
-   it on push (`DISMISSED`), re-approve once CI is green (`SKILL.md`
-   § "Approving") with a one-line body such as
+   it on push (`DISMISSED`), re-approve (`SKILL.md` § "Approving") with a one-line body such as
    `Re-approved at a1b2c3d: the push changes only comments.`
 
 A rebase, a formatting pass, a comment edit and a lockfile refresh land in
