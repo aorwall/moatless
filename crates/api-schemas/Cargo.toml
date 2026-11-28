@@ -3,6 +3,7 @@ name = "moatless-api-schemas"
 version.workspace = true
 edition.workspace = true
 description = "Shared API request/response types for backend and CLI"
+repository.workspace = true
 
 authors.workspace = true
 license.workspace = true

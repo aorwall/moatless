@@ -4,8 +4,8 @@ Keep domain values in `workspace`, `repository`, and `plugin`; put wire
 contracts under the optional `schemas` module. Domain values must not import
 wire contracts. Preserve distinct domain and wire representations.
 
-Use the private `string_enum` source from `types`; keep its invocation name for
-architecture analysis. Preserve schema names and serialized field behavior.
+Use `moatless_types::string_enum` for string enums and keep its invocation name
+for architecture analysis. Preserve schema names and serialized field behavior.
 
 A domain value shared with a public wire schema still needs an external
 production consumer; the admission rule checks both uses.

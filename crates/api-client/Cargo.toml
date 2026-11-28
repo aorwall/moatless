@@ -2,6 +2,8 @@
 name = "moatless-api-client"
 version.workspace = true
 edition.workspace = true
+description = "Rust HTTP client for the Moatless API"
+repository.workspace = true
 
 authors.workspace = true
 license.workspace = true
