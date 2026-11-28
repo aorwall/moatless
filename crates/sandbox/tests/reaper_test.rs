@@ -6,8 +6,22 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::print_stdout)]
 
-#[cfg(target_os = "linux")]
+/// Speaks the part of libtest's CLI nextest drives a `harness = false` binary
+/// with: `--list --format terse` must print `<name>: test` lines and nothing
+/// else, or nextest fails the whole run with "creating test list failed".
 fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.iter().any(|arg| arg == "--list") {
+        if !args.iter().any(|arg| arg == "--ignored") {
+            println!("reaper: test");
+        }
+        return;
+    }
+    run();
+}
+
+#[cfg(target_os = "linux")]
+fn run() {
     use moatless_sandbox::reaper::run_as_init;
     use std::process::Command;
 
@@ -44,4 +58,4 @@ exit 3"#;
 }
 
 #[cfg(not(target_os = "linux"))]
-fn main() {}
+fn run() {}
