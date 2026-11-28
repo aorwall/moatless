@@ -20,7 +20,8 @@ use tracing::{debug, info, warn};
 
 use crate::reaper_decisions::{
     CloseDecision, ReapDecision, decide_close, decide_cold, decide_reap, decide_settle,
-    fold_latest_activity, fold_reap_floor, fold_ttl_minutes, silent_since,
+    fold_latest_activity, fold_reap_floor, fold_ttl_minutes, preview_holds_the_sandbox,
+    silent_since,
 };
 
 use crate::event_handler::agent_handlers::AgentErrorPorts;
@@ -809,7 +810,7 @@ impl TaskReaper {
                 ReapDecision::Keep => {}
                 ReapDecision::Stop => {
                     if self
-                        .stop_idle_sandbox(sandbox, ttl_minutes, latest_at)
+                        .stop_idle_sandbox(sandbox, ttl_minutes, latest_at, reap_floor)
                         .await
                     {
                         stats.stopped += 1;
@@ -859,6 +860,7 @@ impl TaskReaper {
         sandbox: &RunningSandbox,
         ttl_minutes: i32,
         latest_at: Option<DateTime<Utc>>,
+        reap_floor: Option<DateTime<Utc>>,
     ) -> bool {
         // Defense in depth: the activity floor can go stale, so each
         // Member's agent is asked before the pod stops. One Member still
@@ -889,6 +891,21 @@ impl TaskReaper {
                     ttl_minutes,
                     last_activity = ?latest_at,
                     "Idle floor expired but a member reports a running registered command, deferring stop"
+                );
+                return false;
+            }
+            let last_preview_request = status
+                .last_preview_request_unix_ms
+                .and_then(DateTime::<Utc>::from_timestamp_millis);
+            if preview_holds_the_sandbox(last_preview_request, reap_floor, ttl_minutes, Utc::now())
+            {
+                info!(
+                    sandbox_id = %sandbox.sandbox_id,
+                    task_id = %member,
+                    ttl_minutes,
+                    last_activity = ?latest_at,
+                    last_preview_request = ?last_preview_request,
+                    "Idle floor expired but a Script's preview is in use, deferring stop"
                 );
                 return false;
             }

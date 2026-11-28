@@ -2,7 +2,9 @@
 //! what it stops, closes and reclaims, and which turn it reconciles.
 
 use super::*;
-use crate::reaper_decisions::{compute_reap_floor, is_terminal_agent_sub_type, silent_since};
+use crate::reaper_decisions::{
+    PREVIEW_HOLD_CAP_HOURS, compute_reap_floor, is_terminal_agent_sub_type, silent_since,
+};
 
 /// The reconcile event's shape. The id must be deterministic per `(task, turn)`
 /// so a cycle that repeats while the terminal event is still missing upserts
@@ -328,6 +330,54 @@ fn pinned_12h_stops_after_13h_idle() {
     let now = Utc::now();
     let decision = decide_reap(720, Some(ts(13 * 60 * 60)), now);
     assert_eq!(decision, ReapDecision::Stop);
+}
+
+// =========================================================================
+// preview_holds_the_sandbox
+// =========================================================================
+
+/// A Sandbox kept only by a Script someone is loading survives its idle TTL.
+#[test]
+fn idle_reaper_defers_for_active_script_session() {
+    let now = Utc::now();
+    let floor = ts(20 * 60);
+    assert_eq!(decide_reap(15, Some(floor), now), ReapDecision::Stop);
+    assert!(preview_holds_the_sandbox(
+        Some(ts(60)),
+        Some(floor),
+        15,
+        now
+    ));
+}
+
+#[test]
+fn idle_reaper_stops_a_script_nobody_has_loaded() {
+    let now = Utc::now();
+    assert!(!preview_holds_the_sandbox(None, Some(ts(20 * 60)), 15, now));
+}
+
+#[test]
+fn idle_reaper_stops_a_preview_unused_past_the_ttl() {
+    let now = Utc::now();
+    assert!(!preview_holds_the_sandbox(
+        Some(ts(16 * 60)),
+        Some(ts(60 * 60)),
+        15,
+        now
+    ));
+}
+
+/// A polling tab left open must not hold the pod for ever.
+#[test]
+fn preview_traffic_holds_no_longer_than_the_cap() {
+    let now = Utc::now();
+    let past_cap = ts(PREVIEW_HOLD_CAP_HOURS * 60 * 60 + 60);
+    assert!(!preview_holds_the_sandbox(
+        Some(ts(10)),
+        Some(past_cap),
+        15,
+        now
+    ));
 }
 
 // =========================================================================

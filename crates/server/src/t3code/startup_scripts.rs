@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use moatless_core::events::EventPublisher;
 use moatless_loops::adapters::events::TaskEventSubscriber;
-use moatless_t3code::StartupScripts;
+use moatless_t3code::{ScriptExit, StartupScripts};
 use moatless_tasks::agent_event::AgentEvent;
 use moatless_types::sandbox::{SandboxEventPayload, SandboxStatus};
 use tracing::warn;
@@ -64,8 +64,8 @@ impl TaskEventSubscriber for StartupScriptSubscriber {
             #[allow(clippy::disallowed_methods)]
             let viewer = moatless_types::access_control::ScopeContext::system();
 
-            let failures = match scripts.run_for_task(&viewer, &task_id).await {
-                Ok(failures) => failures,
+            let run = match scripts.run_for_task(&viewer, &task_id).await {
+                Ok(run) => run,
                 Err(error) => {
                     warn!(
                         task_id,
@@ -75,28 +75,72 @@ impl TaskEventSubscriber for StartupScriptSubscriber {
                     return;
                 }
             };
-            for failure in failures {
+            for failure in run.failures {
                 let message = format!(
                     "Startup script \"{}\" did not start: {}",
                     failure.name, failure.error
                 );
                 warn!(task_id, script = %failure.name, error = %failure.error, "{message}");
-                if let Some(events) = &events {
-                    events
-                        .publish_sandbox_event_with_payload(
-                            &task_id,
-                            SandboxStatus::Ready,
-                            &SandboxEventPayload {
-                                message,
-                                lifecycle_event: Some(STARTUP_SCRIPT_FAILED.to_string()),
-                                error: Some(failure.error.to_string()),
-                                ..Default::default()
-                            },
-                        )
-                        .await;
-                }
+                let payload = SandboxEventPayload {
+                    message,
+                    lifecycle_event: Some(STARTUP_SCRIPT_FAILED.to_string()),
+                    error: Some(failure.error.to_string()),
+                    ..Default::default()
+                };
+                publish_failure(events.as_deref(), &task_id, &payload).await;
+            }
+            for started in run.started {
+                let scripts = scripts.clone();
+                let events = events.clone();
+                let task_id = task_id.clone();
+                tokio::spawn(async move {
+                    let Some(exit) = scripts.watch_exit(&task_id, &started.terminal_id).await
+                    else {
+                        return;
+                    };
+                    warn!(
+                        task_id,
+                        script = %started.name,
+                        exit_code = exit.exit_code,
+                        "Startup script exited with a failure"
+                    );
+                    let payload = exit_payload(&started.name, &exit);
+                    publish_failure(events.as_deref(), &task_id, &payload).await;
+                });
             }
         });
+    }
+}
+
+async fn publish_failure(
+    events: Option<&dyn EventPublisher>,
+    task_id: &str,
+    payload: &SandboxEventPayload,
+) {
+    if let Some(events) = events {
+        events
+            .publish_sandbox_event_with_payload(task_id, SandboxStatus::Ready, payload)
+            .await;
+    }
+}
+
+/// The report for a startup Script whose process failed after it started:
+/// the code, and the output a person needs to see why without opening it.
+fn exit_payload(name: &str, exit: &ScriptExit) -> SandboxEventPayload {
+    let mut message = format!(
+        "Startup script \"{name}\" exited with code {}",
+        exit.exit_code
+    );
+    if !exit.tail.is_empty() {
+        message.push_str(":\n");
+        message.push_str(&exit.tail);
+    }
+    SandboxEventPayload {
+        message,
+        lifecycle_event: Some(STARTUP_SCRIPT_FAILED.to_string()),
+        error: Some(format!("exited with code {}", exit.exit_code)),
+        exit_code: Some(exit.exit_code),
+        ..Default::default()
     }
 }
 
@@ -134,5 +178,26 @@ mod tests {
         assert!(is_own_failure_report(&ready_event(
             json!({ "lifecycleEvent": STARTUP_SCRIPT_FAILED })
         )));
+    }
+
+    /// The report must name the code and carry the output, and must be one
+    /// this subscriber ignores, or a failed Script restarts itself.
+    #[test]
+    fn a_failed_exit_is_reported_with_its_code_and_output() {
+        let payload = exit_payload(
+            "dev",
+            &ScriptExit {
+                exit_code: 127,
+                tail: "sh: 1: vite: not found".to_string(),
+            },
+        );
+
+        assert_eq!(payload.exit_code, Some(127));
+        assert_eq!(
+            payload.message,
+            "Startup script \"dev\" exited with code 127:\nsh: 1: vite: not found"
+        );
+        let payload = serde_json::to_value(&payload).expect("payload serializes");
+        assert!(is_own_failure_report(&ready_event(payload)));
     }
 }

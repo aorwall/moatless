@@ -75,6 +75,9 @@ async fn publish_sandbox_event(
 pub(crate) async fn initialize(state: SandboxState) -> Result<(), InitError> {
     info!(task_id = %state.config.task_id, "Starting sandbox initialization");
 
+    let ready_path = ready_sentinel(&state.config.data_dir);
+    clear_ready_sentinel(&ready_path).await;
+
     // Phase 1: Core init — must complete before health returns 200.
     // Returns whether the workspace was rebuilt from a fresh clone (ephemeral
     // pre-restart state lost) so we can warn a resuming agent.
@@ -93,7 +96,6 @@ pub(crate) async fn initialize(state: SandboxState) -> Result<(), InitError> {
     // Write workspace-ready sentinel AFTER setup commands complete (e.g. bun install).
     // Server containers poll for this file before starting, so they must wait
     // until dependencies are installed.
-    let ready_path = format!("{}/.workspace-ready", state.config.data_dir);
     if let Err(e) = tokio::fs::write(&ready_path, "ready").await {
         warn!(error = %e, "Failed to write workspace-ready sentinel");
     }
@@ -101,6 +103,24 @@ pub(crate) async fn initialize(state: SandboxState) -> Result<(), InitError> {
 
     info!(task_id = %state.config.task_id, "Workspace setup complete");
     Ok(())
+}
+
+/// The file `moatless_t3code::scripts::SETUP_GATE` and compose servers wait
+/// on, written once this boot's setup commands have run.
+fn ready_sentinel(data_dir: &str) -> String {
+    format!("{data_dir}/.workspace-ready")
+}
+
+/// Remove the sentinel an earlier boot left on a kept `DATA_DIR`.
+///
+/// Left in place, a Script passes the gate before this boot's setup recreates
+/// gitignored dependencies, and exits with "not found".
+async fn clear_ready_sentinel(path: &str) {
+    match tokio::fs::remove_file(path).await {
+        Ok(()) => info!("Removed the workspace-ready sentinel an earlier boot left"),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => warn!(error = %e, "Failed to remove a stale workspace-ready sentinel"),
+    }
 }
 
 /// Human-readable summary of a clone pass, used as the `RepositoryCloned` event
@@ -422,6 +442,24 @@ async fn run_workspace_setup(state: &SandboxState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The restart that wiped `node_modules` kept `DATA_DIR`: the Script must
+    /// wait for this boot's setup, not pass on the last boot's sentinel.
+    #[tokio::test]
+    async fn a_sentinel_from_an_earlier_boot_is_cleared_before_setup() {
+        let data = tempfile::tempdir().expect("tempdir");
+        let path = ready_sentinel(&data.path().display().to_string());
+        tokio::fs::write(&path, "ready")
+            .await
+            .expect("stale sentinel");
+
+        clear_ready_sentinel(&path).await;
+        assert!(!std::path::Path::new(&path).exists());
+
+        // A first boot has none, which is no failure.
+        clear_ready_sentinel(&path).await;
+    }
+
     /// A blocking step that panics must fail initialization, not vanish into
     /// the detached init task. The message has to name the step so the
     /// termination log says which part of setup died.

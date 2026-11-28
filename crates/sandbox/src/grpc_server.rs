@@ -275,6 +275,7 @@ impl SandboxService for SandboxServiceImpl {
             busy_processes,
             commands,
             run_id: context.agent.current_run_id().await,
+            last_preview_request_unix_ms: crate::preview_proxy::last_request_unix_ms(),
         }))
     }
 

@@ -1028,6 +1028,11 @@ message GetAgentStatusResponse {
   // which a bare status cannot. Absent on older sandbox images, where a reader
   // must fall back to treating the status as unattributed.
   optional string run_id = 7;
+  // When a request last reached a published port through this pod's preview
+  // proxy, in Unix ms. Pod-wide, so every Member reports the same value. The
+  // reaper reads it as someone using a Script's preview and defers an idle
+  // stop. Absent when none has, and on older sandbox images.
+  optional int64 last_preview_request_unix_ms = 9;
 }
 
 // Snapshot of one registered scheduled job — see crates/sandbox/src/agent/scheduled_job.rs.

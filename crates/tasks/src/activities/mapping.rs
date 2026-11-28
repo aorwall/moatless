@@ -528,6 +528,7 @@ pub fn lifecycle_descriptor(lifecycle_event: &str) -> Option<(&'static str, Seve
         "auto_stopped" => ("Auto-stopped", Status),
         "idle_reaped" => ("Stopped (idle)", Status),
         "startup_slow" => ("Slow startup", Warning),
+        "startup_script_failed" => ("Startup script failed", Warning),
         "scheduling_blocked" => ("Scheduling blocked", Warning),
         "pod_evicted" => ("Evicted", Warning),
         "pod_recovering" => ("Recovering", Warning),

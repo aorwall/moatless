@@ -149,6 +149,31 @@ pub(crate) fn decide_reap(
     }
 }
 
+/// How long past a Sandbox's reap floor preview traffic alone can hold it.
+///
+/// A tab left open that polls its server would otherwise keep the pod up for
+/// as long as the browser stays open.
+pub(crate) const PREVIEW_HOLD_CAP_HOURS: i64 = 8;
+
+/// Whether someone using a Script's preview defers an idle stop the floor
+/// already called for.
+///
+/// Holds while the last proxied request is inside the idle TTL, and for at most
+/// [`PREVIEW_HOLD_CAP_HOURS`] past `reap_floor`. A Script nobody has loaded
+/// holds nothing, so a running Script alone never keeps a pod up.
+pub(crate) fn preview_holds_the_sandbox(
+    last_preview_request: Option<DateTime<Utc>>,
+    reap_floor: Option<DateTime<Utc>>,
+    ttl_minutes: i32,
+    now: DateTime<Utc>,
+) -> bool {
+    let (Some(last_request), Some(floor)) = (last_preview_request, reap_floor) else {
+        return false;
+    };
+    now - last_request < chrono::Duration::minutes(i64::from(ttl_minutes))
+        && now - floor < chrono::Duration::hours(PREVIEW_HOLD_CAP_HOURS)
+}
+
 /// Outcome of evaluating an Open task for the auto-close branch.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum CloseDecision {

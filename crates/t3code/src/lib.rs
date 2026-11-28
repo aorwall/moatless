@@ -95,7 +95,9 @@ pub use snapshots::archived_shell_snapshot;
 pub use snapshots::shell_snapshot;
 pub use snapshots::thread_shell;
 pub use snapshots::thread_snapshot;
-pub use startup_scripts::{StartupScriptFailure, StartupScripts};
+pub use startup_scripts::{
+    ScriptExit, StartedScript, StartupRun, StartupScriptFailure, StartupScripts,
+};
 pub use state::Deployment;
 pub use state::UiRpcDbPool;
 pub(crate) use state::UiRpcState;

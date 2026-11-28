@@ -186,7 +186,7 @@ async fn a_startup_run_says_when_a_tasks_own_scripts_were_not_read() {
         .with_writer(logs.clone())
         .with_max_level(tracing::Level::WARN)
         .finish();
-    let failures = {
+    let run = {
         let _guard = tracing::subscriber::set_default(subscriber);
         startup
             .run_for_task(&viewer_scope(&viewer()), "task-1")
@@ -201,8 +201,8 @@ async fn a_startup_run_says_when_a_tasks_own_scripts_were_not_read() {
     );
     // The Workspace's own flagged Script was still attempted, and failed for the
     // same stopped Sandbox — that one is reported to the person.
-    assert_eq!(failures.len(), 1);
-    assert_eq!(failures[0].name, "dev");
+    assert_eq!(run.failures.len(), 1);
+    assert_eq!(run.failures[0].name, "dev");
 }
 
 /// The Workspace read is the authorization gate, so a Task the viewer cannot

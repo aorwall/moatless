@@ -8,6 +8,7 @@
 //! see [`starting_page`] for why a refused connection isn't a gateway error.
 
 use std::convert::Infallible;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -45,6 +46,23 @@ const ACCEPT_RETRY_DELAY: Duration = Duration::from_millis(50);
 /// compiling on the first request routinely takes tens of seconds, and the cost
 /// of cutting that off is a preview that looks broken.
 const UPSTREAM_HEAD_TIMEOUT: Duration = Duration::from_mins(1);
+
+/// Unix ms of the last request forwarded to a previewable port; `0` is none.
+///
+/// Process-wide because the pod runs one proxy for every Member.
+static LAST_REQUEST_UNIX_MS: AtomicI64 = AtomicI64::new(0);
+
+/// When a request last reached a previewable port in this pod, in Unix ms.
+///
+/// What the reaper reads as someone using a Script's preview
+/// (`GetAgentStatusResponse.last_preview_request_unix_ms`).
+pub fn last_request_unix_ms() -> Option<i64> {
+    Some(LAST_REQUEST_UNIX_MS.load(Ordering::Relaxed)).filter(|at| *at > 0)
+}
+
+fn record_request() {
+    LAST_REQUEST_UNIX_MS.fetch_max(chrono::Utc::now().timestamp_millis(), Ordering::Relaxed);
+}
 
 /// Serve preview traffic on `listener` until `cancel` fires.
 ///
@@ -126,6 +144,8 @@ async fn forward(
         debug!(port, "Preview proxy refused a reserved port");
         return Ok(refuse(StatusCode::FORBIDDEN, "Port is not previewable"));
     }
+    // Before the dial: a reader polling the starting page is using it too.
+    record_request();
 
     let upstream_host = format!("{UPSTREAM_ADDR}:{port}");
     let wants_html = is_document_request(request.method(), request.headers());
@@ -570,6 +590,19 @@ mod tests {
             response.ends_with(&format!("host=127.0.0.1:{upstream}")),
             "{response}"
         );
+    }
+
+    /// The reaper keeps a pod while its preview is in use, and reads that here.
+    #[tokio::test]
+    async fn a_forwarded_request_is_recorded_as_preview_use() {
+        let upstream = start_loopback_server(OK).await;
+        let proxy = start_proxy().await;
+        let before = chrono::Utc::now().timestamp_millis();
+
+        let (response, _stream) = request(proxy, &preview_host(upstream), "").await;
+
+        assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+        assert!(last_request_unix_ms().is_some_and(|at| at >= before));
     }
 
     #[tokio::test]
